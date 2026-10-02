@@ -52,7 +52,7 @@ fun PaperScaffold(
                         Box(Modifier.padding(start = 12.dp))
                     }
                     Box(Modifier.weight(1f)) {
-                        HighlightedTitle(title)
+                        HighlightedTitle(title, maxLines = 1)
                     }
                     actions()
                 }

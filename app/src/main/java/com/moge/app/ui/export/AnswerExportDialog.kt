@@ -12,22 +12,28 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -36,7 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +50,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.moge.app.ui.components.GridPaper
+import com.moge.app.ui.components.HighlightedTitle
+import com.moge.app.ui.components.Tape
+import com.moge.app.ui.components.marginLine
+import com.moge.app.ui.components.paperCard
+import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.photo.decodeUprightPhoto
 import com.moge.app.ui.viewer.galleryNeedsLegacyPermission
@@ -130,91 +141,95 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
         else if (session.active) message = "没有存储权限，无法保存到相册；仍可系统分享"
     }
 
-    MaterialTheme(colorScheme = lightColorScheme(
-        primary = Color(0xFF315F53), background = Color(EXPORT_PAPER), surface = Color(EXPORT_PAPER),
-        onBackground = Color(EXPORT_INK), onSurface = Color(EXPORT_INK),
-    )) {
-        Dialog(onDismissRequest = onDismiss,
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            Surface(Modifier.fillMaxSize().testTag("answer-export-dialog")) {
-                Column(Modifier.safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("图片分享", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onDismiss) { Text(if (busy) "取消并关闭" else "关闭") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = choice == ExportChoice.FULL, enabled = !busy,
-                            onClick = { choice = ExportChoice.FULL; confirmed = false }, label = { Text("题目与完整解答") })
-                        FilterChip(selected = choice == ExportChoice.ANSWER_ONLY,
-                            enabled = !busy && content.finalAnswer.isNotBlank(),
-                            onClick = { choice = ExportChoice.ANSWER_ONLY; confirmed = false }, label = { Text("题目与答案") })
-                    }
-                    if (content.finalAnswer.isBlank()) Text("此回答没有独立答案，导出完整解答。", style = MaterialTheme.typography.bodySmall)
-                    if (!confirmed) {
-                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("请确认分享的是这道题；如关联照片有误，返回选择题目后再分享。", style = MaterialTheme.typography.bodyMedium)
-                            Text(content.title.ifBlank { "题目与解答" }, style = MaterialTheme.typography.titleMedium)
-                            if (content.questionText.isNotBlank()) Text(content.questionText)
-                            else Text("题目文字为空，请核对照片 / 识别文本。", style = MaterialTheme.typography.bodySmall)
-                            // Display one selected photo at a time so proofing many attachments
-                            // never retains one decoded bitmap per question photo.
-                            if (content.questionPhotos.isNotEmpty()) QuestionPhotos(content.questionPhotos)
-                            if (content.questionTranscript.isNotBlank()) {
-                                Text("已有识别文本", style = MaterialTheme.typography.titleSmall)
-                                Text(content.questionTranscript)
-                            }
-                            Text("将导出浅色纸面；较长内容会按顺序分成多张图片。", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Button(onClick = { confirmed = true; render() }, enabled = !busy,
-                            modifier = Modifier.fillMaxWidth().testTag("export-confirm-question")) { Text("确认题目并预览") }
-                    } else {
-                        val ready = result
-                        if (ready != null) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { page-- }, enabled = !busy && page > 0) { Text("上一张") }
-                                Text("${page + 1} / ${ready.pages.size} · 按页码连续阅读", modifier = Modifier.weight(1f))
-                                TextButton(onClick = { page++ }, enabled = !busy && page < ready.pages.lastIndex) { Text("下一张") }
-                            }
-                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).testTag("export-preview")) {
-                                ExportPreviewImage(ready.pages[page].absolutePath, "导出预览，第 ${page + 1} 张", previewPage = true)
-                            }
-                            if (ready.warnings.isNotEmpty()) {
-                                Text("预览中已标明：" + ready.warnings.take(3).joinToString("；") +
-                                    if (ready.warnings.size > 3) "；还有 ${ready.warnings.size - 3} 处，请逐页核对" else "",
-                                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            }
-                        } else Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            Text(if (busy) "正在排版…" else "图片尚未生成，请重试")
-                        }
-                        if (busy) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CircularProgressIndicator()
-                                Text(progress, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { session.job?.cancel() }) { Text("取消") }
-                            }
-                        } else if (ready == null) Button(onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text("重试导出") }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
-                                if (galleryNeedsLegacyPermission() && ContextCompat.checkSelfPermission(context,
-                                        Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                                    permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                } else save()
-                            }) { Text("保存全部图片") }
-                            Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
-                                try {
-                                    val exported = checkNotNull(ready)
-                                    shareImages(context, exported.pages.map { it.absolutePath })
-                                    exported.files.retainForSharing()
-                                    message = "已打开系统分享，共 ${exported.pages.size} 张图片"
-                                } catch (_: Exception) { message = "无法打开系统分享，请重试或先保存图片" }
-                            }) { Text("系统分享") }
-                        }
-                        TextButton(enabled = !busy, onClick = { confirmed = false }) { Text("重新核对题目 / 导出范围") }
-                    }
-                    message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("export-message")) }
+    Dialog(onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        GridPaper(Modifier.fillMaxSize().testTag("answer-export-dialog")) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    HighlightedTitle("图片分享", modifier = Modifier.weight(1f))
+                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, if (busy) "取消并关闭" else "关闭分享") }
                 }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExportChoiceCard("题目与完整解答", selected = choice == ExportChoice.FULL, enabled = !busy,
+                        onClick = { choice = ExportChoice.FULL; confirmed = false }, modifier = Modifier.weight(1f))
+                    ExportChoiceCard("题目与答案", selected = choice == ExportChoice.ANSWER_ONLY,
+                        enabled = !busy && content.finalAnswer.isNotBlank(),
+                        onClick = { choice = ExportChoice.ANSWER_ONLY; confirmed = false }, modifier = Modifier.weight(1f))
+                }
+                if (content.finalAnswer.isBlank()) Text("此回答没有独立答案，导出完整解答。", style = MaterialTheme.typography.bodySmall)
+                if (!confirmed) {
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                        .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke)
+                        .marginLine(MogeTheme.paper.marginLine, inset = 16.dp)
+                        .padding(start = 28.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("核对题目", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("确认题目和照片，再生成分享稿纸。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(content.title.ifBlank { "题目与解答" }, style = MaterialTheme.typography.titleMedium)
+                        if (content.questionText.isNotBlank()) Text(content.questionText)
+                        // Display one selected photo at a time so proofing many attachments
+                        // never retains one decoded bitmap per question photo.
+                        if (content.questionPhotos.isNotEmpty()) QuestionPhotos(content.questionPhotos)
+                        if (content.questionTranscript.isNotBlank()) {
+                            Text("已有识别文本", style = MaterialTheme.typography.titleSmall)
+                            Text(content.questionTranscript)
+                        }
+                        Text("分享图片使用浅色稿纸；较长解答会按页码分成多张。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(onClick = { confirmed = true; render() }, enabled = !busy,
+                        modifier = Modifier.fillMaxWidth().testTag("export-confirm-question")) { Text("确认题目并预览") }
+                } else {
+                    val ready = result
+                    if (ready != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { page-- }, enabled = !busy && page > 0) { Text("上一张") }
+                            Text("${page + 1} / ${ready.pages.size} · 按页码连续阅读", modifier = Modifier.weight(1f))
+                            TextButton(onClick = { page++ }, enabled = !busy && page < ready.pages.lastIndex) { Text("下一张") }
+                        }
+                        key(ready, page) {
+                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).testTag("export-preview")) {
+                                ready.pages.getOrNull(page)?.let { selected ->
+                                    ExportPreviewImage(selected.absolutePath, "导出预览，第 ${page + 1} 张", previewPage = true)
+                                }
+                            }
+                        }
+                        if (ready.warnings.isNotEmpty()) {
+                            Text("预览中已标明：" + ready.warnings.take(3).joinToString("；") +
+                                if (ready.warnings.size > 3) "；还有 ${ready.warnings.size - 3} 处，请逐页核对" else "",
+                                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Text(if (busy) "正在排版…" else "图片尚未生成，请重试")
+                    }
+                    if (busy) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator()
+                            Text(progress, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { session.job?.cancel() }) { Text("取消") }
+                        }
+                    } else if (ready == null) Button(onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text("重试导出") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
+                            if (galleryNeedsLegacyPermission() && ContextCompat.checkSelfPermission(context,
+                                    Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                                permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else save()
+                        }) { Text("保存全部图片") }
+                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
+                            try {
+                                val exported = checkNotNull(ready)
+                                shareImages(context, exported.pages.map { it.absolutePath })
+                                exported.files.retainForSharing()
+                                message = "已打开系统分享，共 ${exported.pages.size} 张图片"
+                            } catch (_: Exception) { message = "无法打开系统分享，请重试或先保存图片" }
+                        }) { Text("系统分享") }
+                    }
+                    TextButton(enabled = !busy, onClick = { confirmed = false }) { Text("重新核对题目 / 导出范围") }
+                }
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("export-message")) }
             }
+        }
         }
     }
 }
@@ -226,37 +241,74 @@ private class ExportDialogSession {
 }
 
 @Composable
-private fun QuestionPhotos(paths: List<String>) {
-    var index by remember(paths) { mutableIntStateOf(0) }
-    Text("题目照片 ${index + 1} / ${paths.size}")
-    ExportPreviewImage(paths[index], "待确认的题目照片 ${index + 1}", previewPage = false)
-    if (paths.size > 1) Row {
-        TextButton(enabled = index > 0, onClick = { index-- }) { Text("上一张照片") }
-        TextButton(enabled = index < paths.lastIndex, onClick = { index++ }) { Text("下一张照片") }
+private fun ExportChoiceCard(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Surface(selected = selected, onClick = onClick, enabled = enabled, shape = MaterialTheme.shapes.small,
+        color = if (selected) colors.primaryContainer else colors.surface,
+        contentColor = if (!enabled) colors.onSurface.copy(alpha = 0.38f) else if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) colors.primary else MogeTheme.paper.cardStroke.copy(alpha = 0.4f)),
+        modifier = modifier) {
+        Text(label, Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 12.dp), style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** One sampled preview only. Decoding remains on IO and disposal releases it on page changes. */
 @Composable
-private fun ExportPreviewImage(path: String, description: String, previewPage: Boolean) {
-    val holder = remember(path, previewPage) { PreviewBitmap() }
-    val bitmap by produceState<Bitmap?>(null, holder) {
-        try {
-            withContext(Dispatchers.IO) {
-                val decoded = decodeUprightPhoto(path, if (previewPage) 1600 else 800)
-                synchronized(holder) {
-                    if (holder.disposed) decoded?.recycle() else holder.bitmap = decoded
-                }
-            }
-            value = holder.bitmap
-        } catch (error: CancellationException) { throw error }
+private fun QuestionPhotos(paths: List<String>) {
+    if (paths.isEmpty()) return
+    var index by remember(paths) { mutableIntStateOf(0) }
+    val current = index.coerceIn(paths.indices)
+    Text("题目照片 ${current + 1} / ${paths.size}", style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary)
+    Box(Modifier.fillMaxWidth()) {
+        ExportPreviewImage(paths[current], "待确认的题目照片 ${current + 1}", previewPage = false)
+        Tape(Modifier.align(Alignment.TopEnd).padding(end = 12.dp), width = 42.dp, height = 14.dp)
     }
-    DisposableEffect(holder) {
-        onDispose { synchronized(holder) { holder.disposed = true; holder.bitmap?.recycle(); holder.bitmap = null } }
+    if (paths.size > 1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        TextButton(enabled = current > 0, onClick = { index = (current - 1).coerceAtLeast(0) }) { Text("上一张照片") }
+        TextButton(enabled = current < paths.lastIndex, onClick = { index = (current + 1).coerceAtMost(paths.lastIndex) }) { Text("下一张照片") }
     }
-    if (bitmap == null) Text("$description：正在读取或图片缺失，请核对")
-    else Image(bitmap!!.asImageBitmap(), description, contentScale = ContentScale.FillWidth,
-        modifier = Modifier.fillMaxWidth().then(if (previewPage) Modifier else Modifier.heightIn(max = 360.dp)))
 }
 
-private class PreviewBitmap { var bitmap: Bitmap? = null; var disposed = false }
+/**
+ * Each path owns a fresh composition so produceState cannot carry a previous page's bitmap.
+ * Once published to Compose, bitmaps are managed by GC: rendering may still reference an old
+ * display list after disposal, so manually recycling that bitmap can crash the next frame.
+ * Only the current sampled image is held by this composable; obsolete producers are cancelled.
+ */
+@Composable
+internal fun ExportPreviewImage(
+    path: String,
+    description: String,
+    previewPage: Boolean,
+    decoder: suspend (String, Int) -> Bitmap? = { source, maxSide ->
+        withContext(Dispatchers.IO) { decodeUprightPhoto(source, maxSide) }
+    },
+) {
+    key(path, previewPage) {
+        val preview by produceState<PreviewImage>(PreviewImage.Loading, path, previewPage) {
+            value = try {
+                decoder(path, if (previewPage) 3000 else 1000)?.let { PreviewImage.Ready(it) } ?: PreviewImage.Missing
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { PreviewImage.Missing }
+        }
+        val paper = MogeTheme.paper
+        Box(Modifier.fillMaxWidth().then(if (previewPage) Modifier else Modifier.height(240.dp))
+            .paperCard(MaterialTheme.colorScheme.surface, paper.cardStroke.copy(alpha = 0.55f)).padding(6.dp),
+            contentAlignment = Alignment.Center) {
+            when (val current = preview) {
+                PreviewImage.Loading -> Text("正在读取图片…", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+                PreviewImage.Missing -> Text("图片无法读取，请返回核对原题或重新生成。", Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                is PreviewImage.Ready -> Image(current.bitmap.asImageBitmap(), description,
+                    contentScale = if (previewPage) ContentScale.FillWidth else ContentScale.Fit,
+                    modifier = if (previewPage) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+private sealed interface PreviewImage {
+    data object Loading : PreviewImage
+    data object Missing : PreviewImage
+    data class Ready(val bitmap: Bitmap) : PreviewImage
+}

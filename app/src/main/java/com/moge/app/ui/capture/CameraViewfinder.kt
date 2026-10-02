@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
 
@@ -50,6 +52,13 @@ class ViewfinderController {
         private set
     var busy by mutableStateOf(false)
         private set
+
+    /**
+     * CameraX 实际生效的目标方向（[Preview] 与 [ImageCapture] 同源，含屏幕锁定时的
+     * 传感器补偿）。取景页用它驱动操作图标的平滑转动，保证图标和照片方向一致。
+     */
+    var targetRotation by mutableIntStateOf(Surface.ROTATION_0)
+        internal set
 
     fun setFlash(on: Boolean) {
         torchOn = on
@@ -112,11 +121,13 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         var capture: ImageCapture? = null
         var sensorRotation: Int? = null
         var targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
+        controller.targetRotation = targetRotation
         controller.ready = false
 
         fun updateRotation(rotation: Int) {
             if (disposed || rotation == targetRotation) return
             targetRotation = rotation
+            controller.targetRotation = rotation
             preview?.targetRotation = rotation
             capture?.targetRotation = rotation
         }
@@ -126,12 +137,37 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         }
         val orientationListener = object : OrientationEventListener(context) {
             override fun onOrientationChanged(orientation: Int) {
-                val rotation = cameraTargetRotation(orientation) ?: return
+                val rotation = stableCameraTargetRotation(orientation, targetRotation) ?: return
                 sensorRotation = rotation
                 updateRotation(rotation)
             }
         }
-        if (orientationListener.canDetectOrientation()) orientationListener.enable()
+        // 方向传感器只在页面前台时监听；重复的 resume / 旋转不会重复注册。
+        var listening = false
+        fun startOrientation() {
+            if (!listening && orientationListener.canDetectOrientation()) {
+                orientationListener.enable()
+                listening = true
+            }
+        }
+        fun stopOrientation() {
+            if (listening) {
+                orientationListener.disable()
+                listening = false
+            }
+        }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    updateDisplayRotation()
+                    startOrientation()
+                }
+                Lifecycle.Event.ON_PAUSE -> stopOrientation()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) startOrientation()
         val displayListener = object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) = Unit
             override fun onDisplayRemoved(displayId: Int) = Unit
@@ -176,7 +212,8 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         }, executor)
         onDispose {
             disposed = true
-            orientationListener.disable()
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+            stopOrientation()
             displayManager.unregisterDisplayListener(displayListener)
             previewView.removeOnAttachStateChangeListener(attachListener)
             if (controller.imageCapture === capture) {

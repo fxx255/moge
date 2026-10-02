@@ -76,6 +76,9 @@ import com.moge.app.ui.capture.ConfirmSheet
 import com.moge.app.ui.capture.LevelIndicator
 import com.moge.app.ui.capture.ScanCorners
 import com.moge.app.ui.capture.ViewfinderController
+import com.moge.app.ui.capture.cameraIconRotation
+import com.moge.app.ui.capture.rememberCameraIconRotation
+import com.moge.app.ui.capture.rememberDisplayRotation
 import com.moge.app.ui.components.GridPaper
 import com.moge.app.ui.components.paperCard
 import com.moge.app.ui.photo.PhotoCropDialog
@@ -220,6 +223,7 @@ fun HomeScreen(
                 onGallery = ::openGallery,
                 onShutter = ::shoot,
                 onOpenStack = vm::openConfirm,
+                cameraActive = useViewfinder,
             )
         },
     )
@@ -362,23 +366,34 @@ internal fun CameraControls(
     onGallery: () -> Unit,
     onShutter: () -> Unit,
     onOpenStack: () -> Unit,
+    cameraActive: Boolean = true,
 ) {
     val tint = if (onDark) Color.White else MaterialTheme.colorScheme.onBackground
+    // Animate the actual camera target; compensate canvas changes when the window rotates too.
+    val displayRotation = rememberDisplayRotation()
+    val iconRotation = rememberCameraIconRotation(
+        targetRotation = controller.targetRotation,
+        displayRotation = displayRotation,
+        enabled = cameraActive,
+    )
     val flashAndLevel: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.Center) {
             IconButton(enabled = controller.ready, onClick = { controller.setFlash(!controller.torchOn) }) {
                 Icon(if (controller.torchOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
-                    if (controller.torchOn) "关闭闪光灯" else "打开闪光灯", tint = tint)
+                    if (controller.torchOn) "关闭闪光灯" else "打开闪光灯", tint = tint,
+                    modifier = Modifier.cameraIconRotation(iconRotation))
             }
             IconToggleButton(checked = levelEnabled, onCheckedChange = onLevel) {
                 Icon(Icons.Outlined.Straighten, if (levelEnabled) "关闭水平仪" else "打开水平仪",
-                    tint = if (levelEnabled) Color(0xFFFFE066) else tint)
+                    tint = if (levelEnabled) Color(0xFFFFE066) else tint,
+                    modifier = Modifier.cameraIconRotation(iconRotation))
             }
         }
     }
     val gallery: @Composable () -> Unit = {
         IconButton(onClick = onGallery, modifier = Modifier.size(if (sideControls) 48.dp else 56.dp)) {
-            Icon(Icons.Outlined.PhotoLibrary, "相册", tint = tint)
+            Icon(Icons.Outlined.PhotoLibrary, "相册", tint = tint,
+                modifier = Modifier.cameraIconRotation(iconRotation))
         }
     }
     val stack: @Composable () -> Unit = {

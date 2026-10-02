@@ -202,7 +202,6 @@ internal fun AnswerSheet(
             .fillMaxWidth()
             .paperCard(MaterialTheme.colorScheme.surface, paper.cardStroke)
             .marginLine(paper.marginLine, progress = lineProgress.value)
-            .then(if (motion) Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)) else Modifier)
             .padding(start = 40.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -218,21 +217,20 @@ internal fun AnswerSheet(
                 replaceFigureAnchors(item.finalAnswer) { "图 ${it.numberText.trimStart('0').ifEmpty { "0" }}" }
             } else item.finalAnswer
             AnswerMarkdownBody(summary, item.figurePaths, onOpenImages, appendUnreferencedImages = false)
-            if (foldable) OutlinedButton(
-                onClick = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .semantics { stateDescription = if (expanded) "解答已展开" else "解答已折叠" },
-            ) { Text(if (expanded) "收起解答" else "展开解答") }
         }
-        when (item.state) {
-            AnswerState.COMPLETED -> if (!foldable || expanded) AnswerMarkdownBody(
-                content = item.text,
-                imagePaths = item.figurePaths,
-                onImageClick = onOpenImages,
-            )
+        if (foldable && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
+            PaperExplanationFold(expanded, onToggle = { expanded = !expanded }) {
+                if (item.state == AnswerState.COMPLETED) {
+                    AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
+                } else if (item.text.isEmpty()) GeneratingHint("正在整理完整解答…")
+                else StreamingMarkdownBody(item.text)
+            }
+            if (generating && !expanded) GeneratingHint("正在整理完整解答…")
+        } else when (item.state) {
+            AnswerState.COMPLETED -> AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
             AnswerState.PREPARING -> GeneratingHint("正在读题…")
             AnswerState.STREAMING -> when {
-                answerFirst && (!hasAnswer || !expanded) -> GeneratingHint(if (hasAnswer) "正在整理完整解答…" else "正在生成答案…")
+                answerFirst && !hasAnswer -> GeneratingHint("正在生成答案…")
                 item.text.isEmpty() -> GeneratingHint("正在思考…")
                 else -> StreamingMarkdownBody(item.text)
             }

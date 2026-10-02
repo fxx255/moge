@@ -124,6 +124,44 @@ class AnswerExportRendererTest {
         assertEquals(before, root.list()?.toSet().orEmpty())
     }
 
+    @Test fun `export uses app paper ink headings grid and red margin rather than unrelated colors`() = runTest {
+        val heading = exportTextView(context, "两张图片的积分题", 900, markdown = false, heading = true)
+        assertEquals(EXPORT_TITLE, heading.currentTextColor)
+        assertEquals(EXPORT_INK, exportTextView(context, "Body", 900).currentTextColor)
+        val photos = listOf(
+            "题目：计算定积分 \$\$\\int_0^1 x^2 dx\$\$。",
+            "补充条件：积分区间为 [0, 1]，请写出推导过程。",
+        ).mapIndexed { index, source ->
+            val view = exportTextView(context, source, 850)
+            val photo = Bitmap.createBitmap(900, view.height + 48, Bitmap.Config.ARGB_8888)
+            val file = File(context.cacheDir, "paper-sample-question-$index.png")
+            try {
+                photo.eraseColor(android.graphics.Color.WHITE)
+                val canvas = Canvas(photo)
+                canvas.translate(24f, 24f)
+                view.draw(canvas)
+                file.outputStream().use { photo.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } finally { photo.recycle() }
+            file.path
+        }
+        val result = renderAnswerExport(context,
+            AnswerExportContent("两张图片的积分题", "请根据题目图片完成积分计算。", questionPhotos = photos,
+                answerText = "利用幂函数积分公式，先求原函数，再代入上下限：\n\n\$\$\\int_0^1 x^2 dx=\\left[\\frac{x^3}{3}\\right]_0^1=\\frac{1}{3}\$\$", finalAnswer = "答案：1/3"),
+            ExportChoice.FULL, resolver) { }
+        try {
+            val bitmap = BitmapFactory.decodeFile(result.pages.first().path)!!
+            try {
+                assertEquals(EXPORT_PAPER, bitmap.getPixel(0, 0))
+                assertEquals(EXPORT_MARGIN, bitmap.getPixel(ExportLimits.MARGIN - 28, 100))
+                assertNotEquals("The paper must carry a subtle grid", EXPORT_PAPER, bitmap.getPixel(48, 40))
+            } finally { bitmap.recycle() }
+            System.getProperty("moge.export.qaDirectory")?.let { directory ->
+                val output = File(directory).apply { mkdirs() }
+                result.pages.first().copyTo(File(output, "paper-share.png"), overwrite = true)
+            }
+        } finally { result.files.close(force = true) }
+    }
+
     private fun inkPixels(bitmap: Bitmap): Int {
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)

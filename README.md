@@ -7,15 +7,15 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前源码版本：**0.2.2**（`versionCode = 4`），仍处于开发阶段。
+当前源码版本：**0.2.3**（`versionCode = 5`），仍处于开发阶段。
 
 ## 功能
 
 - **新对话与多轮提问**：文字、拍照、相册共用输入栏；保存历史，支持搜索、重命名、置顶和删除。
-- **拍照解题**：照片裁剪、多图输入与横屏拍摄；提供标准解答和帮我查错。
-- **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；可在设置中开启「答案优先」，再展开完整讲解。
+- **拍照解题**：照片裁剪、多图输入、横屏拍摄与方向旋转动画；提供标准解答和帮我查错。
+- **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；收藏与历史独立保存。
-- **长图分享**：预览、保存和系统分享题目与解答；极长内容按顺序分图。
+- **长图分享**：稿纸风格预览、保存和系统分享题目与解答；极长内容按顺序分图。
 - **模型配置**：自行填写兼容接口地址、模型名称和 API Key，按服务能力选择图片输入、搜索协议和推理强度。
 - **GitHub 更新流程**：已实现版本检查、下载校验和系统安装流程；正式更新需配置长期签名并发布正式版本。
 
@@ -79,7 +79,13 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-截至 0.2.2 图片追问修复，本地完整验证通过 **733 项 Android 单元测试**，发布脚本有 **11 项测试**。本次开源的实际 CI 结果以 Actions 为准。
+截至 0.2.3 交互与分享修复，本地完整验证通过 **748 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
+
+## 稿纸分享示例
+
+以下示例由原生导出器使用测试题目生成。交互与修复记录见 [0.2.3 修改报告](docs/interaction-share-fix-report.md)。
+
+![稿纸分享示例](docs/images/share-paper.png)
 
 ## 项目结构
 

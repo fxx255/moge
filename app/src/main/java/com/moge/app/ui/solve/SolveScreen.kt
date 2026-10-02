@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,10 +17,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.AddComment
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +62,6 @@ fun SolveScreen(
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
-    var menu by remember { mutableStateOf(false) }
     var exportContent by remember { mutableStateOf<AnswerExportContent?>(null) }
     var favorite by remember { mutableStateOf<FavoriteTarget?>(null) }
     var selection by remember { mutableStateOf<AnswerSelection?>(null) }
@@ -87,14 +88,19 @@ fun SolveScreen(
     }
 
     PaperScaffold(title = title, onBack = onBack, actions = {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "对话菜单") }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            if (state.conversationId != null) DropdownMenuItem(text = { Text("新对话") }, onClick = { menu = false; onNewConversation() })
-            DropdownMenuItem(text = { Text("历史对话") }, onClick = { menu = false; onOpenHistory() })
-            DropdownMenuItem(text = { Text("我的题册") }, onClick = { menu = false; onOpenNotebook() })
-            DropdownMenuItem(text = { Text("设置") }, onClick = { menu = false; onOpenSettings() })
-        }
+        ConversationActions(
+            existingConversation = state.conversationId != null || conversationId != null,
+            onNewConversation = onNewConversation,
+            onOpenHistory = onOpenHistory,
+            onOpenSettings = onOpenSettings,
+        )
     }) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onOpenNotebook) {
+                Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                Text("我的题册")
+            }
+        }
         SolveList(state, vm::retry, vm::regenerate,
             onOpenImages = { paths, index -> viewer = paths to index },
             onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) })
@@ -132,6 +138,24 @@ fun SolveScreen(
                     }
                 }
             }, confirmButton = {}, dismissButton = { TextButton(onClick = { selection = null }) { Text("取消") } })
+    }
+}
+
+/** Keep each action directly reachable and anchored to the right side of the paper header. */
+@Composable
+internal fun ConversationActions(
+    existingConversation: Boolean,
+    onNewConversation: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Row {
+        if (existingConversation) {
+            IconButton(onClick = onNewConversation) { Icon(Icons.Outlined.AddComment, "新对话") }
+        } else {
+            IconButton(onClick = onOpenHistory) { Icon(Icons.Outlined.History, "历史对话") }
+        }
+        IconButton(onClick = onOpenSettings) { Icon(Icons.Outlined.Settings, "设置") }
     }
 }
 

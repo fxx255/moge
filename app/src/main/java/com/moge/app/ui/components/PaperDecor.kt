@@ -88,10 +88,13 @@ fun HighlightedTitle(
     text: String,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.headlineMedium,
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     Text(
         text = text,
         style = style,
+        maxLines = maxLines,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         color = MaterialTheme.colorScheme.onBackground,
         modifier = modifier.highlighter(MogeTheme.paper.highlighter).semantics { heading() },
     )

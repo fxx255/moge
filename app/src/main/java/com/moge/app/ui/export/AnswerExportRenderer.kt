@@ -5,6 +5,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
+import androidx.compose.ui.graphics.toArgb
+import com.moge.app.ui.theme.Paper
+import com.moge.app.ui.theme.PaperGrid
+import com.moge.app.ui.theme.Ink
+import com.moge.app.ui.theme.InkText
+import com.moge.app.ui.theme.InkMuted
+import com.moge.app.ui.theme.Highlighter
+import com.moge.app.ui.theme.PaperExtras
 import android.view.View
 import android.widget.TextView
 import com.moge.app.data.parse.normalizeReplyMarkdown
@@ -29,9 +38,11 @@ import java.io.File
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-internal const val EXPORT_INK = 0xFF24312D.toInt()
-internal const val EXPORT_PAPER = 0xFFFFFDF7.toInt()
-private const val EXPORT_LINK = 0xFF315F53.toInt()
+internal val EXPORT_INK = InkText.toArgb()
+internal val EXPORT_PAPER = Paper.toArgb()
+internal val EXPORT_TITLE = Ink.toArgb()
+internal val EXPORT_MARGIN = PaperExtras.marginLine.toArgb()
+private val EXPORT_LINK = Ink.toArgb()
 private const val CELL_PADDING = 16
 
 /**
@@ -75,12 +86,12 @@ internal fun exportTextView(
     heading: Boolean = false,
     warning: (String) -> Unit = {},
 ): TextView {
-    val view = createMarkdownTextView(context, EXPORT_INK, EXPORT_LINK, selectable = false,
+    val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
         fontSizePx = if (heading) 44f else ExportLimits.TEXT_SIZE).apply {
         includeFontPadding = true
         setPadding(0, 0, 0, 0)
         setLineSpacing(8f, 1f)
-        if (heading) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        if (heading) setTypeface(Typeface.SERIF, Typeface.BOLD)
     }
     if (!markdown) view.text = source
     else {
@@ -148,15 +159,34 @@ private class NativeExportRenderer(
     private var y = ExportLimits.MARGIN
     private val pages = mutableListOf<File>()
     private val warnings = linkedSetOf<String>()
-    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFDCE4DC.toInt(); strokeWidth = 2f }
-    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EXPORT_INK; textSize = 25f }
+    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.toArgb(); strokeWidth = 2f }
+    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = InkMuted.toArgb(); textSize = 25f; typeface = Typeface.MONOSPACE }
+    private val marginRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EXPORT_MARGIN; strokeWidth = 2f }
+    private val gridRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.copy(alpha = 0.48f).toArgb(); strokeWidth = 1f }
+    private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Highlighter.copy(alpha = 0.65f).toArgb() }
 
     private fun warning(message: String) { warnings += message }
 
     private fun ensurePage() {
         if (page != null) return
         page = Bitmap.createBitmap(ExportLimits.WIDTH, ExportLimits.HEIGHT, Bitmap.Config.ARGB_8888)
-        canvas = Canvas(page!!).apply { drawColor(EXPORT_PAPER) }
+        canvas = Canvas(page!!).apply {
+            drawColor(EXPORT_PAPER)
+            var step = 48f
+            while (step < ExportLimits.WIDTH) {
+                drawLine(step, 0f, step, ExportLimits.HEIGHT.toFloat(), gridRule)
+                step += 48f
+            }
+            step = 48f
+            while (step < ExportLimits.HEIGHT) {
+                drawLine(0f, step, ExportLimits.WIDTH.toFloat(), step, gridRule)
+                step += 48f
+            }
+            val margin = ExportLimits.MARGIN - 28f
+            drawLine(margin, ExportLimits.MARGIN / 2f, margin, ExportLimits.HEIGHT.toFloat(), marginRule)
+            drawLine(margin + 7f, ExportLimits.MARGIN / 2f, margin + 7f, ExportLimits.HEIGHT.toFloat(),
+                Paint(marginRule).apply { alpha = 90 })
+        }
         y = ExportLimits.MARGIN
     }
 
@@ -204,7 +234,7 @@ private class NativeExportRenderer(
                 }
                 val view = exportTextView(context, chunk.source, ExportLimits.CONTENT_WIDTH,
                     markdown = part.markdown && !chunk.plain, heading = part.heading, warning = ::warning)
-                drawText(view)
+                drawText(view, heading = part.heading)
                 yield()
             }
         }
@@ -214,9 +244,21 @@ private class NativeExportRenderer(
         drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false))
     }
 
-    private suspend fun drawText(view: TextView) {
+    private suspend fun drawText(view: TextView, heading: Boolean = false) {
         for (slice in exportViewSlices(view, ExportLimits.CONTENT_HEIGHT)) {
             space(slice.height)
+            if (heading) {
+                val layout = view.layout
+                for (line in 0 until layout.lineCount) {
+                    val baseline = layout.getLineBaseline(line)
+                    if (baseline in slice.top until slice.bottom) {
+                        val left = ExportLimits.MARGIN - 5f
+                        val top = y + (baseline - slice.top) * slice.scale - 8f
+                        val right = (left + layout.getLineWidth(line) * slice.scale + 10f).coerceAtMost(ExportLimits.WIDTH - ExportLimits.MARGIN.toFloat())
+                        canvas!!.drawRect(left, top, right, top + 16f, highlight)
+                    }
+                }
+            }
             drawSlice(view, slice, ExportLimits.MARGIN.toFloat(), y.toFloat())
             y += slice.height + ExportLimits.GAP
             currentCoroutineContext().ensureActive()
@@ -304,7 +346,7 @@ private class NativeExportRenderer(
     private suspend fun drawCells(views: List<TextView>, slices: List<VerticalSlice?>, width: Int, header: Boolean) {
         val height = (slices.filterNotNull().maxOfOrNull { it.height } ?: 1) + CELL_PADDING * 2
         space(height)
-        val background = Paint().apply { color = if (header) 0xFFEAF0E7.toInt() else EXPORT_PAPER }
+        val background = Paint().apply { color = if (header) 0xFFDCE4F7.toInt() else EXPORT_PAPER }
         for ((index, view) in views.withIndex()) {
             val left = ExportLimits.MARGIN + index * width
             val rect = RectF(left.toFloat(), y.toFloat(), (left + width).toFloat(), (y + height).toFloat())
@@ -338,8 +380,19 @@ private class NativeExportRenderer(
             val height = ceil(image.height * scale).toInt().coerceAtMost(ExportLimits.CONTENT_HEIGHT)
             space(height)
             val left = (ExportLimits.WIDTH - width) / 2f
-            canvas!!.drawBitmap(image, null, RectF(left, y.toFloat(), left + width, (y + height).toFloat()),
-                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            val rect = RectF(left, y.toFloat(), left + width, (y + height).toFloat())
+            canvas!!.drawRect(rect, Paint().apply { color = android.graphics.Color.WHITE })
+            canvas!!.drawBitmap(image, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            canvas!!.drawRect(rect, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = PaperExtras.cardStroke.copy(alpha = 0.45f).toArgb(); style = Paint.Style.STROKE; strokeWidth = 2f
+            })
+            if (!part.generated) {
+                val tape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperExtras.tape.toArgb() }
+                val save = canvas!!.save()
+                canvas!!.rotate(-7f, rect.right - 48f, rect.top + 4f)
+                canvas!!.drawRect(rect.right - 94f, rect.top - 8f, rect.right - 4f, rect.top + 22f, tape)
+                canvas!!.restoreToCount(save)
+            }
             y += height + ExportLimits.GAP
         } finally { bitmap?.recycle() }
     }
