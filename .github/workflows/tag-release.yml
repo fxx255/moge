@@ -1,0 +1,78 @@
+name: Official tag release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize all official tags so versionCode comparisons cannot race.
+  group: moge-official-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: github-release
+    permissions:
+      contents: write
+    env:
+      MOGE_UPDATE_REPOSITORY: ${{ github.repository }}
+      MOGE_REQUIRE_OFFICIAL_SIGNING: 'true'
+      MOGE_RELEASE_STORE_PASSWORD: ${{ secrets.MOGE_RELEASE_STORE_PASSWORD }}
+      MOGE_RELEASE_KEY_ALIAS: ${{ secrets.MOGE_RELEASE_KEY_ALIAS }}
+      MOGE_RELEASE_KEY_PASSWORD: ${{ secrets.MOGE_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require public distribution and dedicated signing secrets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.MOGE_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          test -n "$MOGE_RELEASE_STORE_PASSWORD"
+          test -n "$MOGE_RELEASE_KEY_ALIAS"
+          test -n "$MOGE_RELEASE_KEY_PASSWORD"
+          test "$(gh api "repos/$MOGE_UPDATE_REPOSITORY" --jq '.private')" = false
+          release_default_branch="$(gh api "repos/$MOGE_UPDATE_REPOSITORY" --jq '.default_branch')"
+          git merge-base --is-ancestor HEAD "origin/$release_default_branch"
+          export MOGE_RELEASE_STORE_FILE="$RUNNER_TEMP/moge-release.jks"
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MOGE_RELEASE_STORE_FILE"
+          test -s "$MOGE_RELEASE_STORE_FILE"
+          printf 'MOGE_RELEASE_STORE_FILE=%s\n' "$MOGE_RELEASE_STORE_FILE" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - name: Tests, lint and signed arm64 release
+        run: |
+          chmod +x gradlew
+          python3 -m unittest discover -s scripts/release -p 'test_*.py'
+          ./gradlew --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintRelease assembleRelease
+      - name: Generate metadata from verified APK and compare published versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-output
+          cp app/build/outputs/apk/release/app-release.apk release-output/Moge-arm64.apk
+          python3 scripts/release/generate_update.py --apk release-output/Moge-arm64.apk --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --output release-output/update.json --check-published
+      - name: Upload both assets to draft, verify, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/release/publish_release.py --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --apk release-output/Moge-arm64.apk --manifest release-output/update.json
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f -- "${MOGE_RELEASE_STORE_FILE:-$RUNNER_TEMP/moge-release.jks}"

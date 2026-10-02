@@ -1,0 +1,47 @@
+# Gradle
+.gradle/
+.gradle-local/
+build/
+app/build/
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+captures/
+
+# 本机配置（含机器特定路径）
+local.properties
+
+# 构建产物
+*.apk
+*.aab
+
+# 日志与杂项
+*.log
+.DS_Store
+Thumbs.db
+
+# 本地工具配置
+.claude/
+
+# All signing material stays local, including the developer debug key
+*.jks
+*.p12
+*.pem
+*.key
+*.keystore
+keystore.properties
+signing.properties
+release-signing.properties
+.env
+.env.*
+release-output/
+__pycache__/
+
+# Local app data and private attachments
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

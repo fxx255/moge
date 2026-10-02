@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 模型请求、用户检查与下载版本更新 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 生成期间的前台服务保活（dataSync），以及它的进度通知 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 只有 Android 9 及以下保存图片到相册需要；10 起走 MediaStore，无需存储权限 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <!-- 用户确认后调用系统安装器升级 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 进入拍照页时才申请，拒绝后可选相册 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 没有摄像头的设备（平板、模拟器）也能装，只是用相册 / 文字提问 -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <application
+        android:name=".MogeApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.Moge"
+        tools:targetApi="35">
+        <!-- usesCleartextTraffic：允许用户填写 http:// 的自建 / 局域网模型网关 -->
+
+        <!--
+          configChanges：旋转、分屏、窗口尺寸变化不销毁 Activity。Compose 自己会重组，
+          重建反而会丢掉输入框内容、滚动位置和相机预览绑定。
+          不声明 locale / uiMode：语言、系统深浅色切换仍走重建，保证资源刷新。
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|fontScale|fontWeightAdjustment"
+            android:theme="@style/Theme.Moge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".runtime.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 图片分享：只暴露 filesDir 下的照片与图表目录，见 res/xml/file_paths.xml -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

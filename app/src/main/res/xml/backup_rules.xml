@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 题册（数据库）和偏好随系统备份；API Key 存在加密 SharedPreferences 里，
+     密钥绑定本机 Keystore，恢复到别的设备也解不开，所以不备份。 -->
+<full-backup-content>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="ai_credentials_encrypted.xml" />
+</full-backup-content>

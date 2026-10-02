@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MarkdownChunk 用它在 TextView 上记录「上一次渲染的输入签名」，
+         内容没变时跳过重复的 setMarkdown（滚动重组会反复触发 update，
+         重复渲染会重启公式的异步加载）。 -->
+    <item name="markdown_render_key" type="id" />
+    <item name="streaming_markdown_cache" type="id" />
+</resources>

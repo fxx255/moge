@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 仅暴露附件、图表、导出专用缓存和更新 APK 目录 -->
+<paths>
+    <files-path name="attachments" path="attachments/" />
+    <files-path name="plots" path="plots/" />
+    <files-path name="diagrams" path="diagrams/" />
+    <files-path name="photos" path="photos/" />
+    <cache-path name="answer_exports" path="answer_exports/" />
+    <files-path name="updates" path="updates/" />
+</paths>
