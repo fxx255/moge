@@ -10,7 +10,7 @@ from generate_update import APK_NAME, validate_repository
 
 
 def gh(*arguments):
-    return subprocess.run(["gh", *arguments], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["gh", *arguments], check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 def verify_assets(release, manifest, downloaded_apk, downloaded_manifest):
