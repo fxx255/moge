@@ -276,15 +276,19 @@ class PaperDragInteractionTest {
         assertTrue(text.bottom <= categoryBounds.bottom)
     }
 
-    @Test fun `small floating preview retains exact source width height and all card content`() {
+    @Test fun `small floating preview preserves content and anchors its grab to the actual pointer`() {
         val drag = renderCard(width = 120.dp, height = 250.dp)
         val original = compose.onNodeWithTag("component-card").fetchSemanticsNode().boundsInRoot
         hold("component-card")
         val floating = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
         assertEquals(original.width, floating.width, 1f)
         assertEquals(original.height, floating.height, 1f)
-        assertEquals(original.left, floating.left, 1f)
-        assertEquals(original.top, floating.top, 1f)
+        compose.runOnIdle {
+            val visual = drag.visual!!
+            val scale = floating.width / original.width
+            assertEquals(visual.pointer.x, floating.left + visual.grab.x * scale, 1f)
+            assertEquals(visual.pointer.y, floating.top + visual.grab.y * scale, 1f)
+        }
         compose.onNode(hasText("原始标题") and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertIsDisplayed()
         compose.onNode(hasText(previewText.value) and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertIsDisplayed()
         compose.onNode(hasContentDescription("原有缩略图") and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertIsDisplayed()

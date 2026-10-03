@@ -27,6 +27,22 @@ class CategoryDragStateTest {
         assertTrue(state.begin(id, "分类 $id", Offset(280f, origin.center.y), 12f))
     }
 
+    @Test fun `transparent delete overlay over the list cancels a previous reorder preview`() {
+        val state = state()
+        state.listBounds = state.rootBounds
+        state.deleteBounds = Rect(0f, 240f, 320f, 800f)
+        start(state)
+        state.moveTo(Offset(280f, 160f))
+        assertEquals(listOf("b", "a", "c", "d"), state.order)
+        val corner = Offset(3f, state.deleteBounds.top + state.deleteBounds.height * 0.02f)
+        state.moveTo(corner)
+        assertFalse(state.deleteArmed)
+        assertEquals(listOf("b", "a", "c", "d"), state.order)
+        assertNull(state.release(ids, busy = false))
+        assertEquals(ids, state.order)
+        assertEquals(CategorySettlement.Return, state.visual!!.settlement)
+    }
+
     @Test fun `only the visible handle can initiate the gesture`() {
         val state = state()
         assertEquals("a", state.handleAt(Offset(280f, 40f)))

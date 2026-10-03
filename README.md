@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.3.0**（`versionCode = 10`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
+当前正式版本：**0.3.1**（`versionCode = 11`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -79,7 +79,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-0.2.7 的本地完整验证通过 **972 项 Android 单元测试**。0.3.0 新增图片内存处理、拖动缩放、中断续写、唤醒锁和更新镜像的定向检查；发布脚本有 **13 项测试**。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
+0.2.7 的本地完整验证通过 **972 项 Android 单元测试**。0.3.1 新增图片内存处理、拖动缩放、中断续写、唤醒锁和更新镜像的定向检查；发布脚本有 **13 项测试**。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
@@ -89,7 +89,7 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 
 0.2.7 的公式兜底、滑动专用动画、阅读位置恢复、浮动输入栏和分类卡片详见 [修改报告](docs/formula-navigation-ui-revision-report.md)。
 
-0.3.0 的图片兼容、拖动缩放、后台生成、接续回答及镜像更新详见 [版本说明](docs/releases/0.3.0.md)。首个正式版采用新的专用签名，同包名开发版无法被它直接覆盖；卸载前请保存需要的内容，卸载会清除应用数据。
+0.3.1 的图片兼容、拖动缩放、后台生成、接续回答及镜像更新详见 [版本说明](docs/releases/0.3.1.md)。首个正式版采用新的专用签名，同包名开发版无法被它直接覆盖；卸载前请保存需要的内容，卸载会清除应用数据。
 
 ## 稿纸分享示例
 

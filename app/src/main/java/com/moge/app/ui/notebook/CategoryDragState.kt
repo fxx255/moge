@@ -119,7 +119,9 @@ internal class CategoryDragState {
         if (!held) return
         deleteArmed = moved && rootBounds.contains(current.pointer) &&
             curvedDeleteContains(deleteBounds, current.pointer)
-        if (!moved || deleteArmed || !listBounds.intersect(rootBounds).contains(current.pointer)) return
+        // The delete overlay covers the list without resizing it. Its transparent corners
+        // are cancellation space, not the underlying list's reorder targets.
+        if (!moved || deleteBounds.contains(current.pointer) || !listBounds.intersect(rootBounds).contains(current.pointer)) return
         val remaining = order.filterNot { it == current.id }
         val rows = rowLayout()
         var insertion = order.indexOf(current.id)
@@ -145,7 +147,7 @@ internal class CategoryDragState {
         val drop = when {
             cancelled || busy || !moved || from < 0 -> null
             deleteArmed -> CategoryDrop.Delete(current.id)
-            listBounds.intersect(rootBounds).contains(current.pointer) && to >= 0 && to != from ->
+            !deleteBounds.contains(current.pointer) && listBounds.intersect(rootBounds).contains(current.pointer) && to >= 0 && to != from ->
                 CategoryDrop.Reorder(current.id, to - from)
             else -> null
         }
