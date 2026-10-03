@@ -8,6 +8,23 @@ import org.junit.Test
 
 class CropGeometryTest {
 
+    @Test fun `nonfinite gesture offsets cannot poison crop rendering`() {
+        val size = IntSize(1000, 1000)
+        assertEquals(Offset.Zero, constrainImageOffset(Offset(Float.NaN, 0f), size, size, 2f))
+        assertEquals(Offset.Zero, constrainImageOffset(Offset(0f, Float.POSITIVE_INFINITY), size, size, 2f))
+        assertEquals(Offset.Zero, constrainImageOffset(Offset(10f, 20f), size, size, Float.NaN))
+    }
+
+    @Test fun `invalid crop coordinates are rejected before rounding into pixels`() {
+        val size = IntSize(1000, 1000)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            cropBoundsInSource(size, size, size, 1f, Offset(Float.NaN, 0f), Rect(0f, 0f, 500f, 500f))
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            cropBoundsInSource(size, size, size, Float.POSITIVE_INFINITY, Offset.Zero, Rect(0f, 0f, 500f, 500f))
+        }
+    }
+
     @Test
     fun `portrait preview keeps cover transform when mapping crop`() {
         val crop = cropBoundsInSource(

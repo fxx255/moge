@@ -1,6 +1,8 @@
 package com.moge.app.ui.photo
 
 import android.graphics.Bitmap
+import android.graphics.Rect as PixelRect
+import com.moge.app.data.image.decodePhotoCrop
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -92,7 +94,9 @@ fun PhotoCropDialog(
     val scope = rememberCoroutineScope()
     var quarterTurns by rememberSaveable(path) { mutableIntStateOf(0) }
     val sourcePreview = remember(path) { decodeUprightPhoto(path, 1600) }
-    val preview = remember(sourcePreview, quarterTurns) { sourcePreview?.let { rotatePhotoBitmap(it, quarterTurns) } }
+    val preview = remember(sourcePreview, quarterTurns) {
+        sourcePreview?.let { runCatching { rotatePhotoBitmap(it, quarterTurns) }.getOrNull() }
+    }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var zoom by remember { mutableStateOf(1f) }
     var imageOffset by remember { mutableStateOf(Offset.Zero) }
@@ -199,11 +203,15 @@ fun PhotoCropDialog(
                                             wasMultiTouch = true
                                             val gestureZoom = event.calculateZoom().takeIf { it.isFinite() && it > 0f } ?: 1f
                                             val pan = event.calculatePan()
+                                            val focus = event.calculateCentroid()
+                                            if (!pan.x.isFinite() || !pan.y.isFinite() || !focus.x.isFinite() || !focus.y.isFinite()) {
+                                                event.changes.forEach { it.consume() }
+                                                continue
+                                            }
                                             val minimumZoom = minimumCropZoom(previewSize, viewport)
                                             val newZoom = (zoom * gestureZoom).coerceIn(minimumZoom, 8f)
                                             val appliedZoom = newZoom / zoom
                                             val viewportCenter = Offset(viewport.width / 2f, viewport.height / 2f)
-                                            val focus = event.calculateCentroid()
                                             val focusFromCenter = focus - viewportCenter
                                             val requestedOffset =
                                                 imageOffset * appliedZoom + focusFromCenter * (1f - appliedZoom) + pan
@@ -218,6 +226,10 @@ fun PhotoCropDialog(
                                             if (wasMultiTouch) mode = CropDragMode.PAN_IMAGE
                                             val change = pressed.first()
                                             val delta = change.position - change.previousPosition
+                                            if (!delta.x.isFinite() || !delta.y.isFinite()) {
+                                                event.changes.forEach { it.consume() }
+                                                continue
+                                            }
                                             when (mode) {
                                                 CropDragMode.PAN_IMAGE -> {
                                                     imageOffset = constrainImageOffset(
@@ -364,18 +376,14 @@ internal fun cropAndSave(
     cropRect: Rect,
     quarterTurns: Int = 0,
 ) {
-    val source = rotatePhotoBitmap(decodeUprightPhoto(path) ?: error("无法读取原始照片"), quarterTurns)
-    val bounds = cropBoundsInSource(
-        previewSize = IntSize(preview.width, preview.height),
-        sourceSize = IntSize(source.width, source.height),
-        viewport = viewport,
-        zoom = zoom,
-        imageOffset = imageOffset,
-        cropRect = cropRect,
-    )
-    val cropped = Bitmap.createBitmap(source, bounds.left, bounds.top, bounds.width, bounds.height)
-
-    savePhotoBitmap(path, cropped)
+    val cropped = decodePhotoCrop(path, quarterTurns) { width, height ->
+        val bounds = cropBoundsInSource(
+            previewSize = IntSize(preview.width, preview.height), sourceSize = IntSize(width, height),
+            viewport = viewport, zoom = zoom, imageOffset = imageOffset, cropRect = cropRect,
+        )
+        PixelRect(bounds.left, bounds.top, bounds.left + bounds.width, bounds.top + bounds.height)
+    } ?: error("无法读取照片，图片可能过大或格式不受支持")
+    try { savePhotoBitmap(path, cropped) } finally { cropped.recycle() }
 }
 
 

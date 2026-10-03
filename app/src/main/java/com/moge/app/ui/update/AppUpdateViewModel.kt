@@ -15,6 +15,7 @@ import javax.inject.Inject
 class AppUpdateViewModel @Inject constructor(private val updates: AppUpdateRepository) : ViewModel() {
     val state = updates.state
     val projectUrl = updates.projectUrl
+    val mirrorUrl = updates.mirrorUrl
     val startupNoticeVersion = updates.startupNoticeVersion
     private val installIntents = Channel<Intent>(Channel.BUFFERED)
     val intents = installIntents.receiveAsFlow()

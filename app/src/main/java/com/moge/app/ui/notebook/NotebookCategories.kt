@@ -22,20 +22,15 @@ internal fun CategoryManager(
     onReorder: (String, Int) -> Unit, onDelete: (String) -> Unit,
 ) {
     var createOpen by rememberSaveable { mutableStateOf(false) }
-    var renameId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val categoryList = rememberLazyListState()
     LaunchedEffect(categories.map { it.id }) {
-        if (categories.none { it.id == renameId }) renameId = null
         if (categories.none { it.id == deleteId }) deleteId = null
     }
-    // Switch content within one window; replacing the manager window while opening a
-    // text field causes repeated layout work on some hosts. The list state stays hoisted.
-    val renaming = categories.firstOrNull { it.id == renameId }
+    // Creation keeps the same window; renaming happens directly inside the category card.
     Dialog(onDismissRequest = {
         when {
             createOpen -> createOpen = false
-            renameId != null -> renameId = null
             else -> onDismiss()
         }
     }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -44,12 +39,9 @@ internal fun CategoryManager(
                 createOpen -> CategoryNameForm("新建分类", "", { createOpen = false }) { name ->
                     createOpen = false; onCreate(name)
                 }
-                renaming != null -> CategoryNameForm("分类改名", renaming.name, { renameId = null }) { name ->
-                    renameId = null; onRename(renaming.id, name)
-                }
                 else -> Surface(Modifier.widthIn(max = 600.dp).fillMaxWidth().fillMaxHeight(), shape = RoundedCornerShape(24.dp)) {
                     CategoryManagerContent(categories, busy,
-                        onCreate = { createOpen = true }, onRename = { renameId = it },
+                        onCreate = { createOpen = true }, onRename = onRename,
                         onReorder = onReorder, onDelete = { deleteId = it }, onDismiss = onDismiss,
                         listState = categoryList)
                 }

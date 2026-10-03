@@ -10,7 +10,6 @@ import androidx.core.content.FileProvider
 import com.moge.app.BuildConfig
 import com.moge.app.core.ApplicationScope
 import com.moge.app.core.IoDispatcher
-import com.moge.app.data.llm.OkHttpCancellation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -30,9 +29,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -70,6 +67,8 @@ class AppUpdateRepository @Inject constructor(
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.MINUTES).build()
+    private val transport = UpdateTransport(client, BuildConfig.UPDATE_MIRROR, "Moge/${BuildConfig.VERSION_NAME}")
+    val mirrorUrl: String? get() = transport.mirrorOrigin?.toString()
     private val mutableState = MutableStateFlow(AppUpdateState(if (enabled) UpdatePhase.IDLE else UpdatePhase.UNAVAILABLE))
     val state = mutableState.asStateFlow()
     private val mutableStartupNotice = MutableStateFlow<Long?>(null)
@@ -134,8 +133,8 @@ class AppUpdateRepository @Inject constructor(
                 check(updatesDir.isDirectory || updatesDir.mkdirs())
                 clearPending()
                 val coroutineContext = currentCoroutineContext()
-                request(candidate.manifest.apkUrl).use { response ->
-                    check(response.isSuccessful)
+                transport.asset(candidate.manifest.apkUrl) { response ->
+                    mutableState.update { it.copy(phase = UpdatePhase.DOWNLOADING, downloadedBytes = 0) }
                     val body = response.body ?: error("Missing download")
                     check(body.contentLength() == -1L || body.contentLength() == candidate.manifest.size)
                     body.byteStream().use { input -> partial.outputStream().use { output ->
@@ -143,9 +142,9 @@ class AppUpdateRepository @Inject constructor(
                             checkCancelled = { coroutineContext.ensureActive() },
                             progress = { bytes -> mutableState.update { it.copy(downloadedBytes = bytes) } })
                     } }
+                    mutableState.update { it.copy(phase = UpdatePhase.VERIFYING) }
+                    validator.validate(partial, candidate.manifest)
                 }
-                mutableState.update { it.copy(phase = UpdatePhase.VERIFYING) }
-                validator.validate(partial, candidate.manifest)
                 coroutineContext.ensureActive()
                 check(partial.renameTo(apk))
                 check(preferences.edit().putString("pending_manifest", candidate.manifest.toJson())
@@ -222,7 +221,22 @@ class AppUpdateRepository @Inject constructor(
 
     private suspend fun fetchLatest(): UpdateCandidate? {
         val repo = repository ?: error("No repository")
-        val release = request(repo.latestApiUrl).use { response ->
+        // The mirror serves Release assets rather than the GitHub API. This endpoint follows
+        // GitHub's latest stable release, so checking works even when the API is unreachable.
+        try {
+            return transport.asset(repo.latestManifestUrl) { response ->
+                val text = readJson(response)
+                val tag = Json.parseToJsonElement(text).jsonObject["tag"]?.jsonPrimitive?.content ?: error("Missing tag")
+                check(Regex("v[0-9]+\\.[0-9]+\\.[0-9]+").matches(tag))
+                val manifest = UpdateManifest.parse(text, repo, tag, context.packageName)
+                UpdateCandidate(manifest, manifest.releaseNotes)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Older releases can still be discovered through the canonical API.
+        }
+        val release = transport.request(repo.latestApiUrl).use { response ->
             if (response.code == 404) error("Repository or release unavailable")
             check(response.isSuccessful)
             Json.parseToJsonElement(readJson(response)).jsonObject
@@ -237,8 +251,7 @@ class AppUpdateRepository @Inject constructor(
         val metadataUrl = metadata["browser_download_url"]?.jsonPrimitive?.content ?: error("Missing URL")
         check(metadataUrl == repo.assetUrl(tag, UpdateManifest.MANIFEST_NAME))
         check((metadata["size"]?.jsonPrimitive?.longOrNull ?: 0) in 1..UpdateManifest.MAX_JSON_BYTES.toLong())
-        val manifest = request(metadataUrl).use { response ->
-            check(response.isSuccessful)
+        val manifest = transport.asset(metadataUrl) { response ->
             UpdateManifest.parse(readJson(response), repo, tag, context.packageName)
         }
         val apkAsset = asset(UpdateManifest.APK_NAME)
@@ -246,19 +259,6 @@ class AppUpdateRepository @Inject constructor(
         check(apkAsset["size"]?.jsonPrimitive?.longOrNull == manifest.size)
         val notes = release["body"]?.jsonPrimitive?.contentOrNull.orEmpty().take(16_000)
         return UpdateCandidate(manifest, notes)
-    }
-
-    private suspend fun request(url: String): Response {
-        var current = url.toHttpUrl()
-        repeat(6) {
-            check(allowedUpdateTransport(current))
-            val response = OkHttpCancellation.execute(client, Request.Builder().url(current)
-                .header("Accept", "application/json, application/octet-stream")
-                .header("Accept-Encoding", "identity").header("User-Agent", "Moge/${BuildConfig.VERSION_NAME}").build())
-            if (response.code !in setOf(301, 302, 303, 307, 308)) return response
-            current = response.use { current.resolve(it.header("Location") ?: error("Missing redirect")) ?: error("Bad redirect") }
-        }
-        error("Too many redirects")
     }
 
     private suspend fun readJson(response: Response): String {

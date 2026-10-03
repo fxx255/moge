@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前源码版本：**0.2.7**（`versionCode = 9`），仍处于开发阶段。
+当前正式版本：**0.3.0**（`versionCode = 10`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -17,7 +17,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史和题册共用分类但独立保存归属。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。
 - **长图分享**：稿纸风格预览、保存和系统分享题目与解答；极长内容按顺序分图。
 - **模型配置**：自行填写兼容接口地址、模型名称和 API Key，按服务能力选择图片输入、搜索协议和推理强度。
-- **GitHub 更新流程**：已实现版本检查、下载校验和系统安装流程；正式更新需配置长期签名并发布正式版本。
+- **应用内更新**：正式版启用版本检查、下载校验和系统安装，默认使用 `https://ghfast.top/` 镜像，失败时回退 GitHub 直连。
 
 图表由结构化数据在本地绘制，当前没有接入通用文生图服务。图片理解、搜索等能力取决于所选模型和服务端接口。
 
@@ -79,7 +79,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-截至 0.2.7 公式、阅读位置与拖动界面改进，本地完整验证通过 **972 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
+0.2.7 的本地完整验证通过 **972 项 Android 单元测试**。0.3.0 新增图片内存处理、拖动缩放、中断续写、唤醒锁和更新镜像的定向检查；发布脚本有 **13 项测试**。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
@@ -88,6 +88,8 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 0.2.6 的收藏互通、历史卡片、拖动、滑动导航与相机调整详见 [修改报告](docs/notebook-navigation-revision-report.md)。
 
 0.2.7 的公式兜底、滑动专用动画、阅读位置恢复、浮动输入栏和分类卡片详见 [修改报告](docs/formula-navigation-ui-revision-report.md)。
+
+0.3.0 的图片兼容、拖动缩放、后台生成、接续回答及镜像更新详见 [版本说明](docs/releases/0.3.0.md)。首个正式版采用新的专用签名，同包名开发版无法被它直接覆盖；卸载前请保存需要的内容，卸载会清除应用数据。
 
 ## 稿纸分享示例
 

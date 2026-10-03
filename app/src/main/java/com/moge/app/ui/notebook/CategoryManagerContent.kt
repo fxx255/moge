@@ -1,5 +1,11 @@
 package com.moge.app.ui.notebook
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.snap
@@ -17,13 +23,20 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.StrokeCap
@@ -36,6 +49,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -47,6 +62,9 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.moge.app.data.db.NotebookCategoryEntity
@@ -61,7 +79,7 @@ internal fun CategoryManagerContent(
     categories: List<NotebookCategoryEntity>,
     busy: Boolean,
     onCreate: () -> Unit,
-    onRename: (String) -> Unit,
+    onRename: (String, String) -> Unit,
     onReorder: (String, Int) -> Unit,
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -69,6 +87,11 @@ internal fun CategoryManagerContent(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val drag = remember { CategoryDragState() }
+    var renameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var renameValue by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    val latestRenameId by rememberUpdatedState(renameId)
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val list = listState
     val latestCategories by rememberUpdatedState(categories)
     val latestBusy by rememberUpdatedState(busy)
@@ -82,6 +105,27 @@ internal fun CategoryManagerContent(
     val duration = if (motion) 260 else 0
     val sidePadding = with(density) { 16.dp.toPx() }
 
+    fun cancelRename() {
+        renameId = null
+        focus.clearFocus()
+        keyboard?.hide()
+    }
+    fun startRename(category: NotebookCategoryEntity) {
+        if (busy || drag.locked || renameId != null) return
+        renameValue = TextFieldValue(category.name, TextRange(0, category.name.length))
+        renameId = category.id
+    }
+    fun saveRename() {
+        val id = renameId ?: return
+        val name = renameValue.text.trim()
+        if (busy || drag.locked || categories.none { it.id == id } || name.isEmpty() || name.codePointCount(0, name.length) > 80) return
+        onRename(id, name)
+        cancelRename()
+    }
+    BackHandler(enabled = renameId != null) { cancelRename() }
+    LaunchedEffect(categories.map { it.id }) {
+        if (renameId != null && categories.none { it.id == renameId }) cancelRename()
+    }
     SideEffect {
         drag.sync(categories.map { it.id }, busy)
         drag.rowLayout = {
@@ -163,7 +207,7 @@ internal fun CategoryManagerContent(
         previousDisplayIds.clear()
         previousDisplayIds.addAll(displayedIds)
     }
-    val enabled = !busy && !drag.locked
+    val enabled = !busy && !drag.locked && renameId == null
     BoxWithConstraints(modifier.testTag("category-manager").semantics {
         stateDescription = if (drag.held) "正在拖动分类" else if (drag.pending || busy) "正在保存分类顺序" else "可以拖动排序"
     }.clipToBounds()
@@ -174,7 +218,7 @@ internal fun CategoryManagerContent(
                 // entirely to those buttons and the list's ordinary scrolling recognizer.
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val coordinates = rootCoordinates?.takeIf { it.isAttached } ?: return@awaitEachGesture
-                if (latestBusy) return@awaitEachGesture
+                if (latestBusy || latestRenameId != null) return@awaitEachGesture
                 val id = drag.handleAt(coordinates.localToRoot(down.position)) ?: return@awaitEachGesture
                 val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
                 val category = latestCategories.firstOrNull { it.id == id } ?: return@awaitEachGesture
@@ -204,7 +248,7 @@ internal fun CategoryManagerContent(
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("管理分类", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("完成") }
+                TextButton(onClick = onDismiss, enabled = renameId == null) { Text("完成") }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("长按右侧三条线拖动排序", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
@@ -239,14 +283,17 @@ internal fun CategoryManagerContent(
                             }
                             add(CustomAccessibilityAction("改名 ${category.name}") {
                                 if (latestBusy || drag.locked || latestCategories.none { it.id == category.id }) false
-                                else { onRename(category.id); true }
+                                else { startRename(category); true }
                             })
                             add(CustomAccessibilityAction("删除分类 ${category.name}") {
                                 if (latestBusy || drag.locked || latestCategories.none { it.id == category.id }) false
                                 else { delete(category.id); true }
                             })
                         } else emptyList()
-                        CategoryCard(category.name, enabled, onRename = { onRename(category.id) },
+                        CategoryCard(category.name, if (renameId == category.id) !busy else enabled,
+                            onRename = { startRename(category) },
+                            editingValue = renameValue.takeIf { renameId == category.id },
+                            onEditChange = { renameValue = it }, onSaveEdit = ::saveRename, onCancelEdit = ::cancelRename,
                             handleModifier = Modifier.testTag("category-handle-${category.id}").onGloballyPositioned { coordinates ->
                                 drag.registerHandle(category.id) { if (coordinates.isAttached) coordinates.boundsInRoot() else Rect.Zero }
                             },
@@ -266,6 +313,11 @@ internal fun CategoryManagerContent(
                     }
                 }
             }
+        }
+        AnimatedVisibility(drag.held, Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { it / 3 },
+            exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { it / 3 }) {
+            DisposableEffect(drag) { onDispose { drag.deleteBounds = Rect.Zero } }
             PaperDeleteZone(armed = drag.deleteArmed,
                 label = if (drag.deleteArmed) "松手后确认删除分类" else "拖到这里删除分类",
                 modifier = Modifier.fillMaxWidth().height(deleteHeight).testTag("category-delete-zone")
@@ -299,26 +351,48 @@ private fun CategoryCard(
     modifier: Modifier = Modifier,
     handleModifier: Modifier = Modifier,
     floating: Boolean = false,
+    editingValue: TextFieldValue? = null,
+    onEditChange: (TextFieldValue) -> Unit = {},
+    onSaveEdit: () -> Unit = {},
+    onCancelEdit: () -> Unit = {},
 ) {
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
+    val editorFocus = remember { FocusRequester() }
+    LaunchedEffect(editingValue != null) {
+        if (editingValue != null) editorFocus.requestFocus()
+    }
     Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shadowElevation = if (floating) 12.dp else 1.dp) {
         Row(Modifier.heightIn(min = 72.dp).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
-            IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Outlined.Edit, "改名 $name") }
-            Box(handleModifier.size(48.dp).semantics {
-                contentDescription = "长按拖动 $name"
-                role = Role.Button
-                stateDescription = "长按后拖动排序，或拖到下方删除区域"
-                if (!enabled) disabled()
-            }, contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(22.dp, 18.dp)) {
-                    for (line in 0..2) {
-                        val y = size.height * (0.2f + line * 0.3f)
-                        drawLine(ink, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            if (editingValue != null) {
+                val cleaned = editingValue.text.trim()
+                val valid = cleaned.isNotEmpty() && cleaned.codePointCount(0, cleaned.length) <= 80
+                OutlinedTextField(editingValue, onEditChange, enabled = enabled, singleLine = true,
+                    isError = !valid, placeholder = { Text("分类名称") },
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (valid) onSaveEdit() }),
+                    modifier = Modifier.weight(1f).padding(end = 8.dp).focusRequester(editorFocus)
+                        .testTag("category-name-editor").semantics { contentDescription = "分类名称，1至80个字" })
+                IconButton(onClick = onSaveEdit, enabled = enabled && valid) { Icon(Icons.Outlined.Check, "保存分类名称") }
+                IconButton(onClick = onCancelEdit) { Icon(Icons.Outlined.Close, "取消改名") }
+            } else {
+                Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Outlined.Edit, "改名 $name") }
+                Box(handleModifier.size(48.dp).semantics {
+                    contentDescription = "长按拖动 $name"
+                    role = Role.Button
+                    stateDescription = "长按后拖动排序，或拖到下方删除区域"
+                    if (!enabled) disabled()
+                }, contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.size(22.dp, 18.dp)) {
+                        for (line in 0..2) {
+                            val y = size.height * (0.2f + line * 0.3f)
+                            drawLine(ink, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        }
                     }
                 }
             }

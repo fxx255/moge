@@ -27,7 +27,9 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -45,6 +47,9 @@ import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 internal sealed interface PaperDropTarget {
     data class Category(val id: String?, val name: String) : PaperDropTarget
@@ -57,6 +62,16 @@ internal data class PaperDragVisual(
     val preview: (@Composable () -> Unit)? = null,
 )
 
+/** Preserve the card's proportions; it fits just inside a category once it has left its origin. */
+internal fun paperDragScale(origin: Rect, displacement: Offset, categoryWidth: Float, categoryHeight: Float): Float {
+    if (origin.width <= 0f || origin.height <= 0f || !displacement.x.isFinite() || !displacement.y.isFinite() ||
+        categoryWidth <= 0f || categoryHeight <= 0f) return 1f
+    val compact = (min(categoryWidth / origin.width, categoryHeight / origin.height) * 0.9f).coerceIn(0.01f, 0.95f)
+    val distance = max(abs(displacement.x) / origin.width, abs(displacement.y) / origin.height).coerceIn(0f, 1f)
+    val progress = distance * distance * (3f - 2f * distance)
+    return 1f + (compact - 1f) * progress
+}
+
 /** Root coordinates let cards in either kind of lazy list share the same drop targets. */
 @Stable
 internal class PaperDragState {
@@ -65,6 +80,8 @@ internal class PaperDragState {
     var hovered by mutableStateOf<PaperDropTarget?>(null); private set
     var settling by mutableStateOf(false); private set
     var categoriesExpanded by mutableStateOf(false); private set
+    var settlementTarget by mutableStateOf<PaperDropTarget?>(null); private set
+    var categoryCardSize by mutableStateOf(Size.Zero); private set
     private var rootRect by mutableStateOf(Rect.Zero)
     var rootBounds: Rect
         get() = rootRect
@@ -95,9 +112,10 @@ internal class PaperDragState {
         categoryPromptBounds = Rect.Zero
         categoryBounds = Rect.Zero
         categoriesExpanded = false
+        categoryCardSize = Size.Zero
         val point = bounds.topLeft + local
         visual = PaperDragVisual(id, title, ids.toSet(), bounds, local, point, point, preview)
-        held = true; settling = false; moved = false; hovered = null; slop = touchSlop
+        held = true; settling = false; moved = false; hovered = null; settlementTarget = null; slop = touchSlop
     }
 
     fun move(delta: Offset) {
@@ -127,17 +145,31 @@ internal class PaperDragState {
 
     fun targetBounds(target: PaperDropTarget, bounds: Rect) {
         targets[target] = { bounds }
+        updateCategorySize()
         updateHover()
     }
 
     fun targetBounds(target: PaperDropTarget, coordinates: LayoutCoordinates) {
-        targets[target] = { if (coordinates.isAttached) coordinates.boundsInRoot() else Rect.Zero }
+        targets[target] = {
+            if (coordinates.isAttached) {
+                val origin = coordinates.localToRoot(Offset.Zero)
+                Rect(origin.x, origin.y, origin.x + coordinates.size.width, origin.y + coordinates.size.height)
+            } else Rect.Zero
+        }
+        updateCategorySize()
         updateHover()
     }
 
     fun removeTarget(target: PaperDropTarget) {
         targets.remove(target)
+        updateCategorySize()
         updateHover()
+    }
+
+    private fun updateCategorySize() {
+        val card = targets.filterKeys { it is PaperDropTarget.Category }.values
+            .map { it() }.filterNot { it.isEmpty }.minByOrNull { it.height }
+        if (card != null) categoryCardSize = card.size
     }
 
     private fun visibleTargetBounds(target: PaperDropTarget): Rect {
@@ -161,6 +193,7 @@ internal class PaperDragState {
         val current = visual ?: return null
         updateHover()
         val target = hovered.takeUnless { cancelled || !moved }
+        settlementTarget = target
         val destination = target?.let { visibleTargetBounds(it).center } ?: current.start
         visual = current.copy(pointer = destination)
         held = false; settling = true; hovered = null; categoriesExpanded = false
@@ -171,7 +204,7 @@ internal class PaperDragState {
     }
 
     fun finishSettling() {
-        if (!held) { visual = null; settling = false; targets.clear() }
+        if (!held) { visual = null; settling = false; settlementTarget = null; targets.clear() }
     }
 }
 
@@ -306,13 +339,26 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
             val alpha by animateFloatAsState(if (lifted) 1f else 0f, if (motion) tween(260) else snap(), label = "paper-drop-alpha")
             val width = with(density) { visual.origin.width.toDp() }
             val height = with(density) { visual.origin.height.toDp() }
+            val categoryHeightPx = state.categoryCardSize.height.takeIf { it > 0f } ?: with(density) { 64.dp.toPx() }
+            val categoryWidthPx = state.categoryCardSize.width.takeIf { it > 0f } ?: with(density) { categoryWidth.toPx() }
+            val displacement = if (state.settling && state.settlementTarget != null) {
+                Offset(visual.origin.width, visual.origin.height)
+            } else visual.pointer - visual.start
+            val scale by animateFloatAsState(
+                paperDragScale(visual.origin, displacement, categoryWidthPx, categoryHeightPx),
+                if (!motion) snap() else tween(if (state.held) 80 else 260), label = "paper-drag-scale")
             val shadow = with(density) { 12.dp.toPx() }
             val previewShape = MaterialTheme.shapes.small
             Box(Modifier.offset {
                 val offset = point - visual.grab - state.rootBounds.topLeft
                 IntOffset(offset.x.roundToInt(), offset.y.roundToInt())
             }.wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(width, height)
-                .graphicsLayer { this.alpha = alpha; shadowElevation = shadow; shape = previewShape }
+                .graphicsLayer {
+                    this.alpha = alpha; shadowElevation = shadow; shape = previewShape
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = TransformOrigin((visual.grab.x / visual.origin.width).coerceIn(0f, 1f),
+                        (visual.grab.y / visual.origin.height).coerceIn(0f, 1f))
+                }
                 .testTag("drag-paper"), propagateMinConstraints = true) {
                 visual.preview?.invoke()
             }

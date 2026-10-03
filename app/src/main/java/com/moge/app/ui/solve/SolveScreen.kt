@@ -134,6 +134,7 @@ fun SolveScreen(
             SolveList(state, vm::retry, vm::regenerate,
                 onOpenImages = { paths, index -> viewer = paths to index },
                 onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) },
+                onResume = vm::resume,
                 conversationId = observedId, initialViewport = initialViewport,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
                 contentPadding = padding)
@@ -209,6 +210,7 @@ internal fun SolveList(
     initialViewport: ConversationViewport? = null,
     saveViewport: (ConversationViewport) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    onResume: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     var restored by remember(conversationId) { mutableStateOf(false) }
@@ -257,6 +259,7 @@ internal fun SolveList(
                 is SolveItem.Answer -> AnswerSheet(item, onRetry, onRegenerate,
                     actionsEnabled = !state.generating && !state.busyElsewhere && !state.submitting,
                     onOpenImages = onOpenImages, answerFirst = state.answerFirst,
+                    onResume = onResume,
                     onShare = { onShare(item) }, onSave = { onSave(item) })
             }
         }

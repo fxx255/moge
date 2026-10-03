@@ -194,8 +194,10 @@ class RequestRepository @Inject constructor(
         newAttemptId: String,
         refreshedSnapshotJson: String?,
         refreshedAttachments: List<String>?,
+        expectedAttemptId: String? = null,
     ): RequestEntity? = withContext(io) {
         val existing = dao.getRequest(requestId) ?: return@withContext null
+        if (expectedAttemptId != null && existing.attemptId != expectedAttemptId) return@withContext null
         val updated = dao.beginRetryIfInterrupted(
             requestId = requestId,
             expectedAttemptId = existing.attemptId,

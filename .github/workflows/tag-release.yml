@@ -21,6 +21,7 @@ jobs:
       contents: write
     env:
       MOGE_UPDATE_REPOSITORY: ${{ github.repository }}
+      MOGE_UPDATE_MIRROR: 'https://ghfast.top/'
       MOGE_REQUIRE_OFFICIAL_SIGNING: 'true'
       MOGE_RELEASE_STORE_PASSWORD: ${{ secrets.MOGE_RELEASE_STORE_PASSWORD }}
       MOGE_RELEASE_KEY_ALIAS: ${{ secrets.MOGE_RELEASE_KEY_ALIAS }}
@@ -70,12 +71,12 @@ jobs:
         run: |
           mkdir -p release-output
           cp app/build/outputs/apk/release/app-release.apk release-output/Moge-arm64.apk
-          python3 scripts/release/generate_update.py --apk release-output/Moge-arm64.apk --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --output release-output/update.json --check-published
+          python3 scripts/release/generate_update.py --apk release-output/Moge-arm64.apk --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --output release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md" --check-published
       - name: Upload both assets to draft, verify, then publish
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python3 scripts/release/publish_release.py --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --apk release-output/Moge-arm64.apk --manifest release-output/update.json
+        run: python3 scripts/release/publish_release.py --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --apk release-output/Moge-arm64.apk --manifest release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md"
       - name: Remove temporary signing material
         if: always()
         run: rm -f -- "${MOGE_RELEASE_STORE_FILE:-$RUNNER_TEMP/moge-release.jks}"

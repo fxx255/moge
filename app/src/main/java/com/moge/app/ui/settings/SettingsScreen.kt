@@ -143,6 +143,7 @@ fun SettingsScreen(
                 onClearOrphans = vm::clearOrphans,
                 onClearNotebook = vm::clearNotebook,
             )
+            BackgroundGenerationSection()
             SettingsSection("关于与更新") {
                 TextButton(onClick = { updating = true }) { Text("版本与检查更新") }
             }

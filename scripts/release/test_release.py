@@ -42,6 +42,26 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(manifest["sha256"], hashlib.sha256(apk.read_bytes()).hexdigest())
             self.assertEqual(manifest["signingCertificateSha256"], "a" * 64)
 
+    def test_release_notes_are_bounded_and_embedded_in_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk, _, _ = self.fixture(directory)
+            manifest = generate.build_manifest(apk, "test-owner/moge", "v0.2.0", BADGING, SIGNING, "更新说明")
+            self.assertEqual(manifest["releaseNotes"], "更新说明")
+            with self.assertRaises(ValueError):
+                generate.build_manifest(apk, "test-owner/moge", "v0.2.0", BADGING, SIGNING, "x" * 16_001)
+
+    def test_mismatched_release_notes_stop_before_creating_a_draft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk, metadata, _ = self.fixture(directory)
+            notes = Path(directory) / "notes.md"
+            notes.write_text("different notes", encoding="utf-8")
+            arguments = ["publish_release.py", "--repository", "test-owner/moge", "--tag", "v0.2.0",
+                         "--apk", str(apk), "--manifest", str(metadata), "--notes-file", str(notes)]
+            with patch("sys.argv", arguments), patch.object(publish, "gh") as gh:
+                with self.assertRaises(ValueError):
+                    publish.main()
+                gh.assert_not_called()
+
     def test_rejects_non_arm64_debuggable_and_foreign_package(self):
         for badging in (BADGING.replace("arm64-v8a", "x86_64"), BADGING + "application-debuggable\n",
                         BADGING.replace("com.moge.app", "com.moge.app.debug"), BADGING.replace("'2'", "'0'")):

@@ -38,6 +38,7 @@ sealed interface SolveItem {
         val failureMessage: String = "",
         /** 可「重新发送」时为对应请求 id；null 表示不提供重发入口。 */
         val retryRequestId: String? = null,
+        val resumeRequestId: String? = null,
         /** 可「重新生成」时为对应请求 id：只给最后一张已完成或已停止的解答纸。 */
         val regenerateRequestId: String? = null,
         /** 落库的用量（[MessageEntity.usageJson]）；空串 = 未知。 */
@@ -144,6 +145,9 @@ private fun answerItem(
             failureMessage = request.failureMessage.ifBlank { "这一轮没有完成" },
             retryRequestId = request.requestId.takeIf {
                 isLast && FailureKind.fromName(request.failureKind)?.isRetryable != false
+            },
+            resumeRequestId = request.requestId.takeIf {
+                isLast && request.partialText.isNotBlank() && FailureKind.fromName(request.failureKind)?.isRetryable != false
             },
         )
         RequestStatus.CANCELLED -> SolveItem.Answer(

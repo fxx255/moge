@@ -168,6 +168,32 @@ class GenerationManagerTest {
         protocol = "chat_completions",
     )
 
+    @Test fun `resume keeps question images on the question across further continuation rounds`() = runBlocking {
+        val id = seed()
+        val sent = mutableListOf<List<ChatMessage>>()
+        val currentImages = mutableListOf<List<String>>()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            sent.add(arg(0))
+            currentImages.add(arg(1))
+            val payload = if (sent.size == 1) """{"reply":"继续推导。"}""" else """{"reply":"最终结论。"}"""
+            arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(payload))
+            ReplyParser.parse(payload, normalizeMarkdown = false).copy(truncated = sent.size == 1)
+        }
+        manager.start(request(maxContinuations = 1).copy(continuationText = "已经生成的推导。", imageBase64s = listOf("QUESTION_IMAGE")), id)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        assertEquals(2, sent.size)
+        sent.forEach { history ->
+            assertEquals(listOf("QUESTION_IMAGE"), history.first().imageBase64s)
+            assertTrue(history.last().imageBase64s.isEmpty())
+        }
+        assertEquals("已经生成的推导。", sent[0][sent[0].lastIndex - 1].content)
+        assertEquals("已经生成的推导。继续推导。", sent[1][sent[1].lastIndex - 1].content)
+        assertTrue(currentImages.all { it.isEmpty() })
+        assertEquals("已经生成的推导。继续推导。最终结论。", db.requestDao().getMessage("a1")!!.content)
+    }
+
     private suspend fun seed(
         requestId: String = "r1",
         attemptId: String = "att1",

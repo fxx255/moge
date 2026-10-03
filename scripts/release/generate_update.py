@@ -70,7 +70,9 @@ def tool_path(name):
     return str(path)
 
 
-def build_manifest(apk, repository, tag, badging, signing):
+def build_manifest(apk, repository, tag, badging, signing, release_notes=""):
+    if len(release_notes) > 16_000:
+        raise ValueError("Release notes exceed 16000 characters")
     fields = parse_badging(badging)
     if tag != f"v{fields['versionName']}":
         raise ValueError("Release tag must equal v plus APK versionName")
@@ -82,7 +84,7 @@ def build_manifest(apk, repository, tag, badging, signing):
         digest = hashlib.file_digest(source, "sha256").hexdigest()
     return dict(schemaVersion=1, **fields, size=size, sha256=digest,
                 signingCertificateSha256=parse_signer(signing), abi="arm64-v8a",
-                repositoryUrl=project, releaseUrl=release, apkUrl=download, tag=tag)
+                repositoryUrl=project, releaseUrl=release, apkUrl=download, tag=tag, releaseNotes=release_notes)
 
 
 class PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -150,11 +152,13 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--check-published", action="store_true")
+    parser.add_argument("--notes-file", type=Path)
     args = parser.parse_args()
     validate_repository(args.repository)
     badging = subprocess.run([tool_path("aapt"), "dump", "badging", str(args.apk)], check=True, capture_output=True, text=True).stdout
     signing = subprocess.run([tool_path("apksigner"), "verify", "--verbose", "--print-certs", str(args.apk)], check=True, capture_output=True, text=True).stdout
-    manifest = build_manifest(args.apk, args.repository, args.tag, badging, signing)
+    notes = args.notes_file.read_text(encoding="utf-8") if args.notes_file else ""
+    manifest = build_manifest(args.apk, args.repository, args.tag, badging, signing, notes)
     if args.check_published:
         check_published(manifest)
     args.output.parent.mkdir(parents=True, exist_ok=True)

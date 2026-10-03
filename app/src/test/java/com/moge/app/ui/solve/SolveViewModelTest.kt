@@ -367,6 +367,50 @@ class SolveViewModelTest {
         assertEquals(RequestStatus.COMPLETED.name, requests.get(old.requestId)!!.status)
     }
 
+    @Test fun `resume persists the saved prefix and reuses the question and answer positions`() = runBlocking {
+        val conversation = conversations.createConversation("题", SolveMode.DETAILED)
+        val record = interruptedRequest(conversation.id, partial = "已经保存的推导")
+        val vm = vm(conversation.id)
+        vm.awaitState { it.items.size == 2 }
+        coEvery { manager.submitRetry(record.requestId, any()) } coAnswers {
+            active.value = ActiveState(requestId = record.requestId, attemptId = secondArg(),
+                conversationId = conversation.id, phase = RequestStatus.PREPARING)
+        }
+        vm.resume(record.requestId)
+        vm.awaitState { !it.submitting }
+        val after = requests.get(record.requestId)!!
+        assertEquals("已经保存的推导", com.moge.app.data.llm.SnapshotCodec.decode(after.snapshotJson)!!.continuationText)
+        assertEquals(record.answerMessageId, after.answerMessageId)
+        assertEquals(record.userMessageId, after.userMessageId)
+        assertEquals(2, conversations.messages(conversation.id).size)
+        coVerify(exactly = 1) { manager.submitRetry(record.requestId, after.attemptId) }
+    }
+
+    @Test fun `resume with no saved text offers resend without starting a new attempt`() = runBlocking {
+        val conversation = conversations.createConversation("题", SolveMode.DETAILED)
+        val record = interruptedRequest(conversation.id, partial = "")
+        val vm = vm(conversation.id)
+        val state = vm.awaitState { it.items.size == 2 }
+        assertNull((state.items.last() as SolveItem.Answer).resumeRequestId)
+        vm.resume(record.requestId)
+        vm.awaitState { it.notice != null && !it.submitting }
+        assertEquals(record.attemptId, requests.get(record.requestId)!!.attemptId)
+        coVerify(exactly = 0) { manager.submitRetry(any(), any()) }
+    }
+
+    @Test fun `resume rejected at handoff retains the prefix as a recoverable interruption`() = runBlocking {
+        val conversation = conversations.createConversation("题", SolveMode.DETAILED)
+        val record = interruptedRequest(conversation.id, partial = "保留推导")
+        val vm = vm(conversation.id)
+        vm.awaitState { it.items.size == 2 }
+        coEvery { manager.submitRetry(any(), any()) } throws GenerationManager.AlreadyRunningException()
+        vm.resume(record.requestId)
+        vm.awaitState { it.notice != null && !it.submitting }
+        val after = requests.get(record.requestId)!!
+        assertEquals(RequestStatus.INTERRUPTED.name, after.status)
+        assertEquals("保留推导", after.partialText)
+    }
+
     // ---------------- P6：拍题首问与追问配图 ----------------
 
     @Test

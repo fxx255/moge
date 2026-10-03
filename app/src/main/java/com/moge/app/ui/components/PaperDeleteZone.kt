@@ -39,11 +39,11 @@ internal fun PaperDeleteZone(armed: Boolean, label: String, modifier: Modifier =
             quadraticTo(size.width / 2, -size.height * 0.22f, size.width, size.height * 0.22f)
             lineTo(size.width, size.height); lineTo(0f, size.height); close()
         }
-        drawPath(path, Brush.verticalGradient(listOf(error.copy(alpha = 0.12f), error.copy(alpha = 0.55f), error)))
+        drawPath(path, Brush.verticalGradient(listOf(error, error.copy(alpha = 0.55f), error.copy(alpha = 0.12f))))
     }) {
         Column(Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.1f),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.DeleteOutline, "删除区域", Modifier.size(32.dp), tint = red)
+            Icon(Icons.Outlined.DeleteOutline, "删除区域", Modifier.size(32.dp), tint = ink)
             Surface(color = error.copy(alpha = 0.9f), contentColor = ink, shape = MaterialTheme.shapes.small) {
                 Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
             }

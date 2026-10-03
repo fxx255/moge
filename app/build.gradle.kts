@@ -12,6 +12,10 @@ fun releaseSetting(name: String): String = providers.gradleProperty(name)
     .orElse(providers.environmentVariable(name)).orNull.orEmpty()
 
 val updateRepository = releaseSetting("MOGE_UPDATE_REPOSITORY").trim()
+val updateMirror = releaseSetting("MOGE_UPDATE_MIRROR").trim().ifEmpty { "https://ghfast.top/" }
+require(Regex("https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?/").matches(updateMirror)) {
+    "MOGE_UPDATE_MIRROR must be an HTTPS origin ending with /"
+}
 require(updateRepository.isEmpty() ||
     Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
         .matches(updateRepository) && updateRepository.substringAfter('/') !in setOf(".", "..")) {
@@ -49,11 +53,12 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.2.7"
+        versionCode = 10
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("String", "UPDATE_MIRROR", "\"$updateMirror\"")
 
         // 真机分发只打 arm64-v8a；debug 另加 x86_64 供模拟器使用
         ndk {

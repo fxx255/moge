@@ -7,6 +7,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PaperDragStateTest {
+    @Test fun `drag scale decreases continuously and stops inside the category size`() {
+        val origin = Rect(0f, 0f, 200f, 300f)
+        val scales = listOf(0f, 75f, 150f, 225f, 300f, 600f)
+            .map { paperDragScale(origin, Offset(0f, it), 160f, 80f) }
+        assertEquals(1f, scales.first(), 0.0001f)
+        assertTrue(scales.zipWithNext().all { (a, b) -> b <= a })
+        assertEquals(scales[4], scales[5], 0.0001f)
+        assertTrue(origin.width * scales.last() < 160f)
+        assertEquals(72f, origin.height * scales.last(), 0.001f)
+        assertEquals(scales.last(), paperDragScale(origin, Offset(-200f, 0f), 160f, 80f), 0.0001f)
+    }
+
+    @Test fun `returning to the origin restores scale and invalid movement is ignored`() {
+        val origin = Rect(0f, 0f, 200f, 300f)
+        assertEquals(1f, paperDragScale(origin, Offset.Zero, 160f, 80f), 0f)
+        assertEquals(1f, paperDragScale(origin, Offset(Float.NaN, 0f), 160f, 80f), 0f)
+    }
+
     @Test fun `filter row unfolds groups before reaching the upper prompt`() {
         val state = start()
         state.categoryActivationBounds = Rect(0f, 80f, 300f, 110f)

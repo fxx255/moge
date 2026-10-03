@@ -1,6 +1,6 @@
 # GitHub 分发与应用更新
 
-公开源码仓库为 [fxx255/moge](https://github.com/fxx255/moge)，项目自身源码使用 MIT 许可证。分支推送会执行自动检查；正式 APK 分发和应用内更新还需要配置专用长期签名并发布正式版本。当前 0.2.6 为开发版本。
+公开源码仓库为 [fxx255/moge](https://github.com/fxx255/moge)，项目自身源码使用 MIT 许可证。0.3.0 起使用专用长期正式签名，发布正式 arm64 APK 和应用内更新元数据。分支推送执行自动检查，正式标签触发签名发布。
 
 ## 已完成的应用接入
 
@@ -23,7 +23,11 @@
 - `MOGE_RELEASE_KEY_ALIAS`：专用密钥别名。
 - `MOGE_RELEASE_KEY_PASSWORD`：专用密钥密码。
 
-全部为空时，本地 release 仍可构建，使用现有开发调试签名；构建日志及 `BuildConfig.SIGNING_STATUS` 明确标记 `DEVELOPER`。部分填写会报错，不能意外退回调试签名。全部提供时，校验文件存在，拒绝现有 debug.keystore 和 androiddebugkey 别名。工作流另外通过 APK 签名验证拒绝 Android Debug 证书。不生成私钥，不在源码保存正式签名密码。
+全部为空时，本地 release 仍可构建，使用现有开发调试签名；构建日志及 `BuildConfig.SIGNING_STATUS` 明确标记 `DEVELOPER`。部分填写会报错，不能意外退回调试签名。全部提供时，校验文件存在，拒绝现有 debug.keystore 和 androiddebugkey 别名。工作流另外通过 APK 签名验证拒绝 Android Debug 证书。正式签名私钥和密码只保存在本机受限目录及 GitHub environment secrets，不提交到源码。
+
+`MOGE_UPDATE_MIRROR` 默认 `https://ghfast.top/`，可以通过 Gradle property 或同名环境变量改为另一个 HTTPS 镜像源站，地址以 `/` 结尾。更新对话框显示实际镜像。应用优先从镜像读取 GitHub 最新稳定 Release 的 `update.json`，读取失败或元数据不合法时回退直连，再尝试原 GitHub API 路径；APK 下载遇到连接失败、损坏文件或签名不匹配也从头回退直连。元数据内的仓库和资产地址始终保持 GitHub 原始地址，镜像不会改变包名、哈希或签名校验规则。重定向只允许 GitHub 的资产主机及配置镜像包裹的 GitHub HTTPS 地址。
+
+正式 Release 的更新说明位于 `docs/releases/<版本号>.md`，由发布工具同时写入 `update.json` 的可选 `releaseNotes` 和 GitHub Release 正文。旧元数据没有该字段仍可解析。
 
 只有正式签名的 release 才生成非空 `BuildConfig.UPDATE_REPOSITORY` 和可用的 `UPDATE_ENABLED`。debug 与开发 release 更新入口显示“暂未配置应用更新”。应用界面不显示签名状态、异常堆栈、密码或技术配置。
 
@@ -52,7 +56,7 @@
 
 ## 客户端安全与恢复
 
-客户端读取 `/repos/{owner}/{repo}/releases/latest`，排除草稿和预发布；元数据和 APK 必须是配置仓库该标签的固定资产。JSON 最大 256 KiB，APK 最大 512 MiB，重定向只允许 GitHub API、GitHub 和其 Release 资产 HTTPS 主机。没有携带长期 GitHub token，也不复用模型请求的认证配置。
+客户端优先读取 `/releases/latest/download/update.json`，仅接受稳定版本标签；GitHub API 作为兼容回退，排除草稿和预发布。元数据和 APK 必须是配置仓库该标签的固定资产。JSON 最大 256 KiB，APK 最大 512 MiB。没有携带长期 GitHub token，也不复用模型请求的认证配置。
 
 仅更高 `versionCode`、设备支持 arm64 且系统满足 minSdk 时允许下载。后台下载有进度、超时、取消和重试，写入临时 `.part`，校验完整大小与 SHA-256 后再验证 APK 的包名、版本编号/名称、最低 SDK、实际签名证书与当前安装身份。只有全部通过才改名为安装文件。首版要求同一签名身份，拒绝签名轮换；需要轮换时应另行实现并测试证书历史兼容。
 
@@ -60,8 +64,8 @@
 
 ## 验证
 
-更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。完整验证结果见 [本次修改报告](revision-progress-report.md)。11 项 Python 发布工具测试已通过；源码发布后的工作流运行结果可在仓库 Actions 页面查看；正式签名、正式 Release 和覆盖安装仍待配置后验收。
+更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。13 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
 
 发布工具可单独运行：`python -m unittest discover -s scripts/release -p 'test_*.py'`。更新模块可单独运行 `testDebugUnitTest --tests 'com.moge.app.data.update.*'`；发布前应运行完整测试、release 构建与 Lint。
 
-有真实公开仓库及长期签名后，仍需用两次正式签名构建进行真机验收：正常升级保留对话、收藏、分类与模型设置；未知来源允许/拒绝、进程终止恢复、系统安装取消、断网、取消下载、损坏文件、低版本及签名不匹配都不会破坏当前使用。源码开源不代表已经发布正式签名的 APK；当前尚未完成正式版本发布和覆盖安装验收。
+后续仍需用两次正式签名构建进行真机验收：正常升级保留对话、收藏、分类与模型设置；未知来源允许/拒绝、进程终止恢复、系统安装取消、断网、取消下载、损坏文件、低版本及签名不匹配都不会破坏当前使用。此前开发签名与正式签名不同，同包名开发包无法被首个正式版覆盖；用户卸载开发版前应先保存需要的内容，卸载会清除应用数据。0.3.0 之后的正式版保持同一长期签名。

@@ -75,8 +75,11 @@ internal fun displayedImageRect(previewSize: IntSize, viewport: IntSize, zoom: F
 
 /** 平移限制：放大时不能把照片拖出视口；缩小到比视口还小时居中。 */
 internal fun constrainImageOffset(requested: Offset, previewSize: IntSize, viewport: IntSize, zoom: Float): Offset {
-    if (viewport == IntSize.Zero || previewSize.width <= 0 || previewSize.height <= 0) return Offset.Zero
+    if (viewport.width <= 0 || viewport.height <= 0 || previewSize.width <= 0 || previewSize.height <= 0 ||
+        !zoom.isFinite() || zoom <= 0f || !requested.x.isFinite() || !requested.y.isFinite()
+    ) return Offset.Zero
     val scale = coverScale(previewSize, viewport) * zoom
+    if (!scale.isFinite()) return Offset.Zero
     val maxX = ((previewSize.width * scale - viewport.width) / 2f).coerceAtLeast(0f)
     val maxY = ((previewSize.height * scale - viewport.height) / 2f).coerceAtLeast(0f)
     return Offset(requested.x.coerceIn(-maxX, maxX), requested.y.coerceIn(-maxY, maxY))
@@ -224,13 +227,17 @@ internal fun cropBoundsInSource(
     require(previewSize.width > 0 && previewSize.height > 0)
     require(sourceSize.width > 0 && sourceSize.height > 0)
     require(viewport.width > 0 && viewport.height > 0)
-    require(zoom > 0f)
+    require(zoom.isFinite() && zoom > 0f)
+    require(imageOffset.x.isFinite() && imageOffset.y.isFinite())
+    require(cropRect.left.isFinite() && cropRect.top.isFinite() &&
+        cropRect.right.isFinite() && cropRect.bottom.isFinite() && cropRect.width > 0f && cropRect.height > 0f)
     val baseScale = max(
         viewport.width.toFloat() / previewSize.width,
         viewport.height.toFloat() / previewSize.height,
     )
     val displayedWidth = previewSize.width * baseScale * zoom
     val displayedHeight = previewSize.height * baseScale * zoom
+    require(displayedWidth.isFinite() && displayedWidth > 0f && displayedHeight.isFinite() && displayedHeight > 0f)
     val left = (viewport.width - displayedWidth) / 2f + imageOffset.x
     val top = (viewport.height - displayedHeight) / 2f + imageOffset.y
 

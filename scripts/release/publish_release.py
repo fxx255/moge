@@ -33,14 +33,18 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--apk", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--notes-file", type=Path)
     args = parser.parse_args()
     validate_repository(args.repository)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     if manifest["tag"] != args.tag or manifest["repositoryUrl"] != f"https://github.com/{args.repository}":
         raise ValueError("Release configuration differs from verified metadata")
     # gh create fails if the tag already has a release; never overwrite a published release.
+    notes_arguments = ["--body-file", str(args.notes_file)] if args.notes_file else ["--generate-notes"]
+    if args.notes_file and args.notes_file.read_text(encoding="utf-8") != manifest.get("releaseNotes"):
+        raise ValueError("Release notes differ from update metadata")
     gh("release", "create", args.tag, "--repo", args.repository, "--verify-tag", "--draft",
-       "--title", f"Moge {manifest['versionName']}", "--generate-notes")
+       "--title", f"Moge {manifest['versionName']}", *notes_arguments)
     # Any failure below leaves a draft, which the default updater never observes.
     gh("release", "upload", args.tag, str(args.apk), str(args.manifest), "--repo", args.repository)
     release = json.loads(gh("api", f"repos/{args.repository}/releases/tags/{urllib.parse.quote(args.tag, safe='')}"))

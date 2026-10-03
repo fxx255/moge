@@ -47,6 +47,8 @@ data class RequestSnapshot(
     val photoRoute: String = PHOTO_ROUTE_NONE,
     /** 提交时钉下的有界历史（不含本轮问题与回答位）。 */
     val originalHistory: List<SnapshotHistoryMessage> = emptyList(),
+    /** Visible saved prefix for an explicit resume; independent of the bounded model echo. */
+    val continuationText: String = "",
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean

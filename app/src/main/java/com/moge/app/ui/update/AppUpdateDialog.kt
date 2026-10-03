@@ -64,6 +64,10 @@ fun AppUpdateDialog(onDismiss: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("墨格 Moge")
                 Text("当前版本 ${BuildConfig.VERSION_NAME}")
+                viewModel.mirrorUrl?.let { mirror ->
+                    Text("更新镜像：$mirror", style = MaterialTheme.typography.bodySmall)
+                    Text("连接失败时自动尝试 GitHub 直连。", style = MaterialTheme.typography.bodySmall)
+                }
                 viewModel.projectUrl?.let { url -> TextButton(onClick = { openLink(url) }) { Text("GitHub 项目") } }
                 Text(when (state.phase) {
                     UpdatePhase.UNAVAILABLE -> "暂未配置应用更新。"

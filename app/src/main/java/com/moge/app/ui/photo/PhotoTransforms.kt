@@ -3,7 +3,7 @@ package com.moge.app.ui.photo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import androidx.exifinterface.media.ExifInterface
+import com.moge.app.data.image.decodePhotoBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -19,21 +19,8 @@ object PhotoEdits {
     internal fun changed() { changes.update { it + 1 } }
 }
 
-fun decodeUprightPhoto(path: String, maxDimension: Int = Int.MAX_VALUE): Bitmap? = runCatching {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
-    val source = BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-        ?: return@runCatching null
-    val exif = runCatching { ExifInterface(path) }.getOrNull()
-    val transform = Matrix().apply {
-        if (exif?.isFlipped == true) postScale(-1f, 1f)
-        postRotate((exif?.rotationDegrees ?: 0).toFloat())
-    }
-    if (transform.isIdentity) source else Bitmap.createBitmap(source, 0, 0, source.width, source.height, transform, true)
-}.getOrNull()
+fun decodeUprightPhoto(path: String, maxDimension: Int = 4096): Bitmap? =
+    decodePhotoBitmap(path, maxDimension)
 
 fun rotatePhotoBitmap(source: Bitmap, quarterTurns: Int): Bitmap {
     val turns = Math.floorMod(quarterTurns, 4)
@@ -60,6 +47,6 @@ fun savePhotoBitmap(path: String, bitmap: Bitmap) {
 }
 
 fun rotatePhotoAndSave(path: String, quarterTurns: Int = -1) {
-    val source = decodeUprightPhoto(path) ?: error("无法读取照片")
-    savePhotoBitmap(path, rotatePhotoBitmap(source, quarterTurns))
+    val rotated = decodePhotoBitmap(path, quarterTurns = quarterTurns) ?: error("无法读取照片，图片可能过大或格式不受支持")
+    try { savePhotoBitmap(path, rotated) } finally { rotated.recycle() }
 }

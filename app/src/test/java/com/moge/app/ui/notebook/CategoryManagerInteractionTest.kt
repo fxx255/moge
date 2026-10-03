@@ -165,8 +165,8 @@ class CategoryManagerInteractionTest {
 
     @Test fun `transparent curve corner returns the card without a delete or reorder`() {
         render()
-        val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
         hold("a")
+        val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
         moveTo(Offset(zone.left + zone.width * 0.01f, zone.top + zone.height * 0.02f))
         compose.onNodeWithText("松手后确认删除分类").assertDoesNotExist()
         release()
@@ -192,15 +192,27 @@ class CategoryManagerInteractionTest {
     }
 
     @Test
-    fun `name area does not drag and pencil opens the preserved name form`() {
+    fun `name area does not drag and pencil edits the name inside its original card`() {
         render()
         compose.onNodeWithText("代数").performTouchInput { longClick() }
         compose.onNodeWithTag("category-drag-preview").assertDoesNotExist()
         compose.onNodeWithContentDescription("改名 代数").performTouchInput { click() }
-        compose.onNodeWithText("分类改名").assertExists()
-        compose.onNode(hasSetTextAction()).performTextReplacement("  线性代数  ")
-        compose.onNodeWithText("保存").performClick()
+        compose.onNodeWithText("分类改名").assertDoesNotExist()
+        compose.onNodeWithTag("category-card-b").assertIsDisplayed()
+        compose.onNodeWithTag("category-delete-zone").assertDoesNotExist()
+        val editor = compose.onNodeWithTag("category-name-editor")
+        editor.assert(hasAnyAncestor(hasTestTag("category-card-a"))).assertTextContains("代数")
+        editor.performTextReplacement("   ")
+        compose.onNodeWithContentDescription("保存分类名称").assertIsNotEnabled()
+        editor.performTextReplacement("  线性代数  ")
+        editor.performImeAction()
         assertEquals(listOf("a" to "线性代数"), renamed)
+        compose.onNodeWithTag("category-name-editor").assertDoesNotExist()
+        compose.onNodeWithContentDescription("改名 几何").performTouchInput { click() }
+        compose.onNodeWithTag("category-name-editor").performTextReplacement("取消的草稿")
+        compose.onNodeWithContentDescription("取消改名").performClick()
+        assertEquals(1, renamed.size)
+        compose.onNodeWithText("几何").assertExists()
         compose.onNodeWithText("新建分类").performClick()
         compose.onNode(hasSetTextAction()).performTextInput("  错题  ")
         compose.onNodeWithText("保存").performClick()
@@ -219,15 +231,21 @@ class CategoryManagerInteractionTest {
         assertEquals(listOf("c"), deleted)
     }
 
-    @Test fun `delete zone occupies thirty percent and pencil is immediately before the handle`() {
+    @Test fun `delete zone appears only while dragging without reducing the list and keeps thirty percent height`() {
         render()
+        compose.onNodeWithTag("category-delete-zone").assertDoesNotExist()
         val manager = compose.onNodeWithTag("category-manager").fetchSemanticsNode().boundsInRoot
-        val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
-        assertEquals(manager.height * 0.3f, zone.height, 1f)
-        assertEquals(manager.bottom, zone.bottom, 1f)
+        val list = compose.onNodeWithTag("category-list").fetchSemanticsNode().boundsInRoot
         val pencil = compose.onNodeWithContentDescription("改名 代数").fetchSemanticsNode().boundsInRoot
         val handle = compose.onNodeWithTag("category-handle-a", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue(pencil.right <= handle.left + 1f)
+        hold("a")
+        val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
+        assertEquals(manager.height * 0.3f, zone.height, 1f)
+        assertEquals(manager.bottom, zone.bottom, 1f)
+        assertEquals(list, compose.onNodeWithTag("category-list").fetchSemanticsNode().boundsInRoot)
+        cancel()
+        compose.onNodeWithTag("category-delete-zone").assertDoesNotExist()
     }
 
     @Test fun `category card layout and curved zone remain legible in chalk theme`() {
@@ -235,7 +253,7 @@ class CategoryManagerInteractionTest {
         compose.setContent { MogeTheme(Appearance.CHALK) {
             view = LocalView.current
             Surface(Modifier.fillMaxSize()) {
-                CategoryManagerContent(categories.value, false, {}, {}, { _, _ -> }, {}, {})
+                CategoryManagerContent(categories.value, false, {}, { _, _ -> }, { _, _ -> }, {}, {})
             }
         } }
         compose.onNodeWithText("长按右侧三条线拖动排序").assertIsDisplayed()

@@ -365,6 +365,57 @@ class SubmitPathTest {
         return request.requestId
     }
 
+    @Test fun `resume sends the original question and saved answer then merges without duplication`() = runBlocking {
+        val prefix = "第一步已经计算出完整的中间结果。"
+        val id = submitAndInterrupt("原问题：计算结果", prefix)
+        val old = requestRepository.get(id)!!
+        val snapshot = manager.captureRetrySnapshot(old).copy(continuationText = prefix)
+        capturedMessages.clear()
+        stubCapturing(prefix + "第二步给出最终结果。")
+        val after = requestRepository.beginRetry(id, "resume-1", com.moge.app.data.llm.SnapshotCodec.encode(snapshot),
+            emptyList(), expectedAttemptId = old.attemptId)!!
+        manager.submitRetry(id, after.attemptId)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        val sent = capturedMessages.last()
+        assertEquals("原问题：计算结果", sent[sent.lastIndex - 2].content)
+        assertEquals(prefix, sent[sent.lastIndex - 1].content)
+        assertEquals(com.moge.app.data.llm.CONTINUE_INSTRUCTION, sent.last().content)
+        assertEquals(prefix + "第二步给出最终结果。", db.conversationDao().getMessage(old.answerMessageId)!!.content)
+        assertEquals(2, db.conversationDao().getMessages("c1").size)
+    }
+
+    @Test fun `resume receiving no new answer retains its prefix and stays interrupted`() = runBlocking {
+        val prefix = "已经生成的步骤"
+        val id = submitAndInterrupt("原问题", prefix)
+        val old = requestRepository.get(id)!!
+        val snapshot = manager.captureRetrySnapshot(old).copy(continuationText = prefix)
+        stubCapturing("见上")
+        requestRepository.beginRetry(id, "resume-empty", com.moge.app.data.llm.SnapshotCodec.encode(snapshot),
+            emptyList(), expectedAttemptId = old.attemptId)!!
+        manager.submitRetry(id, "resume-empty")
+        assertEquals(RequestStatus.INTERRUPTED.name, awaitTerminal(id))
+        assertEquals(prefix, requestRepository.get(id)!!.partialText)
+    }
+
+    @Test fun `resume preparation failure retains the prefix without calling the model`() = runBlocking {
+        val prefix = "已经保存的步骤"
+        val id = submitAndInterrupt("原问题", prefix)
+        val snapshot = com.moge.app.data.llm.RequestSnapshot(continuationText = prefix)
+        capturedMessages.clear()
+        requestRepository.beginRetry(id, "resume-invalid", com.moge.app.data.llm.SnapshotCodec.encode(snapshot), emptyList())!!
+        manager.submitRetry(id, "resume-invalid")
+        assertEquals(RequestStatus.INTERRUPTED.name, awaitTerminal(id))
+        assertEquals(prefix, requestRepository.get(id)!!.partialText)
+        assertTrue(capturedMessages.isEmpty())
+    }
+
+    @Test fun `resume cannot claim a record whose attempt changed after it was read`() = runBlocking {
+        val id = submitAndInterrupt("原问题", "保存的步骤")
+        val old = requestRepository.get(id)!!
+        assertEquals(null, requestRepository.beginRetry(id, "stale", null, null, expectedAttemptId = "other-attempt"))
+        assertEquals(old.attemptId, requestRepository.get(id)!!.attemptId)
+    }
+
     @Test
     fun `retry sends the original question again`() = runBlocking {
         val requestId = submitAndInterrupt("原问题：什么是导数", "半截")

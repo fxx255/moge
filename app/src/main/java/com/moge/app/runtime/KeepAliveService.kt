@@ -66,6 +66,7 @@ class ForegroundGenerationGuard @Inject constructor(
 ) : GenerationGuard {
 
     private val holders = ConcurrentHashMap<String, String>()
+    private val cpu = GenerationWakeLock(context)
 
     /**
      * 「改持有者集合 + 起/停服务」是一个复合动作，必须串行：否则 A 刚 putIfAbsent
@@ -80,7 +81,7 @@ class ForegroundGenerationGuard @Inject constructor(
             val previous = holders.putIfAbsent(requestId, token)
             if (previous != null) return previous
             // 启动失败时不保留持有者：activeCount() 不能虚报「已受保护」。
-            if (!startServiceSafely(conversationId)) holders.remove(requestId, token)
+            if (!startServiceSafely(conversationId)) holders.remove(requestId, token) else cpu.start()
             return token
         }
     }
@@ -89,7 +90,10 @@ class ForegroundGenerationGuard @Inject constructor(
         synchronized(lock) {
             val requestId = token.substringBeforeLast('#')
             // 只有仍持有该令牌的调用者才有权释放；晚到的旧 release 不会误停服务。
-            if (holders.remove(requestId, token) && holders.isEmpty()) stopServiceSafely()
+            if (holders.remove(requestId, token) && holders.isEmpty()) {
+                cpu.stop()
+                stopServiceSafely()
+            }
         }
     }
 
@@ -128,12 +132,17 @@ class KeepAliveService : Service() {
             EntryPointAccessors.fromApplication(applicationContext, KeepAliveEntryPoint::class.java)
                 .generationManager()
         }.onFailure { Log.w(TAG, "注入生成管理器失败，超时回调将无法取消网络", it) }.getOrNull()
-        ensureChannel(this)
-        val notification = buildNotification(generationManager?.activeConversationId())
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        runCatching {
+            ensureChannel(this)
+            val notification = buildNotification(generationManager?.activeConversationId())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.onFailure {
+            Log.w(TAG, "系统拒绝前台保活，生成仍由应用管理器持有", it)
+            stopSelf()
         }
     }
 
@@ -174,6 +183,8 @@ class KeepAliveService : Service() {
             .setContentTitle(getString(R.string.keepalive_title))
             .setContentText(getString(R.string.keepalive_text))
             .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setSilent(true)
             .setContentIntent(contentIntent(conversationId))
             .build()

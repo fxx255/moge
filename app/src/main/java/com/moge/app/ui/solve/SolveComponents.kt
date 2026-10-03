@@ -189,6 +189,7 @@ internal fun AnswerSheet(
     answerFirst: Boolean = false,
     onShare: () -> Unit = {},
     onSave: () -> Unit = {},
+    onResume: (String) -> Unit = {},
 ) {
     val paper = MogeTheme.paper
     val motion = MogeTheme.motionEnabled
@@ -240,7 +241,7 @@ internal fun AnswerSheet(
             AnswerState.FAILED, AnswerState.STOPPED ->
                 if (item.text.isNotBlank()) StreamingMarkdownBody(item.text)
         }
-        AnswerFooter(item, onRetry, onRegenerate, actionsEnabled, onShare, onSave)
+        AnswerFooter(item, onRetry, onRegenerate, actionsEnabled, onShare, onSave, onResume)
     }
 }
 
@@ -319,6 +320,7 @@ private fun GeneratingHint(text: String) {
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun AnswerFooter(
     item: SolveItem.Answer,
     onRetry: (String) -> Unit,
@@ -326,6 +328,7 @@ private fun AnswerFooter(
     actionsEnabled: Boolean,
     onShare: () -> Unit,
     onSave: () -> Unit,
+    onResume: (String) -> Unit,
 ) {
     when (item.state) {
         AnswerState.COMPLETED -> AnswerActions(item, onRegenerate, actionsEnabled, onShare, onSave)
@@ -337,12 +340,13 @@ private fun AnswerFooter(
                 color = MaterialTheme.colorScheme.error,
             )
             item.retryRequestId?.let { requestId ->
-                OutlinedButton(
-                    onClick = { onRetry(requestId) },
-                    enabled = actionsEnabled,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("重新发送")
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item.resumeRequestId?.let { resumeId ->
+                        OutlinedButton(onClick = { onResume(resumeId) }, enabled = actionsEnabled,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text("接着生成") }
+                    }
+                    OutlinedButton(onClick = { onRetry(requestId) }, enabled = actionsEnabled,
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("重新发送") }
                 }
             }
         }

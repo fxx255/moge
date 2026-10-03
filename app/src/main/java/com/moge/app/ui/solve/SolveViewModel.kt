@@ -427,7 +427,11 @@ class SolveViewModel @Inject constructor(
      * 复用**原用户消息与回答位置**，只换 attemptId：最终只有一条提问、一个回答位置。
      * 按**当前**服务商重新捕获快照（用户可能刚在设置里换了模型），原附件重新走看图路线。
      */
-    fun retry(requestId: String) {
+    fun retry(requestId: String) = recoverInterrupted(requestId, continueAnswer = false)
+
+    fun resume(requestId: String) = recoverInterrupted(requestId, continueAnswer = true)
+
+    private fun recoverInterrupted(requestId: String, continueAnswer: Boolean) {
         if (submitting.value) return
         if (generationManager.active.value.isRunning) {
             notice.value = "另一道题正在生成回答，请稍后再重发"
@@ -448,6 +452,10 @@ class SolveViewModel @Inject constructor(
                 if (RequestStatus.fromName(existing.status) != RequestStatus.INTERRUPTED) {
                     return@launch // 已被别处重发或已完成：列表会随 Room 自己刷新
                 }
+                if (continueAnswer && existing.partialText.isBlank()) {
+                    notice.value = "还没有可接续的回答，请选择重新发送"
+                    return@launch
+                }
                 // 用户已经追问过：这条中断保留为历史记录，不插队重放。
                 val latestUser = conversationRepository.messages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
@@ -462,11 +470,14 @@ class SolveViewModel @Inject constructor(
                     notice.value = "原题目里有 $missing 张图片已被清理，无法重发，请重新拍题"
                     return@launch
                 }
-                val snapshot = generationManager.captureRetrySnapshot(existing, attachments)
+                val snapshot = generationManager.captureRetrySnapshot(existing, attachments).copy(
+                    continuationText = if (continueAnswer) existing.partialText else "",
+                )
                 val attempt = UUID.randomUUID().toString()
                 newAttempt = attempt
                 // 原子 CAS：并发/重复点只有一个能抢到；已不是 INTERRUPTED 时返回 null。
-                requestRepository.beginRetry(requestId, attempt, SnapshotCodec.encode(snapshot), attachments)
+                requestRepository.beginRetry(requestId, attempt, SnapshotCodec.encode(snapshot), attachments,
+                    expectedAttemptId = existing.attemptId)
                     ?: run {
                         newAttempt = null
                         return@launch
@@ -477,7 +488,7 @@ class SolveViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                notice.value = e.message ?: "重发失败"
+                notice.value = e.message ?: if (continueAnswer) "接续失败" else "重发失败"
             } finally {
                 rollbackRejectedRetry(requestId, newAttempt)
                 submitting.value = false

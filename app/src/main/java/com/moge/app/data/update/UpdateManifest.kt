@@ -17,11 +17,12 @@ import java.util.concurrent.TimeUnit
 internal fun shouldCheckOnLaunch(now: Long, previousAttempt: Long): Boolean =
     previousAttempt <= 0 || now < previousAttempt || now - previousAttempt >= TimeUnit.HOURS.toMillis(24)
 
-/** Only a GitHub identifier is configurable; the transport origin cannot be changed. */
+/** Metadata always identifies canonical GitHub assets, independently of their transport. */
 class UpdateRepository private constructor(val owner: String, val name: String) {
     val identifier: String get() = "$owner/$name"
     val projectUrl: String get() = "https://github.com/$identifier"
     val latestApiUrl: String get() = "https://api.github.com/repos/$identifier/releases/latest"
+    val latestManifestUrl: String get() = "$projectUrl/releases/latest/download/${UpdateManifest.MANIFEST_NAME}"
 
     fun releaseUrl(tag: String): String = "$projectUrl/releases/tag/${segment(tag)}"
     fun assetUrl(tag: String, asset: String): String =
@@ -52,6 +53,7 @@ data class UpdateManifest(
     val releaseUrl: String,
     val repositoryUrl: String,
     val tag: String,
+    val releaseNotes: String = "",
 ) {
     fun toJson(): String = JsonObject(mapOf(
         "schemaVersion" to JsonPrimitive(1), "versionCode" to JsonPrimitive(versionCode),
@@ -61,6 +63,7 @@ data class UpdateManifest(
         "apkUrl" to JsonPrimitive(apkUrl), "releaseUrl" to JsonPrimitive(releaseUrl),
         "repositoryUrl" to JsonPrimitive(repositoryUrl), "tag" to JsonPrimitive(tag),
         "abi" to JsonPrimitive("arm64-v8a"),
+        "releaseNotes" to JsonPrimitive(releaseNotes),
     )).toString()
 
     companion object {
@@ -95,7 +98,8 @@ data class UpdateManifest(
             require(apkUrl == repository.assetUrl(releaseTag, APK_NAME))
             require(releaseUrl == repository.releaseUrl(releaseTag) && repositoryUrl == repository.projectUrl)
             return UpdateManifest(versionCode, versionName, minSdk, expectedPackage, size, hash, certificate,
-                apkUrl, releaseUrl, repositoryUrl, releaseTag)
+                apkUrl, releaseUrl, repositoryUrl, releaseTag,
+                root["releaseNotes"]?.jsonPrimitive?.takeIf { it.isString }?.content.orEmpty().take(16_000))
         }
     }
 }

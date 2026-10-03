@@ -67,7 +67,9 @@ class SolveItemsTest {
         )
         val answers = buildSolveItems("c", messages, reqs, ActiveState()).filterIsInstance<SolveItem.Answer>()
         assertNull(answers[0].retryRequestId)
+        assertNull(answers[0].resumeRequestId)
         assertEquals("r-a2", answers[1].retryRequestId)
+        assertEquals("r-a2", answers[1].resumeRequestId)
         assertEquals("新半截", answers[1].text)
         assertEquals(AnswerState.FAILED, answers[1].state)
     }

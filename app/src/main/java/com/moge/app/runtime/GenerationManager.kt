@@ -146,6 +146,7 @@ class GenerationManager @Inject constructor(
          * 发往另一个供应商。
          */
         val policy: RequestPolicy? = null,
+        val continuationText: String = "",
     )
 
     /**
@@ -792,6 +793,7 @@ class GenerationManager @Inject constructor(
                 phase = RequestStatus.PREPARING,
                 ownsTask = true,
                 answerMessageId = record.answerMessageId,
+                partialText = SnapshotCodec.decode(record.snapshotJson)?.continuationText.orEmpty(),
             )
             launchTurn(owner, record.conversationId, record.answerMessageId) { owned ->
                 runRetry(record, attemptId, owned)
@@ -825,12 +827,13 @@ class GenerationManager @Inject constructor(
     }
 
     private suspend fun runRetry(record: RequestEntity, attemptId: String, owner: TaskOwner) {
+        val prefix = SnapshotCodec.decode(record.snapshotJson)?.continuationText.orEmpty()
         // 保护覆盖准备阶段（重试也要重新编码/校验附件）。
         val token = guard.acquire(record.requestId, record.conversationId)
         try {
             val prepared = preparer.prepareRetry(record)
             if (prepared.failure != null) {
-                settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, "")
+                settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, prefix)
                 return
             }
             val persisted = requestRepository.saveSnapshotForAttempt(record.requestId, attemptId, prepared.snapshot, record)
@@ -839,7 +842,7 @@ class GenerationManager @Inject constructor(
                     owner, record,
                     "本轮恢复信息未能写入（attempt 已过期），已停止",
                     FailureKind.NETWORK,
-                    "",
+                    prefix,
                 )
                 return
             }
@@ -852,10 +855,10 @@ class GenerationManager @Inject constructor(
                 guardToken = token,
             )
         } catch (cancelledError: CancellationException) {
-            settleStoppedOnce(owner, record, "")
+            settleStoppedOnce(owner, record, prefix)
             throw cancelledError
         } catch (error: Throwable) {
-            settleFailureOnce(owner, record, describePreparationError(error), classify(error), "")
+            settleFailureOnce(owner, record, describePreparationError(error), classify(error), prefix)
         } finally {
             guard.release(token)
         }
@@ -882,6 +885,7 @@ class GenerationManager @Inject constructor(
         usageGroupKey = prepared.usageGroupKey,
         modelLabel = modelLabelFor(prepared.snapshot),
         policy = prepared.policy,
+        continuationText = prepared.snapshot.continuationText,
     )
 
     /** 转写结果存到用户消息上供题目卡核对；写失败不影响生成。 */
@@ -1119,9 +1123,9 @@ class GenerationManager @Inject constructor(
         val answerMessageId = record?.answerMessageId ?: request.answerMessageId
         val timer = GenerationTimer(monotonicClock)
         // 每个 HTTP 轮次一个解码器：续写/恢复是不同的请求体，正文要分别累积再合并。
-        var partial = ""
+        var partial = request.continuationText
         var extraRequests = 0
-        var confirmedText = ""
+        var confirmedText = request.continuationText
         val decoder = IncrementalReplyDecoder()
         val answerDecoder = IncrementalReplyDecoder("answer")
         var lastFlushAt = 0L
@@ -1156,6 +1160,7 @@ class GenerationManager @Inject constructor(
         val ownsToken = guardToken == null
         val token = guardToken ?: guard.acquire(requestId, request.conversationId)
         try {
+            if (request.continuationText.isNotEmpty()) updateActive(owner) { it.copy(partialText = confirmedText) }
             _events.emit(
                 GenerationEvent.Started(
                     requestId = requestId,
@@ -1179,14 +1184,25 @@ class GenerationManager @Inject constructor(
             var shouldStop = false
             // 图表跨轮累积：只用最后一轮的 plots 会丢掉前面轮次已产出的图，
             // 表现为正文写着「见下图」而图整个消失。
-            val accumulatedFigures = mutableListOf<ReplyFigure>()
+            // Interrupted figure specs are not persisted; reserve their slots so fresh figures
+            // cannot silently replace an earlier figure referenced by the saved prefix.
+            val prefixFigureCount = com.moge.app.data.parse.findFigureAnchors(request.continuationText)
+                .mapNotNull { it.number }.maxOrNull()?.coerceIn(0, 512) ?: 0
+            val accumulatedFigures = MutableList<ReplyFigure>(prefixFigureCount) { ReplyFigure.Missing }
 
             while (!shouldStop) {
                 val firstRound = continuation == 0
-                val history = if (firstRound) {
+                val resuming = firstRound && request.continuationText.isNotBlank()
+                val history = if (firstRound && !resuming) {
                     request.history
                 } else {
-                    request.history +
+                    val base = if (request.continuationText.isNotBlank() && request.imageBase64s.isNotEmpty()) {
+                        val questionIndex = request.history.indexOfLast { it.role == "user" }
+                        request.history.mapIndexed { index, message ->
+                            if (index == questionIndex) message.copy(imageBase64s = request.imageBase64s) else message
+                        }
+                    } else request.history
+                    base +
                         ChatMessage("assistant", confirmedText.takeLast(CONTINUATION_ECHO_CHARS)) +
                         ChatMessage("user", CONTINUE_INSTRUCTION)
                 }
@@ -1197,7 +1213,7 @@ class GenerationManager @Inject constructor(
                 val reply = modelClient.chatStreaming(
                     messages = history,
                     solveMode = request.solveMode,
-                    imageBase64s = if (firstRound) request.imageBase64s else emptyList(),
+                    imageBase64s = if (firstRound && !resuming) request.imageBase64s else emptyList(),
                     webSearchEnabled = request.webSearchEnabled && firstRound,
                     forceWebSearch = request.forceWebSearch && firstRound,
                     // 这一轮 HTTP 调用的 usage：成功/失败/缺失都要计数。
@@ -1240,7 +1256,9 @@ class GenerationManager @Inject constructor(
                             if (delta.isNotEmpty()) {
                                 timer.markVisibleText()
                                 roundText.append(delta)
-                                partial = confirmedText + roundText
+                                partial = if (request.continuationText.isNotEmpty()) {
+                                    mergeContinuation(confirmedText, roundText.toString())
+                                } else confirmedText + roundText
                                 // 可重放状态：页面重新订阅后立刻能看到当前正文。
                                 _active.update {
                                     if (it.requestId == requestId && it.attemptId == request.attemptId) {
@@ -1292,8 +1310,8 @@ class GenerationManager @Inject constructor(
                 // Clear the transient placeholder before the existing failure
                 // path stores partial text, so the user gets a retry entry
                 // instead of a successful empty/placeholder bubble.
-                if (part.isBlank() && confirmedText.isBlank() && reply.orderedFigures().isEmpty()) {
-                    partial = ""
+                if (part.isBlank() && (confirmedText.isBlank() || resuming) && reply.orderedFigures().isEmpty()) {
+                    partial = confirmedText
                     throw ModelException(
                         ModelException.Kind.INVALID_RESPONSE,
                         "模型未返回有效正文，请重试",
@@ -1303,7 +1321,10 @@ class GenerationManager @Inject constructor(
                 // **保留全部合并正文**：续写必须在前文基础上追加，
                 // 绝不能只留最后一轮（那会把用户已经看到的长正文整段抹掉）。
                 if (conversationTitle == null) conversationTitle = reply.conversationTitle
-                if (firstRound) finalAnswer = localizeFigureAnchors(reply.finalAnswer, reply.orderedFigures().size)
+                if (firstRound) {
+                    finalAnswer = offsetFigureAnchors(
+                        localizeFigureAnchors(reply.finalAnswer, reply.orderedFigures().size), accumulatedFigures.size)
+                }
                 confirmedText = mergeContinuation(confirmedText, part)
                 partial = confirmedText
                 // 按轮序累积所有图的槽位（含失败槽位），失败槽位同样占号，

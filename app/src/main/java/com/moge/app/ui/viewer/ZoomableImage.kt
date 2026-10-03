@@ -98,11 +98,13 @@ internal fun ZoomableImage(
         (dimension * (currentScale - 1f) / 2f).coerceAtLeast(0f)
 
     fun clampX(value: Float, atScale: Float): Float {
+        if (!value.isFinite() || !atScale.isFinite()) return 0f
         val bound = maxOffset(atScale, boxSize.width)
         return value.coerceIn(-bound, bound)
     }
 
     fun clampY(value: Float, atScale: Float): Float {
+        if (!value.isFinite() || !atScale.isFinite()) return 0f
         val bound = maxOffset(atScale, boxSize.height)
         return value.coerceIn(-bound, bound)
     }
@@ -120,7 +122,7 @@ internal fun ZoomableImage(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
-                    var lastCentroid = Offset.Zero
+                    var lastCentroid: Offset? = null
                     var totalPanX = 0f
                     var totalPanY = 0f
                     while (true) {
@@ -130,9 +132,18 @@ internal fun ZoomableImage(
 
                         val centroid = pressed.fold(Offset.Zero) { acc, c -> acc + c.position } /
                             pressed.size.toFloat()
-                        val pan = if (lastCentroid == Offset.Zero) Offset.Zero else centroid - lastCentroid
-                        lastCentroid = centroid
                         val zoom = event.calculateZoom()
+                        if (!centroid.x.isFinite() || !centroid.y.isFinite() || !zoom.isFinite() || zoom <= 0f) {
+                            lastCentroid = null
+                            event.changes.forEach { it.consume() }
+                            continue
+                        }
+                        val pan = lastCentroid?.let { centroid - it } ?: Offset.Zero
+                        lastCentroid = centroid
+                        if (!pan.x.isFinite() || !pan.y.isFinite()) {
+                            event.changes.forEach { it.consume() }
+                            continue
+                        }
                         val zooming = abs(zoom - 1f) > 0.001f
                         val multiTouch = pressed.size >= 2
 
@@ -179,6 +190,7 @@ internal fun ZoomableImage(
                 detectTapGestures(
                     onTap = { if (scale.value <= 1.0005f) onTapToClose() },
                     onDoubleTap = { tap ->
+                        if (!tap.x.isFinite() || !tap.y.isFinite()) return@detectTapGestures
                         val current = scale.value
                         val target = if (current > 1.0005f) 1f else VIEWER_DOUBLE_TAP_SCALE
                         val center = Offset(boxSize.width / 2f, boxSize.height / 2f)

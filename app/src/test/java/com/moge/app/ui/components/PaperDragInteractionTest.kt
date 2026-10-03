@@ -294,17 +294,18 @@ class PaperDragInteractionTest {
         compose.onNodeWithTag("component-card").performTouchInput { up() }
     }
 
-    @Test fun `wide floating preview moves with no clamp scale or rotation`() {
+    @Test fun `wide floating preview shrinks uniformly while the grab stays under the finger`() {
         renderCard(width = 340.dp, height = 250.dp)
         val original = compose.onNodeWithTag("component-card").fetchSemanticsNode().boundsInRoot
         hold("component-card")
         compose.onNodeWithTag("component-card").performTouchInput { moveBy(Offset(0f, -20f), delayMillis = 240) }
         compose.waitForIdle()
         val floating = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
-        assertEquals(original.width, floating.width, 1f)
-        assertEquals(original.height, floating.height, 1f)
-        assertEquals(original.left, floating.left, 1f)
-        assertEquals(original.top - 20f, floating.top, 1f)
+        assertTrue(floating.width < original.width)
+        assertTrue(floating.height < original.height)
+        assertEquals(original.width / original.height, floating.width / floating.height, 0.001f)
+        assertEquals(original.center.x, floating.center.x, 1f)
+        assertEquals(original.center.y - 20f, floating.center.y, 1f)
         compose.onNodeWithTag("component-card").performTouchInput { cancel() }
     }
 
@@ -390,12 +391,13 @@ class PaperDragInteractionTest {
         compose.waitForIdle()
     }
 
-    @Test fun `cancelled preview keeps its size and content during return animation then clears`() {
+    @Test fun `cancelled preview restores its size and retains content during the return animation`() {
         val drag = renderCard()
         val original = compose.onNodeWithTag("component-card").fetchSemanticsNode().boundsInRoot
         hold("component-card")
         compose.onNodeWithTag("component-card").performTouchInput { moveBy(Offset(0f, -20f), delayMillis = 240) }
         compose.waitForIdle()
+        val held = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
         compose.mainClock.autoAdvance = false
         compose.onNodeWithTag("component-card").performTouchInput { cancel() }
         compose.mainClock.advanceTimeBy(32)
@@ -403,8 +405,8 @@ class PaperDragInteractionTest {
         compose.mainClock.advanceTimeBy(96)
         compose.waitForIdle()
         val returning = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
-        assertEquals(original.width, returning.width, 1f)
-        assertEquals(original.height, returning.height, 1f)
+        assertTrue(returning.width >= held.width && returning.width <= original.width + 1f)
+        assertTrue(returning.height >= held.height && returning.height <= original.height + 1f)
         compose.onNode(hasText("原始标题") and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertExists()
         compose.runOnIdle {
             assertTrue(drag.settling)
