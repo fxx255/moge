@@ -40,7 +40,7 @@ def main():
     if manifest["tag"] != args.tag or manifest["repositoryUrl"] != f"https://github.com/{args.repository}":
         raise ValueError("Release configuration differs from verified metadata")
     # gh create fails if the tag already has a release; never overwrite a published release.
-    notes_arguments = ["--body-file", str(args.notes_file)] if args.notes_file else ["--generate-notes"]
+    notes_arguments = ["--notes-file", str(args.notes_file)] if args.notes_file else ["--generate-notes"]
     if args.notes_file and args.notes_file.read_text(encoding="utf-8") != manifest.get("releaseNotes"):
         raise ValueError("Release notes differ from update metadata")
     gh("release", "create", args.tag, "--repo", args.repository, "--verify-tag", "--draft",

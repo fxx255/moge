@@ -62,6 +62,25 @@ class ReleaseTests(unittest.TestCase):
                     publish.main()
                 gh.assert_not_called()
 
+    def test_release_notes_use_the_release_cli_flag_and_preserve_exact_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk, metadata, manifest = self.fixture(directory)
+            notes = Path(directory) / "notes.md"
+            text = "更新说明\n\n- 保留换行与公式 $x^2$\n"
+            notes.write_text(text, encoding="utf-8")
+            manifest["releaseNotes"] = text
+            metadata.write_text(json.dumps(manifest), encoding="utf-8")
+            arguments = ["publish_release.py", "--repository", "test-owner/moge", "--tag", "v0.2.0",
+                         "--apk", str(apk), "--manifest", str(metadata), "--notes-file", str(notes)]
+            with patch("sys.argv", arguments), patch.object(publish, "gh") as gh:
+                gh.side_effect = ["", subprocess.CalledProcessError(1, "gh upload")]
+                with self.assertRaises(subprocess.CalledProcessError):
+                    publish.main()
+                create_arguments = gh.call_args_list[0].args
+                self.assertIn("--notes-file", create_arguments)
+                self.assertNotIn("--body-file", create_arguments)
+                self.assertEqual(create_arguments[create_arguments.index("--notes-file") + 1], str(notes))
+
     def test_rejects_non_arm64_debuggable_and_foreign_package(self):
         for badging in (BADGING.replace("arm64-v8a", "x86_64"), BADGING + "application-debuggable\n",
                         BADGING.replace("com.moge.app", "com.moge.app.debug"), BADGING.replace("'2'", "'0'")):

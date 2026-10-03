@@ -3,6 +3,12 @@ name: Official tag release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing stable tag to build and publish without moving the tag'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,6 +26,7 @@ jobs:
     permissions:
       contents: write
     env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
       MOGE_UPDATE_REPOSITORY: ${{ github.repository }}
       MOGE_UPDATE_MIRROR: 'https://ghfast.top/'
       MOGE_REQUIRE_OFFICIAL_SIGNING: 'true'
@@ -30,14 +37,29 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ inputs.release_tag || github.ref }}
+      - name: Load corrected publishing tools for an existing tag
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tooling
+          sparse-checkout: scripts/release
+      - name: Select publishing tools
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo 'RELEASE_TOOLING_DIR=.release-tooling/scripts/release' >> "$GITHUB_ENV"
+          else
+            echo 'RELEASE_TOOLING_DIR=scripts/release' >> "$GITHUB_ENV"
+          fi
       - name: Require public distribution and dedicated signing secrets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.MOGE_RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
           test -n "$RELEASE_KEYSTORE_BASE64"
           test -n "$MOGE_RELEASE_STORE_PASSWORD"
           test -n "$MOGE_RELEASE_KEY_ALIAS"
@@ -63,20 +85,17 @@ jobs:
       - name: Tests, lint and signed arm64 release
         run: |
           chmod +x gradlew
-          python3 -m unittest discover -s scripts/release -p 'test_*.py'
+          python3 -m unittest discover -s "$RELEASE_TOOLING_DIR" -p 'test_*.py'
           ./gradlew --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintRelease assembleRelease
       - name: Generate metadata from verified APK and compare published versions
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release-output
           cp app/build/outputs/apk/release/app-release.apk release-output/Moge-arm64.apk
-          python3 scripts/release/generate_update.py --apk release-output/Moge-arm64.apk --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --output release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md" --check-published
+          python3 "$RELEASE_TOOLING_DIR/generate_update.py" --apk release-output/Moge-arm64.apk --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --output release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md" --check-published
       - name: Upload both assets to draft, verify, then publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: python3 scripts/release/publish_release.py --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --apk release-output/Moge-arm64.apk --manifest release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+        run: python3 "$RELEASE_TOOLING_DIR/publish_release.py" --repository "$MOGE_UPDATE_REPOSITORY" --tag "$RELEASE_TAG" --apk release-output/Moge-arm64.apk --manifest release-output/update.json --notes-file "docs/releases/${RELEASE_TAG#v}.md"
       - name: Remove temporary signing material
         if: always()
         run: rm -f -- "${MOGE_RELEASE_STORE_FILE:-$RUNNER_TEMP/moge-release.jks}"

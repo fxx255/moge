@@ -46,6 +46,8 @@
 - `MOGE_RELEASE_KEY_ALIAS`
 - `MOGE_RELEASE_KEY_PASSWORD`
 
+发布工具需要修复时，可从默认分支手动运行同一工作流并填写已有 `release_tag`。应用、测试与版本说明仍从该标签构建，发布工具从本次手动运行的提交加载；不改写已有标签、不覆盖已发布 Release。修复工具通过 Python 测试后才运行完整应用检查与发布。
+
 发布目标自动取该 GitHub 工作流所属仓库的真实标识，不在工程中捏造 URL。工作流明确要求该分发仓库公开。若将来源码必须私有，应另行设计公开分发仓库及其授权流程；当前工作流不自动创建或跨仓库推送。
 
 工作流执行测试、Lint、签名 arm64 构建，运行 `aapt dump badging` 和 `apksigner verify --print-certs`，由实际 APK 生成 `release-output/update.json`。内容包含 schemaVersion、versionCode、versionName、minSdk、packageName、abi、文件大小、SHA-256、签名证书 SHA-256、真实仓库/Release/APK URL 与标签。
@@ -64,7 +66,7 @@
 
 ## 验证
 
-更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。13 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
+更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。14 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
 
 发布工具可单独运行：`python -m unittest discover -s scripts/release -p 'test_*.py'`。更新模块可单独运行 `testDebugUnitTest --tests 'com.moge.app.data.update.*'`；发布前应运行完整测试、release 构建与 Lint。
 
