@@ -133,13 +133,13 @@ class ReleaseTests(unittest.TestCase):
             apk, metadata, manifest = self.fixture(directory)
             arguments = ["publish_release.py", "--repository", "test-owner/moge", "--tag", "v0.2.0",
                          "--apk", str(apk), "--manifest", str(metadata)]
-            release = {"draft": True, "prerelease": False, "assets": [
+            release = {"tag_name": "v0.2.0", "draft": True, "prerelease": False, "assets": [
                 {"name": generate.APK_NAME, "size": manifest["size"]}, {"name": "update.json"}]}
             calls = []
             def fake_gh(*args):
                 calls.append(args[:2])
                 if args[0] == "api":
-                    return json.dumps(release)
+                    return json.dumps([release])
                 if args[:2] == ("release", "download"):
                     target = Path(args[args.index("--dir") + 1])
                     shutil.copyfile(apk, target / generate.APK_NAME)
@@ -154,12 +154,42 @@ class ReleaseTests(unittest.TestCase):
             apk, metadata, _ = self.fixture(directory)
             arguments = ["publish_release.py", "--repository", "test-owner/moge", "--tag", "v0.2.0",
                          "--apk", str(apk), "--manifest", str(metadata)]
-            release = {"draft": True, "prerelease": False, "assets": []}
+            release = {"tag_name": "v0.2.0", "draft": True, "prerelease": False, "assets": []}
             with patch("sys.argv", arguments), patch.object(publish, "gh") as gh:
-                gh.side_effect = ["", "", json.dumps(release), ""]
+                gh.side_effect = ["", "", json.dumps([release]), ""]
                 with self.assertRaises(ValueError):
                     publish.main()
                 self.assertFalse(any(call.args[:2] == ("release", "edit") for call in gh.call_args_list))
+
+    def test_resuming_a_draft_verifies_assets_without_creating_or_replacing_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk, metadata, manifest = self.fixture(directory)
+            arguments = ["publish_release.py", "--repository", "test-owner/moge", "--tag", "v0.2.0",
+                         "--apk", str(apk), "--manifest", str(metadata), "--resume-draft"]
+            release = {"tag_name": "v0.2.0", "draft": True, "prerelease": False, "assets": [
+                {"name": generate.APK_NAME, "size": manifest["size"]}, {"name": "update.json"}]}
+            calls = []
+            def fake_gh(*args):
+                calls.append(args)
+                if args[0] == "api":
+                    self.assertEqual(args[1], "repos/test-owner/moge/releases?per_page=100")
+                    return json.dumps([release])
+                if args[:2] == ("release", "download"):
+                    target = Path(args[args.index("--dir") + 1])
+                    shutil.copyfile(apk, target / generate.APK_NAME)
+                    shutil.copyfile(metadata, target / "update.json")
+                return ""
+            with patch("sys.argv", arguments), patch.object(publish, "gh", side_effect=fake_gh), contextlib.redirect_stdout(io.StringIO()):
+                publish.main()
+            self.assertEqual([call[:2] for call in calls], [
+                ("api", "repos/test-owner/moge/releases?per_page=100"), ("release", "download"), ("release", "edit")])
+
+    def test_resume_refuses_published_or_ambiguous_releases(self):
+        for releases in ([{"tag_name": "v0.2.0", "draft": False, "prerelease": False}],
+                         [{"tag_name": "v0.2.0", "draft": True, "prerelease": False}] * 2, []):
+            with self.subTest(releases=releases), patch.object(publish, "gh", return_value=json.dumps(releases)):
+                with self.assertRaises(ValueError):
+                    publish.find_draft("test-owner/moge", "v0.2.0")
 
     def test_older_published_release_also_blocks_downgrade(self):
         with tempfile.TemporaryDirectory() as directory:

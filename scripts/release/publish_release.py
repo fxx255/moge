@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-import urllib.parse
 
 from generate_update import APK_NAME, validate_repository
 
@@ -27,6 +26,19 @@ def verify_assets(release, manifest, downloaded_apk, downloaded_manifest):
         raise ValueError("Draft update manifest mismatch")
 
 
+def find_draft(repository, tag):
+    # The by-tag endpoint only reliably finds published releases. The authenticated
+    # release list includes drafts and lets us require one exact matching draft.
+    releases = json.loads(gh("api", f"repos/{repository}/releases?per_page=100"))
+    matches = [release for release in releases if release.get("tag_name") == tag]
+    if len(matches) != 1:
+        raise ValueError("Require one existing release for this tag")
+    release = matches[0]
+    if release.get("draft") is not True or release.get("prerelease") is not False:
+        raise ValueError("Release must still be a stable draft")
+    return release
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
@@ -34,6 +46,8 @@ def main():
     parser.add_argument("--apk", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--notes-file", type=Path)
+    parser.add_argument("--resume-draft", action="store_true",
+                        help="Verify already uploaded draft assets without replacing them, then publish")
     args = parser.parse_args()
     validate_repository(args.repository)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -43,13 +57,12 @@ def main():
     notes_arguments = ["--notes-file", str(args.notes_file)] if args.notes_file else ["--generate-notes"]
     if args.notes_file and args.notes_file.read_text(encoding="utf-8") != manifest.get("releaseNotes"):
         raise ValueError("Release notes differ from update metadata")
-    gh("release", "create", args.tag, "--repo", args.repository, "--verify-tag", "--draft",
-       "--title", f"Moge {manifest['versionName']}", *notes_arguments)
-    # Any failure below leaves a draft, which the default updater never observes.
-    gh("release", "upload", args.tag, str(args.apk), str(args.manifest), "--repo", args.repository)
-    release = json.loads(gh("api", f"repos/{args.repository}/releases/tags/{urllib.parse.quote(args.tag, safe='')}"))
-    if release.get("draft") is not True or release.get("prerelease") is not False:
-        raise ValueError("Release must still be a stable draft")
+    if not args.resume_draft:
+        gh("release", "create", args.tag, "--repo", args.repository, "--verify-tag", "--draft",
+           "--title", f"Moge {manifest['versionName']}", *notes_arguments)
+        # Any failure below leaves a draft, which the default updater never observes.
+        gh("release", "upload", args.tag, str(args.apk), str(args.manifest), "--repo", args.repository)
+    release = find_draft(args.repository, args.tag)
     with tempfile.TemporaryDirectory(prefix="moge-draft-") as directory:
         gh("release", "download", args.tag, "--repo", args.repository, "--dir", directory)
         verify_assets(release, manifest, Path(directory) / APK_NAME, Path(directory) / "update.json")

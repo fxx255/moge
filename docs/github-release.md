@@ -54,7 +54,7 @@
 
 元数据生成器通过无凭证的公共接口检查此前所有正式 Release（有界分页），拒绝相同或更低版本编号和签名变化。已有正式 Release 缺少元数据时会停止，需要人工核对此前的发布历史；不会猜测已发布版本。
 
-只有全部检查通过才创建 draft Release，上传固定命名的 `Moge-arm64.apk` 和 `update.json`，重新下载草稿资产验证大小、SHA-256 与元数据内容，最后一次操作将草稿转为正式 Release。中途失败保留不可见草稿，不覆盖同标签已有 Release。修复并核对后删除失败草稿再重新运行。所有发布标签共用并发组，防止版本检查互相竞争。
+只有全部检查通过才创建 draft Release，上传固定命名的 `Moge-arm64.apk` 和 `update.json`，重新下载草稿资产验证大小、SHA-256 与元数据内容，最后一次操作将草稿转为正式 Release。中途失败保留不可见草稿，不覆盖同标签已有 Release。若 APK、元数据和应用检查均已通过，仅最终发布中断，可以用 `publish_release.py --resume-draft` 核验并发布现有草稿，不重新创建或替换资产；已公开版本拒绝此操作。草稿通过认证的 Release 列表查找，避免按标签查询接口漏掉草稿。所有发布标签共用并发组，防止版本检查互相竞争。
 
 ## 客户端安全与恢复
 
@@ -66,7 +66,7 @@
 
 ## 验证
 
-更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。14 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
+更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。16 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
 
 发布工具可单独运行：`python -m unittest discover -s scripts/release -p 'test_*.py'`。更新模块可单独运行 `testDebugUnitTest --tests 'com.moge.app.data.update.*'`；发布前应运行完整测试、release 构建与 Lint。
 

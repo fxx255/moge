@@ -79,7 +79,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-0.2.7 的本地完整验证通过 **972 项 Android 单元测试**。0.3.1 新增图片内存处理、拖动缩放、中断续写、唤醒锁和更新镜像的定向检查；发布脚本有 **14 项测试**。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
+0.2.7 的本地完整验证通过 **972 项 Android 单元测试**。0.3.1 新增图片内存处理、拖动缩放、中断续写、唤醒锁和更新镜像的定向检查；发布脚本有 **16 项测试**。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
