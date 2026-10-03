@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前源码版本：**0.2.4**（`versionCode = 6`），仍处于开发阶段。
+当前源码版本：**0.2.5**（`versionCode = 7`），仍处于开发阶段。
 
 ## 功能
 
@@ -79,9 +79,11 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-截至 0.2.4 公式与拖动改进，本地完整验证通过 **804 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
+截至 0.2.5 回答滚动显示修复，本地完整验证通过 **808 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
+
+0.2.5 修复回答首次测量使用空文本高度的问题，覆盖完成回答与流式正文，详见 [滚动显示修复报告](docs/answer-scroll-fix-report.md)。
 
 ## 稿纸分享示例
 

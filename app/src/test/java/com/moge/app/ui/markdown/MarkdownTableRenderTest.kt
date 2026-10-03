@@ -35,8 +35,8 @@ import ru.noties.jlatexmath.JLatexMathAndroid
  * 行高公式是「单元格内容高 + 2 × padding」（`TableRowSpan.getSize`），Markwon 默认 4dp
  * 在 density 3 的真机上每行上下要吃掉 24px，文字很少的表格也会显得很空。
  *
- * 另外这里顺便钉住「表格行高为什么必须复测」这个根因，防止后人误删 [MarkdownChunk] 里的
- * 强制重排逻辑（详见该用例注释）。
+ * 另外这里顺便钉住「表格行高为什么必须复测」这个根因，确认异步 span 的正常布局请求仍能生效
+ * （详见该用例注释与 [MarkdownAsyncLayoutTest]）。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)

@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,7 +28,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
@@ -120,25 +120,22 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
-    var widthPx by remember { mutableIntStateOf(0) }
-    var host by remember { mutableStateOf<TextView?>(null) }
-    LaunchedEffect(host, snapshot.tailId, snapshot.tail, widthPx) {
-        val view = host ?: return@LaunchedEffect
-        if (widthPx <= 0) return@LaunchedEffect
-        withFrameNanos { }
-        view.requestLayout()
-    }
-    key(textColor, linkColor, fontSizePx) {
-    AndroidView(
-        modifier = Modifier.fillMaxWidth().clipToBounds().onSizeChanged { widthPx = it.width },
-        factory = { context ->
-            createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx).also { host = it }
-        },
-        update = { view ->
-            host = view
-            renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
-        },
-    )
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
+        key(textColor, linkColor, fontSizePx) {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().clipToBounds(),
+                factory = { context ->
+                    createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx).also { view ->
+                        // LazyColumn can measure a View before its first attached update.
+                        renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
+                    }
+                },
+                update = { view ->
+                    renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
+                },
+            )
+        }
     }
 }
 
@@ -575,9 +572,6 @@ internal fun MarkdownChunk(
 ) {
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
-    var widthPx by remember { mutableIntStateOf(0) }
-    var host by remember { mutableStateOf<TextView?>(null) }
-    val renderWidthPx = fixedWidthPx ?: widthPx
     val density = LocalDensity.current
     val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     val widthModifier = if (fixedWidthPx != null) {
@@ -585,26 +579,25 @@ internal fun MarkdownChunk(
     } else {
         Modifier.fillMaxWidth()
     }
-    // The final Markdown view can be first measured while still empty. Its text is
-    // populated by AndroidView.update; request one more measure after that frame,
-    // including when a review button is inserted beneath the same LazyColumn item.
-    LaunchedEffect(host, content, renderWidthPx) {
-        val view = host ?: return@LaunchedEffect
-        if (renderWidthPx <= 0) return@LaunchedEffect
-        withFrameNanos { }
-        if (view.getTag(R.id.markdown_render_key) != null) view.requestLayout()
-    }
-    key(textColor, linkColor, fontSizePx) {
-    AndroidView(
-        modifier = widthModifier.clipToBounds().onSizeChanged { widthPx = it.width },
-        factory = { context ->
-            createMarkdownTextView(context, textColor, linkColor, selectable = selectable, fontSizePx = fontSizePx)
-        },
-        update = { view ->
-            host = view
-            // A detached TextView can return with stale text even when its content key is unchanged.
-            renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
-        },
-    )
+    // Obtain the actual constrained width before creating the native View. Waiting
+    // for onSizeChanged left its first LazyColumn placement measured as empty text;
+    // detached/premeasured items could keep that single-line slot until another scroll.
+    BoxWithConstraints(widthModifier) {
+        val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
+        key(textColor, linkColor, fontSizePx, selectable) {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().clipToBounds(),
+                factory = { context ->
+                    createMarkdownTextView(context, textColor, linkColor,
+                        selectable = selectable, fontSizePx = fontSizePx).also { view ->
+                        renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
+                    }
+                },
+                update = { view ->
+                    // Also recover stale native text when an existing View reattaches.
+                    renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
+                },
+            )
+        }
     }
 }

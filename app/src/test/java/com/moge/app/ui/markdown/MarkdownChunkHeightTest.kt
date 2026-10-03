@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
  * 父 Column 仍按「一行高」给后续兄弟节点排布 ⇒ 后面的图与表格被压进前面撑开的
  * 区域里，触摸命中错乱。
  *
- * 修法是渲染完主动按精确宽度重新 measure 一次，把 wrap_content 的真实高度报给 Compose。
+ * 当前生产代码在创建 View 前取得约束宽度并填入正文，再由 AndroidView 正常测量。
  * 这里用真实 TextView 验证这个前提：**先测量后填内容，量到的高度会明显偏小**。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -79,7 +79,7 @@ class MarkdownChunkHeightTest {
     @Test
     fun `重新测量能拿到内容的真实高度`() {
         val view = newTextView()
-        // 先量一次（模拟首次布局），再填内容、再量一次（模拟修复后的主动测量）
+        // 先量一次（模拟首次布局），再填内容、再量一次（模拟 AndroidView 收到布局请求后的正常复测）
         val heightWhenEmpty = measureHeight(view, 800)
         view.text = (1..20).joinToString("\n") { "第 $it 行" }
         val remeasured = measureHeight(view, 800)
@@ -94,7 +94,7 @@ class MarkdownChunkHeightTest {
      *
      * 这里复刻真实时序并确认「不主动重新测量」的后果 —— 量到的始终是空视图那个很小的值，
      * 而这正是后续兄弟节点被错误排布、触摸命中错乱的源头。
-     * 生产代码用 `measuredHeightCompat()` 在渲染后主动重测来打破这个僵局。
+     * 生产代码先渲染再交给 AndroidView 测量；异步 span 更新通过正常布局请求复测。
      */
     @Test
     fun `不主动重测就会一直沿用空视图的高度`() {

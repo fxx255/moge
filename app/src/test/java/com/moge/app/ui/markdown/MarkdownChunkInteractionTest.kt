@@ -145,7 +145,7 @@ class MarkdownChunkInteractionTest {
      * 按生产路径独立量出内容的真实高度（与 MarkdownChunk 内部同一套规则）。
      *
      * 量两次、取第二次：Markwon 的表格 span 在首次 measure 时高度可能尚未计入，
-     * 生产路径（update + LaunchedEffect 反复渲染测量）等价于复测后的稳定值。
+     * 生产路径由 AndroidView 正常测量，异步 span 通过布局请求收敛到复测后的稳定值。
      */
     private fun measureTextViewHeight(content: String, widthPx: Int, selectable: Boolean): Int {
         val context = RuntimeEnvironment.getApplication()
