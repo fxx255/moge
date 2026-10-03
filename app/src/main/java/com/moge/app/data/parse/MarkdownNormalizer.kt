@@ -241,6 +241,7 @@ private fun escapeTableRowPipes(row: String): String {
 /** Converts common model LaTeX delimiters to the double-dollar syntax used by Markwon. */
 private fun normalizeMathDelimiters(markdown: String): String {
     var fence: String? = null
+    var inMath = false
     return markdown.split('\n').joinToString("\n") { line ->
         val trimmedStart = line.trimStart()
         val lineFence = when {
@@ -255,12 +256,118 @@ private fun normalizeMathDelimiters(markdown: String): String {
             line
         } else {
             val trimmed = line.trim()
-            when (trimmed) {
+            val normalized = when (trimmed) {
                 "\\[", "\\]" -> line.replace(trimmed, "${'$'}${'$'}")
                 else -> normalizeInlineMathDelimiters(line)
             }
+            val result = if (!inMath && looksLikeBareLatexContinuation(normalized)) {
+                "$$\n${normalized.trim()}\n$$"
+            } else normalized
+            if (canonicalMathDelimiterCount(normalized) % 2 == 1) inMath = !inMath
+            result
         }
     }
+}
+
+/** Count canonical delimiters with the same code/escape rules as inline normalization. */
+private fun canonicalMathDelimiterCount(line: String): Int {
+    var count = 0
+    var ticks = 0
+    var index = 0
+    while (index < line.length) {
+        if (line[index] == '`') {
+            val run = line.runLength(index, '`')
+            ticks = if (ticks == 0) run else if (ticks == run) 0 else ticks
+            index += run
+        } else if (ticks == 0 && line.startsWith("$$", index) && !line.isEscaped(index)) {
+            count++
+            index += 2
+        } else index++
+    }
+    return count
+}
+
+/**
+ * Recover a formula-only continuation such as =\arcsin\Bigl(...)\Bigr).
+ * Require a known TeX command, single-letter variables and closed groups; prose,
+ * paths, code, unfinished output and already delimited formulas fail closed.
+ */
+private fun looksLikeBareLatexContinuation(line: String): Boolean {
+    val value = mathOutsideTextArguments(line.trim()) ?: return false
+    if (!value.startsWith('=')) return false
+    val groups = ArrayList<Char>()
+    var commandSeen = false
+    var index = 1
+    while (index < value.length) {
+        val c = value[index]
+        when {
+            c == '\\' -> {
+                val start = ++index
+                while (value.getOrNull(index)?.let { it in 'a'..'z' || it in 'A'..'Z' } == true) index++
+                val command = value.substring(start, index)
+                if (command.isEmpty()) {
+                    if (value.getOrNull(index) !in listOf(',', ';', ':', '!', '{', '}', '|', ' ')) return false
+                    index++
+                } else {
+                    if (command !in BARE_CONTINUATION_COMMANDS) return false
+                    commandSeen = true
+                }
+            }
+            c in 'a'..'z' || c in 'A'..'Z' -> {
+                index++
+                if (value.getOrNull(index)?.let { it in 'a'..'z' || it in 'A'..'Z' } == true) return false
+            }
+            c in "{([" -> { groups += c; index++ }
+            c in "})]" -> {
+                val opening = when (c) { '}' -> '{'; ')' -> '('; else -> '[' }
+                if (groups.lastOrNull() != opening) return false
+                groups.removeAt(groups.lastIndex)
+                index++
+            }
+            c.isWhitespace() || c.isDigit() || c in "+-=<>^_.,|!" -> index++
+            else -> return false
+        }
+    }
+    return commandSeen && groups.isEmpty() && value.lastOrNull() !in listOf('^', '_', '\\', '+', '-', '=')
+}
+
+private val LATEX_TEXT_ARGUMENT_COMMANDS = setOf(
+    "text", "textrm", "textsf", "texttt", "textnormal", "textbf", "textit", "mbox", "operatorname",
+)
+private val BARE_CONTINUATION_COMMANDS = DUPLICATE_LATEX_COMMANDS + LATEX_TEXT_ARGUMENT_COMMANDS + setOf(
+    "arcsin", "arccos", "arctan", "bigl", "bigr", "Bigl", "Bigr", "biggl", "biggr", "Biggl", "Biggr",
+)
+
+/** Inspect math tokens without rejecting Chinese inside a complete TeX text argument. */
+private fun mathOutsideTextArguments(latex: String): String? {
+    val out = StringBuilder(latex.length)
+    var index = 0
+    while (index < latex.length) {
+        if (latex[index] != '\\') {
+            out.append(latex[index++])
+            continue
+        }
+        val start = index++
+        val commandStart = index
+        while (latex.getOrNull(index)?.let { it in 'a'..'z' || it in 'A'..'Z' } == true) index++
+        if (index == commandStart && index < latex.length) index++
+        out.append(latex, start, index)
+        if (latex.substring(commandStart, index) !in LATEX_TEXT_ARGUMENT_COMMANDS) continue
+        while (latex.getOrNull(index)?.isWhitespace() == true) out.append(latex[index++])
+        if (latex.getOrNull(index) != '{') continue
+        var depth = 1
+        index++
+        while (index < latex.length && depth > 0) {
+            if (!latex.isEscaped(index)) {
+                if (latex[index] == '{') depth++
+                if (latex[index] == '}') depth--
+            }
+            index++
+        }
+        if (depth != 0) return null
+        out.append("{}")
+    }
+    return out.toString()
 }
 
 private fun normalizeInlineMathDelimiters(line: String): String {
@@ -348,7 +455,7 @@ private fun String.runLength(startIndex: Int, char: Char): Int {
 }
 
 private fun looksLikeInlineMath(raw: String): Boolean {
-    val value = raw.trim()
+    val value = mathOutsideTextArguments(raw.trim()) ?: return false
     if (value.isBlank() || value.any { it in '\u3400'..'\u9fff' }) return false
     // 这里**不能**把纯数字排除掉。
     //

@@ -75,6 +75,9 @@ internal class PaperDragState {
             visual?.pointer?.let { expandCategories(it, it) }
             updateHover()
         }
+    var categoryActivationBounds: Rect = Rect.Zero
+        set(value) { field = value; visual?.pointer?.let { expandCategories(it, it) }; updateHover() }
+    var curvedDeleteZone = false
     var categoryBounds: Rect = Rect.Zero
         set(value) { field = value; updateHover() }
     // Resolve live coordinates at release too: scrolling, clipping, and disposal can change
@@ -111,7 +114,7 @@ internal class PaperDragState {
     private fun expandCategories(previous: Offset, next: Offset) {
         val current = visual ?: return
         if (!held || !moved || categoriesExpanded || next.y >= current.start.y) return
-        val prompt = categoryPromptBounds.intersect(rootBounds)
+        val prompt = (categoryActivationBounds.takeUnless { it.isEmpty } ?: categoryPromptBounds).intersect(rootBounds)
         if (prompt.isEmpty) return
         val crossesPrompt = if (next.y < previous.y && previous.y >= prompt.top && next.y < prompt.bottom) {
             val y = previous.y.coerceIn(prompt.top, prompt.bottom)
@@ -148,7 +151,8 @@ internal class PaperDragState {
         val point = visual?.pointer ?: return
         hovered = if (!held || !moved) null else targets.keys.firstOrNull { target ->
             val bounds = visibleTargetBounds(target)
-            !bounds.isEmpty && bounds.contains(point)
+            !bounds.isEmpty && bounds.contains(point) &&
+                (target != PaperDropTarget.Delete || !curvedDeleteZone || curvedDeleteContains(bounds, point))
         }
     }
 
@@ -173,6 +177,11 @@ internal class PaperDragState {
 
 @Composable
 internal fun rememberPaperDragState() = remember { PaperDragState() }
+
+internal fun Modifier.paperCategoryActivation(state: PaperDragState): Modifier = composed {
+    DisposableEffect(state) { onDispose { state.categoryActivationBounds = Rect.Zero } }
+    onGloballyPositioned { state.categoryActivationBounds = it.boundsInRoot() }
+}
 
 /** Long hold selects once; lifting without movement does not execute a drop. */
 internal fun Modifier.paperDragSource(
@@ -234,8 +243,11 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
         if (state.held) scroll.scrollTo(0)
     }
     BoxWithConstraints(modifier.onGloballyPositioned { state.rootBounds = it.boundsInRoot() }) {
-        val gridMaxHeight = (maxHeight - 148.dp).coerceAtLeast(0.dp)
-        AnimatedVisibility(state.held, Modifier.align(Alignment.TopCenter),
+        val deleteHeight = maxHeight * 0.3f
+        val categoryWidth = ((maxWidth - 32.dp) / 2).coerceIn(80.dp, 160.dp)
+        val categoryTop = with(density) { (state.categoryActivationBounds.top - state.rootBounds.top).coerceAtLeast(0f).toDp() }
+        val gridMaxHeight = (maxHeight - deleteHeight - categoryTop - 52.dp).coerceAtLeast(0.dp)
+        AnimatedVisibility(state.held, Modifier.align(Alignment.TopCenter).padding(top = categoryTop),
             enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { -it / 3 },
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { -it / 3 }) {
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
@@ -263,7 +275,7 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
                                         Surface(color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                             border = BorderStroke(if (highlighted) 2.dp else 1.dp, if (highlighted) MaterialTheme.colorScheme.primary else MogeTheme.paper.cardStroke),
                                             shape = MaterialTheme.shapes.small,
-                                            modifier = Modifier.width(160.dp).heightIn(min = 64.dp).testTag("drop-category-${target.id ?: "none"}")
+                                            modifier = Modifier.width(categoryWidth).heightIn(min = 64.dp).testTag("drop-category-${target.id ?: "none"}")
                                                 .onGloballyPositioned { state.targetBounds(target, it) }) {
                                             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Icon(Icons.Outlined.FolderOpen, null, Modifier.size(20.dp))
@@ -283,17 +295,9 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { it / 3 }) {
             DisposableEffect(state) { onDispose { state.removeTarget(PaperDropTarget.Delete) } }
             val armed = state.hovered == PaperDropTarget.Delete
-            Surface(color = if (armed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.errorContainer,
-                contentColor = if (armed) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onErrorContainer,
-                border = BorderStroke(if (armed) 3.dp else 1.dp, MaterialTheme.colorScheme.error), shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().padding(12.dp).heightIn(min = 76.dp).testTag("drop-delete")
-                    .onGloballyPositioned { state.targetBounds(PaperDropTarget.Delete, it) }) {
-                Row(Modifier.padding(18.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(if (armed) 32.dp else 28.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(if (armed) "松手删除 ${state.visual?.ids?.size ?: 1} 项" else "向下拖到红色区域删除", style = MaterialTheme.typography.titleSmall)
-                }
-            }
+            PaperDeleteZone(armed, if (armed) "松手删除 ${state.visual?.ids?.size ?: 1} 项" else "向下拖到红色区域删除",
+                Modifier.fillMaxWidth().height(deleteHeight).testTag("drop-delete")
+                    .onGloballyPositioned { state.curvedDeleteZone = true; state.targetBounds(PaperDropTarget.Delete, it) })
         }
         state.visual?.let { visual ->
             var lifted by remember(visual.id) { mutableStateOf(!motion) }

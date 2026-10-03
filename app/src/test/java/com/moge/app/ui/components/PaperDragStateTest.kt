@@ -7,6 +7,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PaperDragStateTest {
+    @Test fun `filter row unfolds groups before reaching the upper prompt`() {
+        val state = start()
+        state.categoryActivationBounds = Rect(0f, 80f, 300f, 110f)
+        moveTo(state, Offset(60f, 95f))
+        assertTrue(state.categoriesExpanded)
+    }
+    @Test fun `curved delete target does not accept its transparent upper corners`() {
+        val state = start()
+        state.curvedDeleteZone = true
+        moveTo(state, Offset(1f, 305f))
+        assertNull(state.hovered)
+        moveTo(state, Offset(150f, 305f))
+        assertEquals(PaperDropTarget.Delete, state.hovered)
+    }
     private val source = Rect(10f, 120f, 210f, 240f)
     private val group = PaperDropTarget.Category("custom", "自建分组")
     private fun start(ids: Set<String> = setOf("a")): PaperDragState = PaperDragState().also {

@@ -1,6 +1,12 @@
 package com.moge.app.ui.history
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -121,7 +127,13 @@ internal fun HistoryContent(
                     }
                     IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, "管理分类") }
                 }
-                if (state.selecting) {
+            },
+        ) {
+            AnimatedVisibility(state.selecting,
+                enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
+                exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
+                Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类") }
                     IconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
                         Icon(Icons.Outlined.Edit, "重命名")
@@ -136,8 +148,7 @@ internal fun HistoryContent(
                         Icon(Icons.Outlined.Delete, "删除所选对话", tint = MaterialTheme.colorScheme.error)
                     }
                 }
-            },
-        ) {
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 Column(Modifier.fillMaxSize()) {
                     OutlinedTextField(
@@ -151,7 +162,8 @@ internal fun HistoryContent(
                         },
                         modifier = Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 16.dp),
                     )
-                    Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    Row(Modifier.fillMaxWidth().paperCategoryActivation(drag).testTag("history-category-filters")
+                        .excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(state.categoryId == null && !state.uncategorizedOnly, { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy && !drag.held)
                         FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") }, enabled = !state.busy && !drag.held)

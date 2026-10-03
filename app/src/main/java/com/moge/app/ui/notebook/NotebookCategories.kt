@@ -1,16 +1,18 @@
 package com.moge.app.ui.notebook
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.moge.app.data.db.NotebookCategoryEntity
 
 @Composable
@@ -22,38 +24,37 @@ internal fun CategoryManager(
     var createOpen by rememberSaveable { mutableStateOf(false) }
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("管理分类") },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = { createOpen = true }, enabled = !busy) { Text("新建分类") }
-                if (categories.isEmpty()) Text("按自己的需要新建分类。删除分类会把题目与历史对话移至未分类。")
-                categories.forEachIndexed { index, category ->
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(category.name, style = MaterialTheme.typography.titleSmall)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { onReorder(category.id, -1) }, enabled = !busy && index > 0) {
-                                Icon(Icons.Outlined.ArrowUpward, "上移 ${category.name}")
-                            }
-                            IconButton(onClick = { onReorder(category.id, 1) }, enabled = !busy && index < categories.lastIndex) {
-                                Icon(Icons.Outlined.ArrowDownward, "下移 ${category.name}")
-                            }
-                            IconButton(onClick = { renameId = category.id }, enabled = !busy) {
-                                Icon(Icons.Outlined.Edit, "改名 ${category.name}")
-                            }
-                            IconButton(onClick = { deleteId = category.id }, enabled = !busy) {
-                                Icon(Icons.Outlined.Delete, "删除分类 ${category.name}")
-                            }
-                        }
-                    }
+    val categoryList = rememberLazyListState()
+    LaunchedEffect(categories.map { it.id }) {
+        if (categories.none { it.id == renameId }) renameId = null
+        if (categories.none { it.id == deleteId }) deleteId = null
+    }
+    // Switch content within one window; replacing the manager window while opening a
+    // text field causes repeated layout work on some hosts. The list state stays hoisted.
+    val renaming = categories.firstOrNull { it.id == renameId }
+    Dialog(onDismissRequest = {
+        when {
+            createOpen -> createOpen = false
+            renameId != null -> renameId = null
+            else -> onDismiss()
+        }
+    }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().imePadding().padding(horizontal = 12.dp, vertical = 24.dp), contentAlignment = Alignment.Center) {
+            when {
+                createOpen -> CategoryNameForm("新建分类", "", { createOpen = false }) { name ->
+                    createOpen = false; onCreate(name)
+                }
+                renaming != null -> CategoryNameForm("分类改名", renaming.name, { renameId = null }) { name ->
+                    renameId = null; onRename(renaming.id, name)
+                }
+                else -> Surface(Modifier.widthIn(max = 600.dp).fillMaxWidth().fillMaxHeight(), shape = RoundedCornerShape(24.dp)) {
+                    CategoryManagerContent(categories, busy,
+                        onCreate = { createOpen = true }, onRename = { renameId = it },
+                        onReorder = onReorder, onDelete = { deleteId = it }, onDismiss = onDismiss,
+                        listState = categoryList)
                 }
             }
-        }, confirmButton = { TextButton(onDismiss) { Text("完成") } })
-    if (createOpen) CategoryNameDialog("新建分类", "", { createOpen = false }) { name ->
-        createOpen = false; onCreate(name)
-    }
-    categories.firstOrNull { it.id == renameId }?.let { category ->
-        CategoryNameDialog("分类改名", category.name, { renameId = null }) { name -> renameId = null; onRename(category.id, name) }
+        }
     }
     categories.firstOrNull { it.id == deleteId }?.let { category ->
         AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("删除分类“${category.name}”？") },
@@ -75,13 +76,19 @@ internal fun CategoryPicker(categories: List<NotebookCategoryEntity>, onDismiss:
 }
 
 @Composable
-private fun CategoryNameDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+private fun CategoryNameForm(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var name by rememberSaveable(title, initial) { mutableStateOf(initial) }
     val cleaned = name.trim()
     val valid = cleaned.isNotEmpty() && cleaned.codePointCount(0, cleaned.length) <= 80
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) },
-        text = { OutlinedTextField(name, { name = it }, label = { Text("分类名称") }, singleLine = true,
-            supportingText = { Text("1–80 个字") }, isError = !valid, modifier = Modifier.fillMaxWidth()) },
-        confirmButton = { TextButton(onClick = { onSave(cleaned) }, enabled = valid) { Text("保存") } },
-        dismissButton = { TextButton(onDismiss) { Text("取消") } })
+    Surface(Modifier.widthIn(max = 560.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(name, { name = it }, label = { Text("分类名称") }, singleLine = true,
+                supportingText = { Text("1–80 个字") }, isError = !valid, modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onDismiss) { Text("取消") }
+                TextButton(onClick = { onSave(cleaned) }, enabled = valid) { Text("保存") }
+            }
+        }
+    }
 }

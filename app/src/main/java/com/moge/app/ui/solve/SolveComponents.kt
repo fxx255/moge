@@ -1,5 +1,7 @@
 package com.moge.app.ui.solve
 
+import androidx.compose.ui.draw.shadow
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -442,7 +444,7 @@ internal fun FollowUpBar(
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
         Column(
-            Modifier.fillMaxWidth()
+            Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp))
                 .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 28.dp),
         ) {
             Row(

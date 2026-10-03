@@ -6,7 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +28,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,12 +38,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
-import com.moge.app.ui.components.PaperScaffold
 import com.moge.app.ui.components.PageSwipeSurface
 import com.moge.app.ui.export.AnswerExportContent
 import com.moge.app.ui.export.AnswerExportDialog
@@ -62,6 +65,12 @@ fun SolveScreen(
     onResumeConversation: (() -> Unit)? = null,
     onConversationObserved: (String?) -> Unit = {},
     onViewFavorite: (String) -> Unit = {},
+    onSwipeHistory: () -> Unit = onOpenHistory,
+    onSwipeNotebook: () -> Unit = onOpenNotebook,
+    onSwipeNewConversation: () -> Unit = onNewConversation,
+    onSwipeResumeConversation: (() -> Unit)? = onResumeConversation,
+    readViewport: (String) -> ConversationViewport? = { null },
+    saveViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
@@ -99,21 +108,18 @@ fun SolveScreen(
     val existing = observedId != null
     PageSwipeSurface(enabled = viewer == null && exportContent == null && favorite == null &&
         selection == null && cropQueue.isEmpty(),
-        onLeft = if (existing) onOpenNotebook else onResumeConversation,
-        onRight = if (existing) onNewConversation else onOpenHistory,
+        onLeft = if (existing) onSwipeNotebook else onSwipeResumeConversation,
+        onRight = if (existing) onSwipeNewConversation else onSwipeHistory,
         leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
         rightLabel = if (existing) "开始新对话" else "前往历史对话") {
-        PaperScaffold(title = title, onBack = onBack, actions = {
+        ConversationScaffold(title = title, onBack = onBack, actions = {
             ConversationActions(
                 existingConversation = state.conversationId != null || conversationId != null,
                 onNewConversation = onNewConversation,
                 onOpenHistory = onOpenHistory,
                 onOpenSettings = onOpenSettings,
             )
-        }) {
-            SolveList(state, vm::retry, vm::regenerate,
-                onOpenImages = { paths, index -> viewer = paths to index },
-                onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) })
+        }, footer = {
             NoticeLine(state.notice, vm::dismissNotice,
                 action = savedFavoriteId?.takeIf { state.notice == "已保存到题册" }?.let { id ->
                     { onViewFavorite(id); vm.dismissNotice() }
@@ -123,6 +129,14 @@ fun SolveScreen(
                 onPickPhotos = { pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto)
+        }) { padding ->
+            val initialViewport = remember(observedId) { observedId?.let(readViewport) }
+            SolveList(state, vm::retry, vm::regenerate,
+                onOpenImages = { paths, index -> viewer = paths to index },
+                onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) },
+                conversationId = observedId, initialViewport = initialViewport,
+                saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
+                contentPadding = padding)
         }
     }
     cropQueue.firstOrNull()?.let { path ->
@@ -188,23 +202,54 @@ internal fun withFollowUp(original: SolveItem.Question, followUp: SolveItem.Ques
     original.copy(text = listOf(original.text, "本次追问：" + followUp.text).filter { it.isNotBlank() }.joinToString("\n\n"))
 
 @Composable
-private fun ColumnScope.SolveList(
+internal fun SolveList(
     state: SolveUiState, onRetry: (String) -> Unit, onRegenerate: (String) -> Unit,
     onOpenImages: (List<String>, Int) -> Unit, onShare: (SolveItem.Answer) -> Unit, onSave: (SolveItem.Answer) -> Unit,
+    conversationId: String? = state.conversationId,
+    initialViewport: ConversationViewport? = null,
+    saveViewport: (ConversationViewport) -> Unit = {},
+    contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(state.items.size) {
-        if (state.items.isNotEmpty()) listState.animateScrollToItem(state.items.lastIndex)
+    var restored by remember(conversationId) { mutableStateOf(false) }
+    var questionIds by remember(conversationId) { mutableStateOf<List<String>?>(null) }
+    val currentItems by rememberUpdatedState(state.items)
+    val save by rememberUpdatedState(saveViewport)
+    val ids = state.items.map { it.id }
+    LaunchedEffect(conversationId, ids) {
+        if (ids.isEmpty()) return@LaunchedEffect
+        val questions = state.items.filterIsInstance<SolveItem.Question>().map { it.id }
+        if (!restored) {
+            val anchor = initialViewport
+            listState.scrollToItem(anchor?.indexIn(ids) ?: ids.lastIndex, anchor?.offset ?: 0)
+            restored = true
+        } else if (questionIds != null && questions.any { it !in questionIds.orEmpty() }) {
+            // Only a new question moves the viewport; reopening/history loading/answer refresh do not.
+            listState.animateScrollToItem(ids.lastIndex)
+        }
+        questionIds = questions
+    }
+    fun recordViewport() {
+        if (!restored) return
+        val index = listState.firstVisibleItemIndex
+        currentItems.getOrNull(index)?.let { save(ConversationViewport(it.id, index, listState.firstVisibleItemScrollOffset)) }
+    }
+    LaunchedEffect(listState, conversationId, restored) {
+        if (restored) snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { recordViewport() }
+    }
+    DisposableEffect(listState, conversationId) {
+        onDispose { recordViewport() }
     }
     if (state.items.isEmpty()) {
-        Box(Modifier.weight(1f).fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().padding(contentPadding).padding(16.dp), contentAlignment = Alignment.Center) {
             Text("输入问题，或拍照、选图开始对话", style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         return
     }
-    LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("conversation-list"),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(state.items, key = { it.id }) { item ->
             when (item) {

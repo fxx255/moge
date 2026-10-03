@@ -155,6 +155,18 @@ class PaperDragInteractionTest {
         assertEquals(0, opened)
         assertFalse(deleted)
     }
+    @Test fun `existing filter row unfolds categories with a page sized curved delete area`() {
+        renderHistory()
+        hold("history-card-a")
+        moveTo("history-card-a", "history-category-filters")
+        compose.onNodeWithTag("drop-category-grid").assertIsDisplayed()
+        val zone = compose.onNodeWithTag("drop-delete").fetchSemanticsNode().boundsInRoot
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue(zone.height > root.height * 0.2f)
+        assertTrue(zone.height < root.height * 0.34f)
+        compose.onNodeWithTag("history-card-a").performTouchInput { cancel() }
+        assertFalse(deleted)
+    }
     @Test fun `downward history drag deletes explicit selection on release`() {
         renderHistory()
         hold("history-card-a")

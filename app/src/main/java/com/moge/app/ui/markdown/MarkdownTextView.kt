@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.text.Spannable
+import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
@@ -18,13 +19,27 @@ import com.moge.app.data.parse.normalizeReplyMarkdown
 import com.moge.app.data.parse.sanitizeReplyLatex
 import com.moge.app.data.parse.wrapLongFormulas
 import io.noties.markwon.Markwon
+import io.noties.markwon.ext.latex.JLatexAsyncDrawableSpan
 import io.noties.markwon.ext.latex.JLatexMathPlugin
 import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.image.AsyncDrawable
 import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
 import java.io.File
 import java.time.Instant
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.Executors
 import ru.noties.jlatexmath.JLatexMathDrawable
+
+private data class MarkdownRenderSource(val markdown: String, val formulaWidthPx: Int)
+private interface MarkdownRenderSourceOwner {
+    var renderSource: MarkdownRenderSource?
+}
+
+/** Retain the complete render input before normalization/sanitization for failure diagnostics. */
+internal fun rememberMarkdownRenderSource(view: TextView, source: String, widthPx: Int) {
+    (view as? MarkdownRenderSourceOwner)?.renderSource = MarkdownRenderSource(source, formulaMaxWidthPx(view, widthPx))
+}
 
 internal fun createMarkdownTextView(
     context: Context,
@@ -33,7 +48,9 @@ internal fun createMarkdownTextView(
     selectable: Boolean = true,
     fontSizePx: Float? = null,
 ): TextView =
-    object : TextView(context) {
+    object : TextView(context), MarkdownRenderSourceOwner {
+        @Volatile override var renderSource: MarkdownRenderSource? = null
+
         /**
          * 表格块不得抢占触摸：它没有文本选区，普通落点交给外层横向/纵向滚动。
          * 可选中的回答正文直接走 TextView 默认处理，以保留长按选字和链接点击。
@@ -109,8 +126,18 @@ internal fun createMarkdownTextView(
         if (fontSizePx == null) textSize = MARKDOWN_TEXT_SIZE_SP
         else setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSizePx)
         val fallbackSizePx = this.textSize * 14f / MARKDOWN_TEXT_SIZE_SP
+        // A previous asynchronous load can fail after the View has started rendering new input.
+        // Keep its original input alive with its drawable, rather than logging only the latest source.
+        val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
             .textSetter { view, markdown, bufferType, onComplete ->
+                (view as? MarkdownRenderSourceOwner)?.renderSource?.let { source ->
+                    synchronized(latexSources) {
+                        markdown.getSpans(0, markdown.length, JLatexAsyncDrawableSpan::class.java).forEach { span ->
+                            latexSources[span.drawable] = source
+                        }
+                    }
+                }
                 val theme = (view.tag as Markwon).configuration().theme()
                 view.setText(baselineAlignedLatex(markdown, theme), bufferType)
                 onComplete.run()
@@ -122,20 +149,25 @@ internal fun createMarkdownTextView(
                     builder.inlinesEnabled(true)
                     builder.theme().textColor(textColor)
                     // 单条公式解析失败时画占位，绝不让 ParseException 冒泡成整页闪退。
-                    // 失败的 latex 与异常类型一并写入本地日志，便于事后定位（用户截图
-                    // 只有 60 字符片段，根本无法重建真实失败原因）。
+                    // Preserve complete TeX (including Chinese text) in the source fallback,
+                    // and retain the original input in the log before any display-only repairs.
                     builder.errorHandler { latex, error ->
+                        val source = synchronized(latexSources) {
+                            latexSources.entries.firstOrNull { it.key.destination == latex }?.value
+                        } ?: renderSource
                         Log.w(RENDER_LOG_TAG, "latex render failed: $latex", error)
                         appendRenderErrorLog(
                             context,
                             "LATEX-PIECE:\n$latex\n---",
                             error,
+                            originalMarkdown = source?.markdown,
                         )
                         LatexFallbackDrawable(
                             textColor,
                             fallbackSizePx,
                             latex,
                             error.javaClass.simpleName,
+                            maxWidthPx = source?.formulaWidthPx ?: (fallbackSizePx * 28).toInt(),
                         )
                     }
                 },
@@ -190,6 +222,7 @@ internal fun renderMarkdown(
     linkColor: Int,
 ) {
     if (widthPx <= 0) return
+    rememberMarkdownRenderSource(view, content, widthPx)
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
     val rendered = wrapLongFormulas(
@@ -205,7 +238,7 @@ internal fun renderMarkdown(
         view.scrollTo(0, 0)
     }.onFailure { error ->
         Log.e(RENDER_LOG_TAG, "markdown render failed, fallback to plain text", error)
-        appendRenderErrorLog(view.context, rendered, error)
+        appendRenderErrorLog(view.context, rendered, error, originalMarkdown = content)
         view.text = buildString {
             append(content)
             append("\n\n[部分内容无法渲染，已回退为纯文本]")
@@ -216,19 +249,17 @@ internal fun renderMarkdown(
 internal const val RENDER_LOG_TAG = "MarkdownAnswer"
 
 /**
- * 单条公式解析失败时的占位：灰底 + 标题 + 失败源码片段，保证不再抛异常炸掉整页。
- * 源码超过 60 字符会被截断并加省略号，避免占位占满气泡。
+ * Formula failure remains explicit, but the full source is readable at the available width.
+ * Android text layout renders CJK text and wraps source without deleting tokens or newlines.
  */
-private class LatexFallbackDrawable(
+internal class LatexFallbackDrawable(
     private val textColor: Int,
     textSizePx: Float,
-    rawLatex: String,
+    val rawLatex: String,
     errorType: String? = null,
+    maxWidthPx: Int = (textSizePx * 28).toInt(),
 ) : Drawable() {
     private val title = if (errorType != null) "⚠ 公式无法渲染 ($errorType)" else "⚠ 公式无法渲染"
-    private val snippet: String = rawLatex
-        .replace('\n', ' ')
-        .let { if (it.length > 60) it.substring(0, 60) + "…" else it }
     private val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x1F000000
         style = Paint.Style.FILL
@@ -238,69 +269,82 @@ private class LatexFallbackDrawable(
         alpha = 0xB0
         this.textSize = textSizePx
     }
-    private val snippetPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val sourcePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = textColor
         alpha = 0x90
         this.textSize = textSizePx * 0.85f
         typeface = android.graphics.Typeface.MONOSPACE
     }
+    private val layoutWidth = (minOf(
+        maxWidthPx.coerceAtLeast(25),
+        kotlin.math.ceil(maxOf(foreground.measureText(title),
+            rawLatex.lineSequence().maxOfOrNull { sourcePaint.measureText(it) } ?: 0f) + 24).toInt(),
+    ) - 24).coerceAtLeast(1)
+    private val titleLayout = StaticLayout.Builder.obtain(title, 0, title.length, foreground, layoutWidth)
+        .setIncludePad(true).build()
+    internal val sourceLayout = StaticLayout.Builder.obtain(rawLatex, 0, rawLatex.length, sourcePaint, layoutWidth)
+        .setIncludePad(true).build()
 
     override fun draw(canvas: Canvas) {
         val b = bounds
-        canvas.drawRoundRect(
-            b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
-            10f, 10f, background,
-        )
-        val titleBaseline = b.top + foreground.textSize + 6f
-        canvas.drawText(title, (b.left + 12).toFloat(), titleBaseline, foreground)
-        if (snippet.isNotEmpty()) {
-            val snippetBaseline = titleBaseline + snippetPaint.textSize + 4f
-            canvas.drawText(snippet, (b.left + 12).toFloat(), snippetBaseline, snippetPaint)
+        val saved = canvas.save()
+        try {
+            canvas.translate(b.left.toFloat(), b.top.toFloat())
+            canvas.scale(b.width().toFloat() / intrinsicWidth, b.height().toFloat() / intrinsicHeight)
+            canvas.drawRoundRect(0f, 0f, intrinsicWidth.toFloat(), intrinsicHeight.toFloat(), 10f, 10f, background)
+            canvas.translate(12f, 10f)
+            titleLayout.draw(canvas)
+            canvas.translate(0f, titleLayout.height + 4f)
+            sourceLayout.draw(canvas)
+        } finally {
+            canvas.restoreToCount(saved)
         }
     }
 
     override fun setAlpha(alpha: Int) {
         foreground.alpha = alpha
-        snippetPaint.alpha = alpha
+        sourcePaint.alpha = alpha
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
         foreground.colorFilter = colorFilter
-        snippetPaint.colorFilter = colorFilter
+        sourcePaint.colorFilter = colorFilter
     }
 
     @Deprecated("Deprecated in Java")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 
-    override fun getIntrinsicWidth(): Int {
-        val titleWidth = foreground.measureText(title)
-        val snippetWidth = if (snippet.isEmpty()) 0f else snippetPaint.measureText(snippet)
-        return (maxOf(titleWidth, snippetWidth) + 24).toInt()
-    }
+    override fun getIntrinsicWidth(): Int = layoutWidth + 24
 
-    override fun getIntrinsicHeight(): Int =
-        (foreground.textSize + snippetPaint.textSize + 28f).toInt()
+    override fun getIntrinsicHeight(): Int = titleLayout.height + sourceLayout.height + 24
 }
 
 /** 渲染失败的原文与异常写入本机日志，便于事后定位是哪类回答触发的。 */
 private val RENDER_LOG_EXECUTOR = Executors.newSingleThreadExecutor()
 
-internal fun appendRenderErrorLog(context: Context, markdown: String, error: Throwable) {
+internal fun appendRenderErrorLog(context: Context, markdown: String, error: Throwable, originalMarkdown: String? = null) {
     runCatching {
         RENDER_LOG_EXECUTOR.execute {
             runCatching {
                 val file = File(context.filesDir, "assistant-render.log")
-                val entry = buildString {
-                    appendLine("=== ${Instant.now()} ===")
-                    appendLine("error: ${error::class.java.simpleName}: ${error.message}")
-                    appendLine(markdown.take(1_500))
-                    appendLine()
-                }
+                val entry = formatRenderErrorEntry(markdown, error, originalMarkdown)
                 val kept = if (file.isFile && file.length() <= 200_000) file.readText() else ""
                 file.writeText(kept + entry)
             }
         }
     }
+}
+
+/** Full source is diagnostic data: never shorten it to the old 60/1500-character limits. */
+internal fun formatRenderErrorEntry(markdown: String, error: Throwable, originalMarkdown: String? = null): String = buildString {
+    appendLine("=== ${Instant.now()} ===")
+    appendLine("error: ${error::class.java.simpleName}: ${error.message}")
+    if (originalMarkdown != null) {
+        appendLine("ORIGINAL-MARKDOWN:")
+        appendLine(originalMarkdown)
+    }
+    appendLine(markdown)
+    appendLine()
 }
 
 /**

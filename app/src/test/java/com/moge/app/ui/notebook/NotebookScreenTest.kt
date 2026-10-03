@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.semantics.SemanticsActions
 import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.data.db.NotebookEntryEntity
 import com.moge.app.data.prefs.Appearance
@@ -81,7 +82,10 @@ class NotebookScreenTest {
         compose.onNode(hasSetTextAction() and hasAnyAncestor(isDialog())).performTextInput("考前复习")
         compose.onNodeWithText("保存").performClick()
         assertEquals("考前复习", created)
-        compose.onNodeWithContentDescription("删除分类 待复习").performClick()
+        val actions = compose.onNodeWithTag("category-card-category").fetchSemanticsNode().config[SemanticsActions.CustomActions]
+        compose.runOnIdle {
+            assertTrue(actions.single { it.label == "删除分类 待复习" }.action())
+        }
         compose.onNodeWithText("该分类的题目与历史对话会移至未分类，内容不会删除。").assertExists()
         compose.onNodeWithText("删除分类", substring = false).performClick()
         assertEquals("category", categoryDeleted)

@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
+import com.moge.app.ui.solve.ConversationViewport
+import com.moge.app.ui.solve.ConversationViewports
 
 /** Share at the NavHost/activity owner so opening a new page retains the last conversation. */
 @HiltViewModel
@@ -17,6 +19,9 @@ class ConversationNavigationViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     repository: ConversationRepository,
 ) : ViewModel() {
+    private val viewports = ConversationViewports(savedState)
+    fun readViewport(id: String): ConversationViewport? = viewports.read(id)
+    fun saveViewport(id: String, viewport: ConversationViewport) = viewports.save(id, viewport)
     private val preferredConversationId = savedState.getStateFlow<String?>(PREVIOUS_CONVERSATION_ID, null)
 
     val previousConversationId: StateFlow<String?> = combine(

@@ -148,6 +148,7 @@ internal fun renderStreamingMarkdown(
     textColor: Int,
     linkColor: Int,
 ) {
+    rememberMarkdownRenderSource(view, snapshot.tail, widthPx)
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
     val prefixLength = (snapshot.mathPrefixEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length)

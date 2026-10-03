@@ -1,6 +1,13 @@
 package com.moge.app.ui.notebook
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import com.moge.app.ui.theme.MogeTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -93,7 +100,7 @@ internal fun NotebookContent(
                 else if (state.selecting) "已选 ${state.selectedIds.size} 条" else "我的题册",
             onBack = back,
             actions = {
-                if (state.selecting || (detail && state.detailEntry != null)) {
+                if (detail && state.detailEntry != null) {
                     IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
                         Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
                     }
@@ -107,6 +114,19 @@ internal fun NotebookContent(
                 }
             },
         ) {
+            AnimatedVisibility(state.selecting && !detail,
+                enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
+                exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
+                Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
+                        Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
+                    }
+                    IconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
+                        Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (detail) {
                     state.detailEntry?.let { entry ->
@@ -123,7 +143,8 @@ internal fun NotebookContent(
                                 Icon(Icons.Outlined.Close, "清除搜索")
                             }
                         }, modifier = Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 16.dp))
-                    Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    Row(Modifier.fillMaxWidth().paperCategoryActivation(drag).testTag("notebook-category-filters")
+                        .excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(state.categoryId == null && !state.uncategorizedOnly,
                             { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy,

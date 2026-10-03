@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingMarkdownTokenizerTest {
+    @Test fun `conditional bar inside a closed formula is not a table separator`() {
+        val formula = "${'$'}P_{0|1}=P(\\text{判0}\\mid\\text{发1})${'$'}"
+        val source = "概率为 $formula，继续说明"
+        val snapshot = StreamingMarkdownTokenizer().update(source)
+        assertEquals("概率为 $formula", source.substring(0, snapshot.mathPrefixEnd))
+    }
+    @Test fun `actual table row with conditional math stays plain until table boundary`() {
+        val source = "| 条件 | 概率 |\n| --- | --- |\n| 误判 | ${'$'}P_{0|1}${'$'} |"
+        val snapshot = StreamingMarkdownTokenizer().update(source)
+        assertEquals(0, snapshot.mathPrefixEnd)
+    }
 
     @Test
     fun `普通段落在空行前留在 tail`() {

@@ -79,6 +79,7 @@ class ConversationPageNavigationTest {
             composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
                 navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
             )) { }
+            composable(Routes.HISTORY) { }
         }
         composeNavigator.backStack.value.forEach(composeNavigator::onTransitionComplete)
         return requireNotNull(nav.currentBackStackEntry)
@@ -186,5 +187,32 @@ class ConversationPageNavigationTest {
         val model = draft(original).apply { draft = "current draft" }
         navigate { navigateToConversation(nav, "existing") }
         assertReturned(original, model, "current draft")
+    }
+    @Test fun `system back from history and new page cannot reuse swipe animation`() {
+        val old = start("existing")
+        var ticket: SwipeTransition? = null
+        navigate { ticket = navigateWithSwipe(nav, 1) { navigateToNewConversation(nav) } }
+        val newPage = requireNotNull(nav.currentBackStackEntry)
+        assertEquals(1, ticket!!.directionFor(old.id, newPage.id))
+        navigate { nav.popBackStack() }
+        assertEquals(0, ticket!!.directionFor(newPage.id, requireNotNull(nav.currentBackStackEntry).id))
+        navigate { navigateToNewConversation(nav) }
+        val newAgain = requireNotNull(nav.currentBackStackEntry)
+        navigate { ticket = navigateWithSwipe(nav, 1) { nav.navigate(Routes.HISTORY) } }
+        val history = requireNotNull(nav.currentBackStackEntry)
+        navigate { nav.popBackStack() }
+        assertSame(newAgain, nav.currentBackStackEntry)
+        assertEquals(0, ticket!!.directionFor(history.id, newAgain.id))
+    }
+    @Test fun `left swipe popping to old conversation preserves its leftward animation and no op has none`() {
+        val old = start("existing")
+        navigate { navigateToNewConversation(nav) }
+        val newPage = requireNotNull(nav.currentBackStackEntry)
+        var ticket: SwipeTransition? = null
+        navigate { ticket = navigateWithSwipe(nav, -1) { navigateToConversation(nav, "existing") } }
+        assertSame(old, nav.currentBackStackEntry)
+        assertEquals(-1, ticket!!.directionFor(newPage.id, old.id))
+        navigate { ticket = navigateWithSwipe(nav, -1) { navigateToConversation(nav, "existing") } }
+        assertNull(ticket)
     }
 }

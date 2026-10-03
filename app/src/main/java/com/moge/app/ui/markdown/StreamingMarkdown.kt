@@ -132,14 +132,14 @@ internal class StreamingMarkdownTokenizer {
             return scan.openMathStart
         }
         return scan.closedMathEnds.lastOrNull { end ->
-            end > tailStart && end <= tableStart && !isPipeLine(content, end)
+            end > tailStart && end <= tableStart && !isPipeLine(scan, content, end)
         } ?: tailStart
     }
 
-    private fun isPipeLine(content: String, end: Int): Boolean {
+    private fun isPipeLine(scan: ScanResult, content: String, end: Int): Boolean {
         val start = content.lastIndexOf('\n', end - 1).let { if (it < 0) 0 else it + 1 }
         val lineEnd = content.indexOf('\n', end).let { if (it < 0) content.length else it }
-        return '|' in content.substring(start, lineEnd)
+        return scan.tablePipes.any { it >= start && it < lineEnd }
     }
 
     private data class ScanResult(
@@ -149,6 +149,7 @@ internal class StreamingMarkdownTokenizer {
         val mathDelimiter: MathDelimiter,
         val closedMathEnds: List<Int>,
         val openMathStart: Int,
+        val tablePipes: List<Int>,
     )
 
     private enum class MathDelimiter {
@@ -168,6 +169,7 @@ internal class StreamingMarkdownTokenizer {
         var lastSafe = 0
         val closedMathEnds = ArrayList<Int>()
         var openMathStart = -1
+        val tablePipes = ArrayList<Int>()
 
         while (index < content.length) {
             if (lineStart && math == MathDelimiter.NONE) {
@@ -242,6 +244,7 @@ internal class StreamingMarkdownTokenizer {
             }
 
             if (math == MathDelimiter.NONE) {
+                if (content[index] == '|' && !content.isEscaped(index)) tablePipes += index
                 if (content.startsWith("\\(", index) && !content.isEscaped(index)) {
                     math = MathDelimiter.PAREN
                     openMathStart = index
@@ -292,7 +295,7 @@ internal class StreamingMarkdownTokenizer {
             }
         }
 
-        return ScanResult(cuts, lastSafe, fence != null, math, closedMathEnds, openMathStart)
+        return ScanResult(cuts, lastSafe, fence != null, math, closedMathEnds, openMathStart, tablePipes)
     }
 
     private data class FenceMarker(val start: Int, val token: String)

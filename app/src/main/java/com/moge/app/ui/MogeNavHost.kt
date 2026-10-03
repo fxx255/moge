@@ -1,14 +1,14 @@
 package com.moge.app.ui
 
 import android.net.Uri
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
@@ -86,41 +86,52 @@ fun MogeNavHost() {
     val nav = rememberNavController()
     val navigation: ConversationNavigationViewModel = hiltViewModel()
     val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
-    var direction by remember { mutableIntStateOf(0) }
+    var swipeTransition by remember { mutableStateOf<SwipeTransition?>(null) }
     val duration = if (MogeTheme.motionEnabled) 240 else 0
-    val ordinary: (String) -> Unit = { route -> direction = 0; nav.navigate(route) { launchSingleTop = true } }
-    val back: () -> Unit = { direction = 0; nav.popBackStack(); Unit }
-    val newPage: (Int) -> Unit = { swipe -> direction = swipe; navigateToNewConversation(nav) }
-    val resume: (Int) -> Unit = { swipe ->
-        direction = swipe
-        previousConversation?.let { navigateToConversation(nav, it) } ?: navigateToNewConversation(nav)
+    val ordinary: (String) -> Unit = { route -> swipeTransition = null; nav.navigate(route) { launchSingleTop = true } }
+    val back: () -> Unit = { swipeTransition = null; nav.popBackStack(); Unit }
+    val swipe: (Int, () -> Unit) -> Unit = { direction, navigate ->
+        swipeTransition = null
+        swipeTransition = navigateWithSwipe(nav, direction, navigate)
+    }
+    val newPage: (Int) -> Unit = { direction ->
+        if (direction == 0) { swipeTransition = null; navigateToNewConversation(nav) }
+        else swipe(direction) { navigateToNewConversation(nav) }
+    }
+    val resume: (Int) -> Unit = { gestureDirection ->
+        val navigate = { previousConversation?.let { navigateToConversation(nav, it) } ?: navigateToNewConversation(nav) }
+        if (gestureDirection == 0) { swipeTransition = null; navigate() } else swipe(gestureDirection, navigate)
     }
     val openConversation: (String) -> Unit = { id ->
-        direction = 0
+        swipeTransition = null
         navigation.rememberConversation(id)
         navigateToConversation(nav, id)
     }
     val openNotebook: (String?) -> Unit = { id ->
-        direction = 0
+        swipeTransition = null
         // A specific favorite uses a fresh route/VM so old filters cannot conceal it.
         nav.navigate(Routes.notebook(id)) { launchSingleTop = id == null }
     }
     AppUpdateNotice()
     NavHost(navController = nav, startDestination = Routes.solve(),
         enterTransition = {
-            if (direction == 0) fadeIn(tween(duration))
+            val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
+            if (direction == 0 || duration == 0) EnterTransition.None
             else slideInHorizontally(tween(duration)) { -direction * it }
         },
         exitTransition = {
-            if (direction == 0) fadeOut(tween(duration))
+            val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
+            if (direction == 0 || duration == 0) ExitTransition.None
             else slideOutHorizontally(tween(duration)) { direction * it }
         },
         popEnterTransition = {
-            if (direction == 0) fadeIn(tween(duration))
+            val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
+            if (direction == 0 || duration == 0) EnterTransition.None
             else slideInHorizontally(tween(duration)) { -direction * it }
         },
         popExitTransition = {
-            if (direction == 0) fadeOut(tween(duration))
+            val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
+            if (direction == 0 || duration == 0) ExitTransition.None
             else slideOutHorizontally(tween(duration)) { direction * it }
         }) {
         composable(Routes.HOME) {
@@ -168,12 +179,18 @@ fun MogeNavHost() {
                 conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
                 onBack = if (nav.previousBackStackEntry != null) back else null,
                 onOpenSettings = { ordinary(Routes.SETTINGS) },
-                onOpenHistory = { direction = 1; nav.navigate(Routes.HISTORY) { launchSingleTop = true } },
-                onOpenNotebook = { direction = -1; nav.navigate(Routes.notebook()) },
-                onNewConversation = { newPage(1) },
+                onOpenHistory = { ordinary(Routes.HISTORY) },
+                onOpenNotebook = { openNotebook(null) },
+                onNewConversation = { newPage(0) },
                 onTakePhoto = { ordinary(Routes.HOME) },
                 vm = vm,
-                onResumeConversation = previousConversation?.let { { resume(-1) } },
+                onResumeConversation = previousConversation?.let { { resume(0) } },
+                onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },
+                onSwipeNotebook = { swipe(-1) { nav.navigate(Routes.notebook()) } },
+                onSwipeNewConversation = { newPage(1) },
+                onSwipeResumeConversation = previousConversation?.let { { resume(-1) } },
+                readViewport = navigation::readViewport,
+                saveViewport = navigation::saveViewport,
                 onConversationObserved = { id ->
                     entry.savedStateHandle[LOGICAL_CONVERSATION_ID] = id.orEmpty()
                     navigation.rememberConversation(id)
