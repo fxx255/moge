@@ -27,7 +27,7 @@ internal fun CategoryManager(
             Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = { createOpen = true }, enabled = !busy) { Text("新建分类") }
-                if (categories.isEmpty()) Text("按自己的需要新建分类。删除分类只会把收藏移至未分类。")
+                if (categories.isEmpty()) Text("按自己的需要新建分类。删除分类会把题目与历史对话移至未分类。")
                 categories.forEachIndexed { index, category ->
                     Column(Modifier.fillMaxWidth()) {
                         Text(category.name, style = MaterialTheme.typography.titleSmall)
@@ -57,7 +57,7 @@ internal fun CategoryManager(
     }
     categories.firstOrNull { it.id == deleteId }?.let { category ->
         AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("删除分类“${category.name}”？") },
-            text = { Text("该分类的收藏会移至未分类，保存的题目与解答不会删除。") },
+            text = { Text("该分类的题目与历史对话会移至未分类，内容不会删除。") },
             confirmButton = { TextButton(onClick = { deleteId = null; onDelete(category.id) }, enabled = !busy) { Text("删除分类") } },
             dismissButton = { TextButton(onClick = { deleteId = null }) { Text("取消") } })
     }

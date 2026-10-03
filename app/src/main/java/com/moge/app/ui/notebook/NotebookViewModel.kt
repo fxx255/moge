@@ -156,7 +156,7 @@ class NotebookViewModel @Inject constructor(
             _state.update { it.copy(categoryId = null, uncategorizedOnly = true) }
             savedState[CATEGORY] = UNCATEGORIZED
         }
-        "分类已删除，收藏已移至未分类"
+        "分类已删除，题目与对话已移至未分类"
     }
     fun reorderCategory(id: String, offset: Int) {
         val order = state.value.categories.map { it.id }.toMutableList()
@@ -166,8 +166,8 @@ class NotebookViewModel @Inject constructor(
         order.add(to, order.removeAt(from))
         mutate { repository.reorderCategories(order); "分类顺序已修改" }
     }
-    fun moveSelected(categoryId: String?) {
-        val ids = actionIds()
+    fun moveSelected(categoryId: String?) = moveItems(actionIds(), categoryId)
+    fun moveItems(ids: Set<String>, categoryId: String?) {
         if (ids.isEmpty()) return
         mutate {
             val moved = repository.moveEntries(ids, categoryId)
@@ -176,8 +176,8 @@ class NotebookViewModel @Inject constructor(
             "已移动 $moved 条收藏"
         }
     }
-    fun deleteSelected() {
-        val ids = actionIds()
+    fun deleteSelected() = deleteItems(actionIds())
+    fun deleteItems(ids: Set<String>) {
         if (ids.isEmpty()) return
         mutate {
             val deleted = repository.deleteFavorites(ids)

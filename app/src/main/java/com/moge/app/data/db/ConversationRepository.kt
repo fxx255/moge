@@ -13,14 +13,26 @@ import javax.inject.Singleton
  * 历史会话的读写入口。
  *
  * 生成流程的消息写入仍然只走 [RequestRepository]（带 attempt 围栏）；
- * 这里负责题目建立、历史查询、改名、受保护的批量删除与空壳回收。
+ * 这里负责题目建立、历史查询与分类、改名、受保护的批量删除与空壳回收。
  */
 @Singleton
 class ConversationRepository @Inject constructor(
     private val dao: ConversationDao,
     @param:IoDispatcher private val io: CoroutineDispatcher,
 ) {
-    fun observeHistory(query: String = ""): Flow<List<HistoryEntry>> = dao.observeHistory(searchPattern(query))
+    /** 默认查询全部；categoryId 筛选分类，uncategorizedOnly 筛选未分类，与搜索取交集。 */
+    fun observeHistory(
+        query: String = "", categoryId: String? = null, uncategorizedOnly: Boolean = false,
+    ): Flow<List<HistoryEntry>> = dao.observeHistory(searchPattern(query), categoryId, uncategorizedOnly)
+
+    /**
+     * 批量移动或以 null 取消分类，返回实际变更的会话数；不存在的会话与原分类相同的会话不计入。
+     * 空集合直接返回 0；非空集合指定无效分类时抛出 IllegalArgumentException，所有批次原子提交。
+     * 只更新分类，不改变历史时间、消息、请求或独立收藏快照。
+     */
+    suspend fun moveToCategory(ids: Set<String>, categoryId: String?): Int = withContext(io) {
+        dao.moveToCategory(ids.toList(), categoryId)
+    }
 
     suspend fun getConversation(id: String): ConversationEntity? = withContext(io) { dao.getConversation(id) }
 

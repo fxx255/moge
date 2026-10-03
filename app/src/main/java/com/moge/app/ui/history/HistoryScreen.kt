@@ -5,13 +5,16 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,7 +31,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.db.HistoryEntry
-import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.*
+import com.moge.app.ui.notebook.CategoryManager
+import com.moge.app.ui.notebook.CategoryPicker
+import androidx.compose.ui.platform.testTag
 import com.moge.app.ui.photo.THUMB_MAX_PX
 import com.moge.app.ui.photo.Thumbnail
 import com.moge.app.ui.photo.rememberThumbnail
@@ -45,7 +51,9 @@ fun HistoryScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     HistoryContent(state, onBack, onOpenConversation, vm::setQuery,
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::renameSelected,
-        vm::deleteSelected, vm::pinSelected, vm::retry, vm::dismissMessage)
+        vm::deleteSelected, vm::pinSelected, vm::retry, vm::dismissMessage,
+        vm::setCategory, vm::createCategory, vm::renameCategory, vm::reorderCategory, vm::deleteCategory,
+        vm::moveItems, vm::deleteItems)
 }
 
 @Composable
@@ -62,19 +70,37 @@ internal fun HistoryContent(
     onPin: () -> Unit,
     onRetry: () -> Unit,
     onDismissMessage: () -> Unit,
+    onCategory: (String?, Boolean) -> Unit = { _, _ -> },
+    onCreateCategory: (String) -> Unit = {},
+    onRenameCategory: (String, String) -> Unit = { _, _ -> },
+    onReorderCategory: (String, Int) -> Unit = { _, _ -> },
+    onDeleteCategory: (String) -> Unit = {},
+    onMoveItems: (Set<String>, String?) -> Unit = { _, _ -> },
+    onDeleteItems: (Set<String>) -> Unit = {},
 ) {
+    val drag = rememberPaperDragState()
+    val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
+        PaperDropTarget.Delete -> onDeleteItems(action.ids)
+        is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
+    } }
+    var moveOpen by rememberSaveable { mutableStateOf(false) }
+    var manageOpen by rememberSaveable { mutableStateOf(false) }
     var renameOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); onDismissMessage() }
     }
-    BackHandler(state.selecting && !state.busy) { onClearSelection() }
+    BackHandler(drag.held || (state.selecting && !state.busy)) {
+        if (drag.held) drag.release(cancelled = true) else onClearSelection()
+    }
     PaperScaffold(
         title = if (state.selecting) "已选 ${state.selectedIds.size} 个" else "历史对话",
-        onBack = { if (state.selecting && !state.busy) onClearSelection() else onBack() },
+        onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
         actions = {
+            if (!state.selecting) IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, "管理分类") }
             if (state.selecting) {
+                IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类") }
                 IconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
                     Icon(Icons.Outlined.Edit, "重命名")
                 }
@@ -100,13 +126,25 @@ internal fun HistoryContent(
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 )
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(state.categoryId == null && !state.uncategorizedOnly, { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy && !drag.held)
+                    FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") }, enabled = !state.busy && !drag.held)
+                    state.categories.forEach { category ->
+                        FilterChip(state.categoryId == category.id, { onCategory(category.id, false) }, { Text(category.name) }, enabled = !state.busy && !drag.held)
+                    }
+                }
+                state.categoryError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+                    TextButton(onRetry) { Text("重试读取分类") }
+                }
                 if (state.selecting) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
                         TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
                     }
                 } else if (state.error == null && state.entries.isNotEmpty()) {
-                    Text("${state.entries.size} 个对话 · 长按卡片可管理", style = MaterialTheme.typography.bodySmall,
+                    Text("${state.entries.size} 个对话 · 长按选择，上拖分组，下拖删除", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
                 when {
@@ -118,14 +156,20 @@ internal fun HistoryContent(
                     state.entries.isEmpty() -> HistoryPlaceholder(
                         if (state.filtered) "没有找到匹配的对话" else "还没有历史对话，发送问题后会自动保存",
                         if (state.filtered) "清除筛选" else "去提问",
-                        { if (state.filtered) { onQuery("") } else onBack() }, Modifier.weight(1f),
+                        { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.weight(1f),
                     )
-                    else -> HistoryGrid(state, onOpenConversation, onToggleSelection, Modifier.weight(1f))
+                    else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop, Modifier.weight(1f))
                 }
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+            PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
         }
     }
+    if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { category ->
+        moveOpen = false; onMoveItems(state.selectedIds, category)
+    }
+    if (manageOpen) CategoryManager(state.categories, state.busy, { manageOpen = false },
+        onCreateCategory, onRenameCategory, onReorderCategory, onDeleteCategory)
     val selected = state.entries.firstOrNull { it.conversation.id in state.selectedIds }
     if (renameOpen && selected != null && state.selectedIds.size == 1) {
         RenameDialog(selected.conversation.title, { renameOpen = false }) { title ->
@@ -161,6 +205,8 @@ private fun HistoryGrid(
     state: HistoryUiState,
     onOpen: (String) -> Unit,
     onToggle: (String) -> Unit,
+    drag: PaperDragState,
+    onDrop: (PaperDrop) -> Unit,
     modifier: Modifier,
 ) {
     // 常规字号两列瀑布流；辅助大字号改一列，为正文留出足够宽度。
@@ -174,8 +220,9 @@ private fun HistoryGrid(
             val id = entry.conversation.id
             HistoryCard(entry, id in state.selectedIds, state.selecting, state.busy,
                 id == state.activeConversationId,
-                onClick = { if (state.selecting) onToggle(id) else onOpen(id) },
-                onLongClick = { onToggle(id) })
+                onClick = { if (drag.visual == null) { if (state.selecting) onToggle(id) else onOpen(id) } },
+                category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: "未分类",
+                modifier = Modifier.animateItem().testTag("history-card-$id").paperDragSource(drag, id, entry.conversation.title, state.selectedIds, !state.busy, onToggle, onDrop))
         }
     }
 }
@@ -184,18 +231,17 @@ private fun HistoryGrid(
 @Composable
 private fun HistoryCard(
     entry: HistoryEntry, selected: Boolean, selecting: Boolean, busy: Boolean,
-    generating: Boolean, onClick: () -> Unit, onLongClick: () -> Unit,
+    generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier,
 ) {
     val shape = RoundedCornerShape(6.dp)
     val conversation = entry.conversation
     Column(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+        modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
             .border(if (selected) 2.dp else 1.dp,
                 if (selected) MaterialTheme.colorScheme.primary else MogeTheme.paper.cardStroke.copy(alpha = 0.45f), shape)
-            .combinedClickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
-                onClickLabel = if (selecting) "切换选择" else "打开对话",
-                onLongClickLabel = "选择对话", onClick = onClick, onLongClick = onLongClick)
+            .clickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
+                onClickLabel = if (selecting) "切换选择" else "打开对话", onClick = onClick)
             .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }
             .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -212,6 +258,7 @@ private fun HistoryCard(
             if (selecting) Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                 null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp))
         }
+        Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

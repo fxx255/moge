@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.HistoryEntry
+import com.moge.app.data.db.NotebookCategoryEntity
+import com.moge.app.data.db.NotebookRepository
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,6 +31,10 @@ import javax.inject.Inject
 data class HistoryUiState(
     val query: String = "",
     val entries: List<HistoryEntry> = emptyList(),
+    val categories: List<NotebookCategoryEntity> = emptyList(),
+    val categoryId: String? = null,
+    val uncategorizedOnly: Boolean = false,
+    val categoryError: String? = null,
     val selectedIds: Set<String> = emptySet(),
     val loading: Boolean = true,
     val error: String? = null,
@@ -37,7 +43,7 @@ data class HistoryUiState(
     val activeConversationId: String? = null,
 ) {
     val selecting: Boolean get() = selectedIds.isNotEmpty()
-    val filtered: Boolean get() = query.isNotBlank()
+    val filtered: Boolean get() = query.isNotBlank() || categoryId != null || uncategorizedOnly
 }
 
 internal const val SEARCH_DEBOUNCE_MS = 250L
@@ -50,8 +56,12 @@ class HistoryViewModel @Inject constructor(
     private val repository: ConversationRepository,
     private val drafts: DraftStore,
     private val manager: GenerationManager,
+    private val notebooks: NotebookRepository,
 ) : ViewModel() {
+    private val restoredCategory = savedState.get<String>(CATEGORY).orEmpty()
     private val _state = MutableStateFlow(HistoryUiState(
+        categoryId = restoredCategory.takeIf { it.isNotBlank() && it != UNCATEGORIZED },
+        uncategorizedOnly = restoredCategory == UNCATEGORIZED,
         query = savedState.get<String>(QUERY).orEmpty(),
         selectedIds = savedState.get<ArrayList<String>>(SELECTED)?.toSet().orEmpty(),
     ))
@@ -67,9 +77,10 @@ class HistoryViewModel @Inject constructor(
             combine(
                 query,
                 reload,
-            ) { query, _ -> query }
-                .flatMapLatest { query ->
-                    repository.observeHistory(query)
+                savedState.getStateFlow(CATEGORY, restoredCategory),
+            ) { query, _, category -> query to category }
+                .flatMapLatest { (query, category) ->
+                    repository.observeHistory(query, category.takeIf { it.isNotBlank() && it != UNCATEGORIZED }, category == UNCATEGORIZED)
                         .map { Load(entries = it) }
                         .onStart { emit(Load(loading = true)) }
                         .catch { error ->
@@ -87,6 +98,18 @@ class HistoryViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            reload.flatMapLatest {
+                notebooks.observeCategories().catch { error ->
+                    if (error is CancellationException) throw error
+                    _state.update { it.copy(categoryError = "分类读取失败，请重试") }
+                }
+            }.collect { categories ->
+                _state.update { it.copy(categories = categories, categoryError = null) }
+                val current = state.value.categoryId
+                if (current != null && categories.none { it.id == current }) setCategory(null, true)
+            }
+        }
+        viewModelScope.launch {
             manager.active.collect { active ->
                 _state.update { it.copy(activeConversationId = active.conversationId.takeIf { active.requestId != null }) }
             }
@@ -98,6 +121,53 @@ class HistoryViewModel @Inject constructor(
         _state.update { it.copy(query = query, selectedIds = emptySet()) }
         savedState[QUERY] = query
         persistSelection()
+    }
+
+    fun setCategory(id: String?, uncategorized: Boolean) {
+        if (state.value.busy) return
+        _state.update { it.copy(categoryId = id, uncategorizedOnly = uncategorized, selectedIds = emptySet()) }
+        savedState[CATEGORY] = if (uncategorized) UNCATEGORIZED else id.orEmpty()
+        persistSelection()
+    }
+
+    fun createCategory(name: String) = mutate { notebooks.createCategory(name); "分类已创建" }
+    fun renameCategory(id: String, name: String) = mutate {
+        if (notebooks.renameCategory(id, name)) "分类已改名" else "分类已被删除"
+    }
+    fun deleteCategory(id: String) = mutate {
+        notebooks.deleteCategory(id)
+        if (state.value.categoryId == id) {
+            _state.update { it.copy(categoryId = null, uncategorizedOnly = true) }
+            savedState[CATEGORY] = UNCATEGORIZED
+        }
+        "分类已删除，题目与对话已移至未分类"
+    }
+    fun reorderCategory(id: String, offset: Int) {
+        val order = state.value.categories.map { it.id }.toMutableList()
+        val from = order.indexOf(id)
+        val to = from + offset
+        if (from !in order.indices || to !in order.indices) return
+        order.add(to, order.removeAt(from))
+        mutate { notebooks.reorderCategories(order); "分类顺序已修改" }
+    }
+    fun moveItems(ids: Set<String>, categoryId: String?) {
+        if (ids.isEmpty()) return
+        mutate {
+            val moved = repository.moveToCategory(ids, categoryId)
+            _state.update { it.copy(selectedIds = it.selectedIds - ids) }
+            persistSelection()
+            "已移动 $moved 个对话"
+        }
+    }
+    private fun mutate(action: suspend () -> String) {
+        if (state.value.busy) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            try { val message = action(); _state.update { it.copy(message = message) } }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { _state.update { it.copy(message = error.message ?: "操作失败，请重试") } }
+            finally { _state.update { it.copy(busy = false) }; persistSelection() }
+        }
     }
 
     fun toggleSelection(id: String) {
@@ -159,8 +229,9 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
-    fun deleteSelected() {
-        val selected = state.value.selectedIds
+    fun deleteSelected() = deleteItems(state.value.selectedIds)
+
+    fun deleteItems(selected: Set<String>) {
         if (selected.isEmpty() || state.value.busy) return
         val protected = state.value.activeConversationId
         _state.update { it.copy(busy = true) }
@@ -174,13 +245,12 @@ class HistoryViewModel @Inject constructor(
                         try { drafts.clear(id) } catch (_: Exception) { draftFailed = true }
                     }
                     val kept = selected - deleted
-                    val visibleKept = kept.intersect(state.value.entries.map { it.conversation.id }.toSet())
                     val message = when {
                         kept.isNotEmpty() -> "已删除 ${deleted.size} 个对话；生成中的对话已保留，请停止生成后再删除"
                         draftFailed -> "已删除 ${deleted.size} 个对话，部分草稿未能清理"
                         else -> "已删除 ${deleted.size} 个对话"
                     }
-                    _state.update { it.copy(selectedIds = visibleKept, message = message) }
+                    _state.update { it.copy(selectedIds = (it.selectedIds - deleted).intersect(it.entries.map { entry -> entry.conversation.id }.toSet()), message = message) }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -196,6 +266,8 @@ class HistoryViewModel @Inject constructor(
     private fun persistSelection() { savedState[SELECTED] = ArrayList(state.value.selectedIds) }
     private data class Load(val entries: List<HistoryEntry>? = null, val loading: Boolean = false, val error: String? = null)
     private companion object {
+        const val CATEGORY = "historyCategory"
+        const val UNCATEGORIZED = "__uncategorized__"
         const val QUERY = "historyQuery"
         const val SELECTED = "historySelected"
     }

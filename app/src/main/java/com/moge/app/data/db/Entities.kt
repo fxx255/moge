@@ -9,7 +9,15 @@ import java.time.Instant
 import java.util.UUID
 
 /** 自动保存的历史会话；与用户主动保存的题册快照独立。 */
-@Entity(tableName = "conversation", indices = [Index("updated_at")])
+@Entity(
+    tableName = "conversation",
+    foreignKeys = [ForeignKey(
+        entity = NotebookCategoryEntity::class,
+        parentColumns = ["id"], childColumns = ["category_id"],
+        onDelete = ForeignKey.SET_NULL,
+    )],
+    indices = [Index("updated_at"), Index("category_id")],
+)
 data class ConversationEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
@@ -26,6 +34,9 @@ data class ConversationEntity(
     val updatedAt: Instant = createdAt,
     @ColumnInfo(defaultValue = "0")
     val pinned: Boolean = false,
+    /** 历史分类与收藏快照的分类独立；删除分类时仅清空归属。 */
+    @ColumnInfo(name = "category_id")
+    val categoryId: String? = null,
 )
 
 /** 会话里的一条消息。会话删除时级联删除。 */

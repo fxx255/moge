@@ -12,7 +12,7 @@ import java.time.Instant
 @Dao
 interface ConversationDao {
 
-    /** 一次查询取最近内容与请求状态；空会话不出现在历史中。 */
+    /** 一次查询取最近内容与请求状态；仅含用户消息的会话显示，分类筛选与搜索取交集。 */
     @Query("""
         SELECT c.*, COALESCE(
             (SELECT NULLIF(trim(r.partial_text), '') FROM request r
@@ -29,6 +29,8 @@ interface ConversationDao {
                       ORDER BY updated_at DESC, rowid DESC LIMIT 1), '') AS request_status
         FROM conversation c WHERE EXISTS
             (SELECT 1 FROM message WHERE conversation_id = c.id AND role = 'user')
+        AND (:categoryId IS NULL OR c.category_id = :categoryId)
+        AND (:uncategorizedOnly = 0 OR c.category_id IS NULL)
         AND (:pattern = '' OR c.title LIKE :pattern ESCAPE '\' OR EXISTS
             (SELECT 1 FROM message WHERE conversation_id = c.id AND
              (content LIKE :pattern ESCAPE '\' OR display_content LIKE :pattern ESCAPE '\'
@@ -37,7 +39,29 @@ interface ConversationDao {
                         AND partial_text LIKE :pattern ESCAPE '\'))
         ORDER BY c.pinned DESC, c.updated_at DESC, c.id
     """)
-    fun observeHistory(pattern: String): Flow<List<HistoryEntry>>
+    fun observeHistory(
+        pattern: String, categoryId: String? = null, uncategorizedOnly: Boolean = false,
+    ): Flow<List<HistoryEntry>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM notebook_category WHERE id = :categoryId)")
+    suspend fun categoryExists(categoryId: String): Boolean
+
+    /** 只变更分类；同一分类的会话不计入返回值，历史时间与收藏归属保持原样。 */
+    @Query("UPDATE conversation SET category_id = :categoryId WHERE id IN (:ids) AND category_id IS NOT :categoryId")
+    suspend fun moveConversations(ids: List<String>, categoryId: String?): Int
+
+    /** 分类校验与所有批次共享事务：无效分类抛出异常，任何批次失败均整体回滚。 */
+    @Transaction
+    suspend fun moveToCategory(ids: List<String>, categoryId: String?): Int {
+        if (ids.isEmpty()) return 0
+        require(categoryId == null || categoryExists(categoryId)) { "分类不存在" }
+        var moved = 0
+        // 每批两个 categoryId 参数加最多 498 个会话 id，总计不超过 500 个 SQLite 参数。
+        for (batch in ids.chunked(498)) {
+            moved += moveConversations(batch, categoryId)
+        }
+        return moved
+    }
 
     @Query(
         "SELECT id FROM conversation WHERE id IN (:ids) AND NOT EXISTS " +
@@ -139,7 +163,7 @@ interface ConversationDao {
     suspend fun allConversationIds(): List<String>
 }
 
-/** 独立历史卡片投影，无学科或收藏归属。 */
+/** 历史卡片投影；自定义分类在会话上持久化，收藏快照仍然独立。 */
 data class HistoryEntry(
     @Embedded val conversation: ConversationEntity,
     @androidx.room.ColumnInfo(name = "recent_content") val recentContent: String,

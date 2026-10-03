@@ -111,7 +111,7 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
             )
             QuestionPhotos(item.photoPaths, onOpenImages)
             if (item.text.isNotBlank()) {
-                Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                UserQuestionText(item.text)
             }
             if (item.transcript.isNotBlank()) Transcript(item.transcript)
         }
@@ -168,7 +168,7 @@ internal fun FollowUpNote(item: SolveItem.Question, onOpenImages: (List<String>,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             QuestionPhotos(item.photoPaths, onOpenImages)
-            Text(item.text, style = MaterialTheme.typography.bodyLarge, color = MogeTheme.paper.onStickyNote)
+            UserQuestionText(item.text, color = MogeTheme.paper.onStickyNote)
         }
     }
 }
@@ -440,46 +440,50 @@ internal fun FollowUpBar(
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
-        Row(
+        Column(
             Modifier.fillMaxWidth()
-                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 28.dp)
-                .padding(start = 4.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 28.dp),
         ) {
-            TextField(
-                value = state.input,
-                onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(if (state.conversationId == null) "输入问题" else "继续对话") },
-                maxLines = 5,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-            )
-            if (!state.generating) {
-                IconButton(onClick = onTakePhoto, enabled = state.canAddPhoto) {
-                    Icon(Icons.Outlined.PhotoCamera, contentDescription = "拍照")
-                }
-                IconButton(onClick = onPickPhotos, enabled = state.canAddPhoto) {
-                    Icon(Icons.Outlined.PhotoLibrary, contentDescription = "从相册选图")
-                }
-            }
-            if (state.generating) {
-                FilledIconButton(onClick = onStop,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.tertiary,
-                        contentColor = MaterialTheme.colorScheme.onTertiary,
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextField(
+                    value = state.input,
+                    onValueChange = onInputChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text(if (state.conversationId == null) "输入问题" else "继续对话") },
+                    maxLines = 5,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
                     ),
-                ) { Icon(Icons.Outlined.Stop, contentDescription = "停止生成") }
-            } else {
-                FilledIconButton(onClick = onSend, enabled = state.canSend) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                )
+                if (!state.generating) {
+                    IconButton(onClick = onTakePhoto, enabled = state.canAddPhoto) {
+                        Icon(Icons.Outlined.PhotoCamera, contentDescription = "拍照")
+                    }
+                    IconButton(onClick = onPickPhotos, enabled = state.canAddPhoto) {
+                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = "从相册选图")
+                    }
+                }
+                if (state.generating) {
+                    FilledIconButton(onClick = onStop,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary,
+                        ),
+                    ) { Icon(Icons.Outlined.Stop, contentDescription = "停止生成") }
+                } else {
+                    FilledIconButton(onClick = onSend, enabled = state.canSend) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                    }
                 }
             }
+            ComposerMathPreview(state.input)
         }
         if (state.busyElsewhere) {
             Text("另一段对话正在生成，结束后才能发送", style = MaterialTheme.typography.bodySmall,

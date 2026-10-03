@@ -2,18 +2,20 @@ package com.moge.app.ui.notebook
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -24,7 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.data.db.NotebookEntryEntity
-import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.*
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -38,7 +40,7 @@ fun NotebookScreen(
     NotebookContent(state, onBack, onOpenConversation, vm::setQuery, vm::setCategory,
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::openEntry, vm::closeEntry,
         vm::moveSelected, vm::deleteSelected, vm::createCategory, vm::renameCategory,
-        vm::reorderCategory, vm::deleteCategory, vm::retry, vm::dismissMessage)
+        vm::reorderCategory, vm::deleteCategory, vm::retry, vm::dismissMessage, vm::moveItems, vm::deleteItems)
 }
 
 @Composable
@@ -61,7 +63,14 @@ internal fun NotebookContent(
     onDeleteCategory: (String) -> Unit,
     onRetry: () -> Unit,
     onDismissMessage: () -> Unit,
+    onMoveItems: (Set<String>, String?) -> Unit = { _, _ -> },
+    onDeleteItems: (Set<String>) -> Unit = {},
 ) {
+    val drag = rememberPaperDragState()
+    val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
+        PaperDropTarget.Delete -> onDeleteItems(action.ids)
+        is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
+    } }
     var manageOpen by rememberSaveable { mutableStateOf(false) }
     var moveOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
@@ -70,8 +79,8 @@ internal fun NotebookContent(
         state.message?.let { snackbar.showSnackbar(it); onDismissMessage() }
     }
     val detail = state.openEntryId != null
-    val back = { if (detail) onCloseEntry() else if (state.selecting && !state.busy) onClearSelection() else onBack() }
-    BackHandler(detail || (state.selecting && !state.busy), onBack = back)
+    val back: () -> Unit = { if (drag.held) drag.release(cancelled = true) else if (detail) onCloseEntry() else if (state.selecting && !state.busy) onClearSelection() else onBack() }
+    BackHandler(drag.held || detail || (state.selecting && !state.busy), onBack = { back(); Unit })
     PaperScaffold(
         title = if (detail) state.detailEntry?.title ?: "收藏详情"
             else if (state.selecting) "已选 ${state.selectedIds.size} 条" else "我的题册",
@@ -79,7 +88,7 @@ internal fun NotebookContent(
         actions = {
             if (state.selecting || (detail && state.detailEntry != null)) {
                 IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
-                    Icon(Icons.Outlined.DriveFileMove, "移动分类")
+                    Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
                 }
                 IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
                     Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
@@ -143,13 +152,14 @@ internal fun NotebookContent(
                         items(state.entries, key = { it.id }) { entry ->
                             NotebookCard(entry, state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类",
                                 entry.id in state.selectedIds, state.selecting, state.busy,
-                                onClick = { if (state.selecting) onToggleSelection(entry.id) else onOpenEntry(entry.id) },
-                                onLongClick = { onToggleSelection(entry.id) })
+                                onClick = { if (drag.visual == null) { if (state.selecting) onToggleSelection(entry.id) else onOpenEntry(entry.id) } },
+                                modifier = Modifier.animateItem().testTag("notebook-card-${entry.id}").paperDragSource(drag, entry.id, entry.title, state.selectedIds, !state.busy, onToggleSelection, drop))
                         }
                     }
                 }
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+            if (!detail) PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
         }
     }
     if (manageOpen) CategoryManager(state.categories, state.busy, { manageOpen = false },
@@ -166,12 +176,11 @@ internal fun NotebookContent(
 @Composable
 private fun NotebookCard(
     entry: NotebookEntryEntity, category: String, selected: Boolean, selecting: Boolean, busy: Boolean,
-    onClick: () -> Unit, onLongClick: () -> Unit,
+    onClick: () -> Unit, modifier: Modifier,
 ) {
-    OutlinedCard(Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
+    OutlinedCard(modifier.fillMaxWidth().clickable(enabled = !busy,
         role = if (selecting) Role.Checkbox else Role.Button,
-        onClickLabel = if (selecting) "切换选择" else "打开收藏", onLongClickLabel = "选择收藏",
-        onClick = onClick, onLongClick = onLongClick).semantics { this.selected = selected },
+        onClickLabel = if (selecting) "切换选择" else "打开收藏", onClick = onClick).semantics { this.selected = selected },
         colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

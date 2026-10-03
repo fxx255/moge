@@ -82,7 +82,7 @@ class NotebookScreenTest {
         compose.onNodeWithText("保存").performClick()
         assertEquals("考前复习", created)
         compose.onNodeWithContentDescription("删除分类 待复习").performClick()
-        compose.onNodeWithText("该分类的收藏会移至未分类，保存的题目与解答不会删除。").assertExists()
+        compose.onNodeWithText("该分类的题目与历史对话会移至未分类，内容不会删除。").assertExists()
         compose.onNodeWithText("删除分类", substring = false).performClick()
         assertEquals("category", categoryDeleted)
     }

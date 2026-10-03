@@ -110,4 +110,20 @@ class NotebookViewModelTest {
         assertEquals("名称不能为空", model.state.value.message)
         assertFalse(model.state.value.busy)
     }
+
+    @Test fun `drag moves explicit snapshot ids without depending on current selection`() {
+        coEvery { repository.moveEntries(setOf("a"), "category") } returns 1
+        val model = vm()
+        model.moveItems(setOf("a"), "category")
+        coVerify { repository.moveEntries(setOf("a"), "category") }
+        assertTrue(model.state.value.message!!.contains("1"))
+    }
+    @Test fun `drag removal only deletes favorites and preserves history`() {
+        coEvery { repository.deleteFavorites(setOf("a")) } returns 1
+        val model = vm()
+        model.deleteItems(setOf("a"))
+        coVerify { repository.deleteFavorites(setOf("a")) }
+        coVerify(exactly = 0) { history.deleteIdle(any()) }
+        assertTrue(model.state.value.message!!.contains("历史对话仍保留"))
+    }
 }

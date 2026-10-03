@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import com.moge.app.data.db.ConversationEntity
 import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.HistoryEntry
+import com.moge.app.data.db.NotebookRepository
+import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.GenerationManager.ActiveState
@@ -22,6 +24,8 @@ import org.junit.Test
 class HistoryViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private val repository = mockk<ConversationRepository>()
+    private val categories = MutableStateFlow(listOf(NotebookCategoryEntity(id = "custom", name = "我的分组")))
+    private val notebooks = mockk<NotebookRepository> { every { observeCategories() } returns categories }
     private val drafts = mockk<DraftStore>(relaxed = true)
     private val active = MutableStateFlow(ActiveState())
     private val manager = mockk<GenerationManager> { every { this@mockk.active } returns this@HistoryViewModelTest.active }
@@ -30,10 +34,10 @@ class HistoryViewModelTest {
 
     @Before fun setup() {
         Dispatchers.setMain(dispatcher)
-        every { repository.observeHistory(any()) } returns entries
+        every { repository.observeHistory(any(), any(), any()) } returns entries
     }
     @After fun teardown() { Dispatchers.resetMain() }
-    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager)
+    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks)
 
     @Test fun `search restores and clears hidden selections`() {
         val handle = SavedStateHandle(mapOf("historyQuery" to "函数"))
@@ -126,5 +130,35 @@ class HistoryViewModelTest {
         model.retry()
         assertNull(model.state.value.error)
         assertEquals(2, model.state.value.entries.size)
+    }
+
+    @Test fun `history category filter persists and deleted group becomes uncategorized`() {
+        val handle = SavedStateHandle()
+        val model = vm(handle)
+        model.toggleSelection("a")
+        model.setCategory("custom", false)
+        verify { repository.observeHistory("", "custom", false) }
+        assertTrue(model.state.value.selectedIds.isEmpty())
+        assertEquals("custom", handle.get<String>("historyCategory"))
+        categories.value = emptyList()
+        assertTrue(model.state.value.uncategorizedOnly)
+        assertNull(model.state.value.categoryId)
+        verify { repository.observeHistory("", null, true) }
+    }
+    @Test fun `drag move uses captured ids even before selected state arrives`() {
+        coEvery { repository.moveToCategory(setOf("a"), "custom") } returns 1
+        val model = vm()
+        model.moveItems(setOf("a"), "custom")
+        coVerify(exactly = 1) { repository.moveToCategory(setOf("a"), "custom") }
+        assertTrue(model.state.value.message!!.contains("1"))
+        assertFalse(model.state.value.busy)
+    }
+    @Test fun `drag deletion preserves active generation just like toolbar deletion`() {
+        active.value = ActiveState(requestId = "running", conversationId = "a")
+        coEvery { repository.deleteIdle(setOf("b")) } returns setOf("b")
+        val model = vm()
+        model.deleteItems(setOf("a", "b"))
+        coVerify { repository.deleteIdle(setOf("b")) }
+        assertTrue(model.state.value.message!!.contains("生成中的对话已保留"))
     }
 }
