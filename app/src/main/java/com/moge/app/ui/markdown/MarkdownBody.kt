@@ -4,6 +4,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.util.Log
 import android.widget.TextView
+import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -524,7 +525,7 @@ internal fun MarkdownAnswer(content: String) {
                             // 与图片同理：抬高 zIndex，保证表格的横向拖动不会因为
                             // 上方文本块的高度偏差而被吃掉（用户反馈「末尾的表格拖不动」）。
                             .zIndex(FIGURE_Z_INDEX)
-                            .horizontalScroll(scroll, reverseScrolling = false)
+                            .excludePageSwipe().horizontalScroll(scroll, reverseScrolling = false)
                             .clipToBounds(),
                     ) {
                         // selectable=false：见 createMarkdownTextView 内注释。

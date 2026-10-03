@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
@@ -21,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -47,13 +49,15 @@ fun HistoryScreen(
     onBack: () -> Unit,
     onOpenConversation: (String) -> Unit,
     vm: HistoryViewModel = hiltViewModel(),
+    onOpenNotebook: (String?) -> Unit = {},
+    onNewConversation: (() -> Unit)? = null,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     HistoryContent(state, onBack, onOpenConversation, vm::setQuery,
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::renameSelected,
         vm::deleteSelected, vm::pinSelected, vm::retry, vm::dismissMessage,
         vm::setCategory, vm::createCategory, vm::renameCategory, vm::reorderCategory, vm::deleteCategory,
-        vm::moveItems, vm::deleteItems)
+        vm::moveItems, vm::deleteItems, vm::collectSelected, onOpenNotebook, onNewConversation, vm::dismissSavedFavorite)
 }
 
 @Composable
@@ -77,6 +81,10 @@ internal fun HistoryContent(
     onDeleteCategory: (String) -> Unit = {},
     onMoveItems: (Set<String>, String?) -> Unit = { _, _ -> },
     onDeleteItems: (Set<String>) -> Unit = {},
+    onCollect: () -> Unit = {},
+    onOpenNotebook: (String?) -> Unit = {},
+    onNewConversation: (() -> Unit)? = null,
+    onDismissSavedFavorite: () -> Unit = {},
 ) {
     val drag = rememberPaperDragState()
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
@@ -88,85 +96,103 @@ internal fun HistoryContent(
     var renameOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); onDismissMessage() }
+    LaunchedEffect(state.message, state.savedFavoriteId) {
+        state.message?.let { message ->
+            val saved = state.savedFavoriteId
+            val result = snackbar.showSnackbar(message, actionLabel = if (message.startsWith("已收藏 ")) "查看题册" else null)
+            if (result == SnackbarResult.ActionPerformed) onOpenNotebook(saved)
+            onDismissMessage()
+            onDismissSavedFavorite()
+        }
     }
     BackHandler(drag.held || (state.selecting && !state.busy)) {
         if (drag.held) drag.release(cancelled = true) else onClearSelection()
     }
-    PaperScaffold(
-        title = if (state.selecting) "已选 ${state.selectedIds.size} 个" else "历史对话",
-        onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
-        actions = {
-            if (!state.selecting) IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, "管理分类") }
-            if (state.selecting) {
-                IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类") }
-                IconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
-                    Icon(Icons.Outlined.Edit, "重命名")
-                }
-                IconButton(onClick = onPin, enabled = state.selectedIds.size == 1 && !state.busy) {
-                    Icon(Icons.Outlined.PushPin, "置顶或取消置顶")
-                }
-                IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
-                    Icon(Icons.Outlined.Delete, "删除所选对话", tint = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-    ) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            Column(Modifier.fillMaxSize()) {
-                OutlinedTextField(
-                    value = state.query, onValueChange = onQuery, enabled = !state.busy,
-                    label = { Text("搜索标题、消息或识别文本") }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }, enabled = !state.busy) {
-                            Icon(Icons.Outlined.Close, "清除搜索")
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(state.categoryId == null && !state.uncategorizedOnly, { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy && !drag.held)
-                    FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") }, enabled = !state.busy && !drag.held)
-                    state.categories.forEach { category ->
-                        FilterChip(state.categoryId == category.id, { onCategory(category.id, false) }, { Text(category.name) }, enabled = !state.busy && !drag.held)
+    PageSwipeSurface(enabled = !state.selecting && !drag.held && !state.busy &&
+        !manageOpen && !moveOpen && !renameOpen && !deleteOpen,
+        onLeft = onNewConversation, leftLabel = "前往新对话") {
+        PaperScaffold(
+            title = if (state.selecting) "已选 ${state.selectedIds.size} 个" else "历史对话",
+            onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
+            actions = {
+                if (!state.selecting) {
+                    IconButton(onClick = { onOpenNotebook(null) }, enabled = !state.busy && !drag.held) {
+                        Icon(Icons.AutoMirrored.Outlined.MenuBook, "我的题册")
                     }
-                }
-                state.categoryError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-                    TextButton(onRetry) { Text("重试读取分类") }
+                    IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, "管理分类") }
                 }
                 if (state.selecting) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
-                        TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
+                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类") }
+                    IconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
+                        Icon(Icons.Outlined.Edit, "重命名")
                     }
-                } else if (state.error == null && state.entries.isNotEmpty()) {
-                    Text("${state.entries.size} 个对话 · 长按选择，上拖分组，下拖删除", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    IconButton(onClick = onCollect, enabled = !state.busy && !drag.held) {
+                        Icon(Icons.Outlined.BookmarkBorder, "收藏最新解答到题册")
+                    }
+                    IconButton(onClick = onPin, enabled = state.selectedIds.size == 1 && !state.busy) {
+                        Icon(Icons.Outlined.PushPin, "置顶或取消置顶")
+                    }
+                    IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
+                        Icon(Icons.Outlined.Delete, "删除所选对话", tint = MaterialTheme.colorScheme.error)
+                    }
                 }
-                when {
-                    state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.weight(1f))
-                    // 换搜索词时保留旧结果直到新结果到达，网格不闪、滚动位置也不丢。
-                    state.loading && state.entries.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.semantics { contentDescription = "正在读取历史" })
-                    }
-                    state.entries.isEmpty() -> HistoryPlaceholder(
-                        if (state.filtered) "没有找到匹配的对话" else "还没有历史对话，发送问题后会自动保存",
-                        if (state.filtered) "清除筛选" else "去提问",
-                        { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.weight(1f),
+            },
+        ) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = state.query, onValueChange = onQuery, enabled = !state.busy,
+                        label = { Text("搜索标题、消息或识别文本") }, singleLine = true,
+                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                        trailingIcon = {
+                            if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }, enabled = !state.busy) {
+                                Icon(Icons.Outlined.Close, "清除搜索")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 16.dp),
                     )
-                    else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop, Modifier.weight(1f))
+                    Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(state.categoryId == null && !state.uncategorizedOnly, { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy && !drag.held)
+                        FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") }, enabled = !state.busy && !drag.held)
+                        state.categories.forEach { category ->
+                            FilterChip(state.categoryId == category.id, { onCategory(category.id, false) }, { Text(category.name) }, enabled = !state.busy && !drag.held)
+                        }
+                    }
+                    state.categoryError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+                        TextButton(onRetry) { Text("重试读取分类") }
+                    }
+                    if (state.selecting) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
+                            TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
+                        }
+                    } else if (state.error == null && state.entries.isNotEmpty()) {
+                        Text("${state.entries.size} 个对话 · 长按选择，上拖分组，下拖删除", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    }
+                    when {
+                        state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.weight(1f))
+                        // 换搜索词时保留旧结果直到新结果到达，网格不闪、滚动位置也不丢。
+                        state.loading && state.entries.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.semantics { contentDescription = "正在读取历史" })
+                        }
+                        state.entries.isEmpty() -> HistoryPlaceholder(
+                            if (state.filtered) "没有找到匹配的对话" else "还没有历史对话，发送问题后会自动保存",
+                            if (state.filtered) "清除筛选" else "去提问",
+                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.weight(1f),
+                        )
+                        else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop, Modifier.weight(1f))
+                    }
                 }
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+                PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
-            PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
         }
-    }
-    if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { category ->
-        moveOpen = false; onMoveItems(state.selectedIds, category)
+        if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { category ->
+            moveOpen = false; onMoveItems(state.selectedIds, category)
+        }
     }
     if (manageOpen) CategoryManager(state.categories, state.busy, { manageOpen = false },
         onCreateCategory, onRenameCategory, onReorderCategory, onDeleteCategory)
@@ -218,11 +244,23 @@ private fun HistoryGrid(
     ) {
         items(state.entries, key = { it.conversation.id }) { entry ->
             val id = entry.conversation.id
-            HistoryCard(entry, id in state.selectedIds, state.selecting, state.busy,
-                id == state.activeConversationId,
+            val thumbnail = if (entry.conversation.coverImage.isNotBlank())
+                rememberThumbnail(entry.conversation.coverImage, THUMB_MAX_PX) else Thumbnail.Failed
+            val category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: "未分类"
+            val selected = id in state.selectedIds
+            val selecting = state.selecting
+            val generating = id == state.activeConversationId
+            // Allocate a new immutable preview when data changes; a live composable lambda
+            // would otherwise update the lifted card during later recompositions.
+            val preview: @Composable () -> Unit = remember(entry, selected, selecting, generating, category, thumbnail) {
+                @Composable { HistoryCard(entry, selected, selecting, true, generating, {}, category, Modifier, thumbnail) }
+            }
+            HistoryCard(entry, selected, selecting, state.busy, generating,
                 onClick = { if (drag.visual == null) { if (state.selecting) onToggle(id) else onOpen(id) } },
-                category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: "未分类",
-                modifier = Modifier.animateItem().testTag("history-card-$id").paperDragSource(drag, id, entry.conversation.title, state.selectedIds, !state.busy, onToggle, onDrop))
+                category = category,
+                modifier = Modifier.animateItem().testTag("history-card-$id")
+                    .paperDragSource(drag, id, entry.conversation.title, state.selectedIds, !state.busy, onToggle, onDrop, preview),
+                thumbnail = thumbnail)
         }
     }
 }
@@ -231,7 +269,7 @@ private fun HistoryGrid(
 @Composable
 private fun HistoryCard(
     entry: HistoryEntry, selected: Boolean, selecting: Boolean, busy: Boolean,
-    generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier,
+    generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier, thumbnail: Thumbnail,
 ) {
     val shape = RoundedCornerShape(6.dp)
     val conversation = entry.conversation
@@ -245,9 +283,9 @@ private fun HistoryCard(
             .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }
             .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (conversation.coverImage.isNotBlank()) HistoryCover(conversation.coverImage)
-        if (entry.recentContent.isNotBlank()) Text(
-            entry.recentContent.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(),
+        if (conversation.coverImage.isNotBlank()) HistoryCover(thumbnail)
+        if (conversation.coverImage.isBlank() && entry.questionPreview.isNotBlank()) Text(
+            entry.questionPreview.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(),
             style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -255,10 +293,16 @@ private fun HistoryCard(
             Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 3,
                 overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f))
-            if (selecting) Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp))
+            Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp).alpha(if (selecting) 1f else 0f))
         }
         Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        if (entry.favoriteCount > 0) Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Text("已收藏 ${entry.favoriteCount} 条解答", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+        }
         if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -272,9 +316,7 @@ private fun HistoryCard(
 }
 
 @Composable
-private fun HistoryCover(path: String) {
-    // 与解题页共用缩略图缓存和尺寸。
-    val thumbnail = rememberThumbnail(path, THUMB_MAX_PX)
+private fun HistoryCover(thumbnail: Thumbnail) {
     Box(Modifier.fillMaxWidth().height(132.dp).clip(RoundedCornerShape(4.dp)).background(MogeTheme.paper.scratch),
         contentAlignment = Alignment.Center) {
         when (thumbnail) {

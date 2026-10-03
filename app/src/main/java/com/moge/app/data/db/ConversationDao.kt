@@ -26,7 +26,13 @@ interface ConversationDao {
                (trim(COALESCE(m.display_content, '')) != '' OR trim(m.content) != '' OR trim(m.transcript) != '')
              ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1), '') AS recent_content,
             COALESCE((SELECT status FROM request WHERE conversation_id = c.id
-                      ORDER BY updated_at DESC, rowid DESC LIMIT 1), '') AS request_status
+                      ORDER BY updated_at DESC, rowid DESC LIMIT 1), '') AS request_status,
+            COALESCE((SELECT COALESCE(NULLIF(trim(m.display_content), ''), NULLIF(trim(m.content), ''),
+                                      NULLIF(trim(m.transcript), '')) FROM message m
+                      WHERE m.conversation_id = c.id AND m.role = 'user'
+                      ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1), '') AS question_preview,
+            (SELECT COUNT(*) FROM notebook_entry n
+             WHERE n.source_conversation_id = c.id) AS favorite_count
         FROM conversation c WHERE EXISTS
             (SELECT 1 FROM message WHERE conversation_id = c.id AND role = 'user')
         AND (:categoryId IS NULL OR c.category_id = :categoryId)
@@ -106,6 +112,21 @@ interface ConversationDao {
     @Query("SELECT * FROM message WHERE conversation_id = :conversationId ORDER BY created_at ASC, rowid ASC")
     suspend fun getMessages(conversationId: String): List<MessageEntity>
 
+    @Query("SELECT * FROM message WHERE id = :id")
+    suspend fun getMessage(id: String): MessageEntity?
+
+    /** 只接受明确关联的问题与已完成回答；旧消息没有请求记录时仍须有有效回复关联。 */
+    @Query("""
+        SELECT a.* FROM message a JOIN message q
+            ON q.id = a.reply_to_message_id AND q.conversation_id = a.conversation_id AND q.role = 'user'
+        WHERE a.conversation_id = :conversationId AND a.role = 'assistant'
+          AND (trim(COALESCE(a.display_content, a.content)) != '' OR trim(a.final_answer) != '')
+          AND NOT EXISTS (SELECT 1 FROM request r WHERE r.answer_message_id = a.id
+              AND (r.status != 'COMPLETED' OR r.conversation_id != a.conversation_id OR r.user_message_id != q.id))
+        ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1
+    """)
+    suspend fun latestCompletedAnswer(conversationId: String): MessageEntity?
+
     /** Recover a completed answer locally without replacing its original provider text. */
     @Query("""
         UPDATE message SET display_content = :displayText, image_paths = :recoveredPaths
@@ -168,4 +189,6 @@ data class HistoryEntry(
     @Embedded val conversation: ConversationEntity,
     @androidx.room.ColumnInfo(name = "recent_content") val recentContent: String,
     @androidx.room.ColumnInfo(name = "request_status") val requestStatus: String = "",
+    @androidx.room.ColumnInfo(name = "question_preview") val questionPreview: String = "",
+    @androidx.room.ColumnInfo(name = "favorite_count") val favoriteCount: Int = 0,
 )

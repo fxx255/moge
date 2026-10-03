@@ -5,7 +5,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.view.Surface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -19,10 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -30,21 +26,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlin.math.roundToInt
-
-/** 把自然设备坐标映射到当前屏幕；平放时重力投影太小，不显示不稳定的角度。 */
-internal fun screenRollDegrees(x: Float, y: Float, rotation: Int): Float? {
-    if (!x.isFinite() || !y.isFinite() || hypot(x, y) < 1f) return null
-    val (screenX, screenY) = when (rotation) {
-        Surface.ROTATION_90 -> y to -x
-        Surface.ROTATION_180 -> -x to -y
-        Surface.ROTATION_270 -> -y to x
-        else -> x to y
-    }
-    return Math.toDegrees(atan2(screenX.toDouble(), abs(screenY.toDouble()))).toFloat()
-}
 
 /** 只在开关启用且首页处于前台时监听重力传感器（没有时回退加速度计）。 */
 @Composable
@@ -53,10 +35,8 @@ fun LevelIndicator(modifier: Modifier = Modifier) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val manager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
     val sensor = remember(manager) { manager?.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
-    // configChanges 下也必须随旋转重订阅。
-    val configuration = LocalConfiguration.current
-    val view = LocalView.current
-    val rotation = remember(configuration) { view.display?.rotation ?: Surface.ROTATION_0 }
+    // 和相机图标使用同一屏幕方向；configChanges 下旋转也会重订阅。
+    val rotation = rememberDisplayRotation()
     var degrees by remember(rotation) { mutableStateOf<Int?>(null) }
     DisposableEffect(manager, sensor, lifecycle, rotation) {
         val filtered = FloatArray(2)
@@ -94,9 +74,8 @@ fun LevelIndicator(modifier: Modifier = Modifier) {
         Canvas(Modifier.size(96.dp, 32.dp)) {
             val center = Offset(size.width / 2, size.height / 2)
             drawLine(Color.White.copy(alpha = 0.45f), Offset(0f, center.y), Offset(size.width, center.y), 1.dp.toPx())
-            rotate(-(degrees ?: 0).toFloat(), center) {
-                drawLine(color, Offset(center.x - 28.dp.toPx(), center.y), Offset(center.x + 28.dp.toPx(), center.y), 2.dp.toPx())
-            }
+            val guideOffset = levelGuideOffset((degrees ?: 0).toFloat(), 28.dp.toPx())
+            drawLine(color, center - guideOffset, center + guideOffset, 2.dp.toPx())
             drawCircle(color, 3.dp.toPx(), center)
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = color)

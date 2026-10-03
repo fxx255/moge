@@ -3,6 +3,7 @@ package com.moge.app.ui.solve
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -98,7 +99,7 @@ internal fun ComposerMathPreview(source: String) {
                         fontFamily = MonoFamily,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        modifier = Modifier.excludePageSwipe().horizontalScroll(rememberScrollState()),
                     )
                 } else {
                     UserMathBody(math, color = MaterialTheme.colorScheme.onSurface)
@@ -170,7 +171,7 @@ private fun UserMathBody(math: UserMathSource, color: Color) {
                 withFrameNanos { }
                 view.requestLayout()
             }
-            Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).clipToBounds()) {
+            Box(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).clipToBounds()) {
                 AndroidView(
                     modifier = Modifier.width(with(density) { renderWidthPx.toDp() }),
                     factory = { view },

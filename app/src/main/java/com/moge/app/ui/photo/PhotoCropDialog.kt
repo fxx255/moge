@@ -10,7 +10,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -32,7 +31,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -80,7 +78,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-/** 可移动、可缩放、可切换长宽比的裁剪器。 */
+/** 可移动、可缩放的自由裁剪器；宽高始终可以独立调整。 */
 @Composable
 fun PhotoCropDialog(
     path: String,
@@ -99,14 +97,13 @@ fun PhotoCropDialog(
     var zoom by remember { mutableStateOf(1f) }
     var imageOffset by remember { mutableStateOf(Offset.Zero) }
     var cropRect by remember { mutableStateOf(Rect.Zero) }
-    var selectedRatio by remember { mutableStateOf(cropRatios[0]) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val viewportMaxSide = cropViewportMaxSide()
     LaunchedEffect(path) {
         zoom = 1f
         imageOffset = Offset.Zero
-        cropRect = centeredCropRect(viewport, selectedRatio.value,
+        cropRect = centeredCropRect(viewport,
             preview?.let { it.width.toFloat() / it.height } ?: 1f)
         error = null
     }
@@ -134,7 +131,7 @@ fun PhotoCropDialog(
                         zoom = 1f
                         imageOffset = Offset.Zero
                         val rotatedSize = preview?.let { IntSize(it.height, it.width) } ?: IntSize.Zero
-                        cropRect = centeredCropRect(viewport, selectedRatio.value,
+                        cropRect = centeredCropRect(viewport,
                             if (rotatedSize.height > 0) rotatedSize.width.toFloat() / rotatedSize.height else 1f)
                         error = null
                     }) {
@@ -143,7 +140,7 @@ fun PhotoCropDialog(
                     }
                 }
                 Text(
-                    "双指缩放/平移照片；拖动框内移动选框，拖动四角改变大小",
+                    "双指缩放/平移照片；拖动框内移动选框，拖动边角自由改变宽高",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -179,8 +176,7 @@ fun PhotoCropDialog(
                                 cropRect = if (cropRect == Rect.Zero || previous == IntSize.Zero) {
                                     centeredCropRect(
                                         viewport = size,
-                                        ratio = selectedRatio.value,
-                                        freeRatio = preview.width.toFloat() / preview.height,
+                                        initialRatio = preview.width.toFloat() / preview.height,
                                     )
                                 } else {
                                     scaleRect(cropRect, previous, size)
@@ -217,7 +213,6 @@ fun PhotoCropDialog(
                                             cropRect = constrainCropRectToBounds(
                                                 cropRect,
                                                 visibleImageBounds(previewSize, viewport, newZoom, newOffset),
-                                                selectedRatio.value,
                                             )
                                         } else {
                                             if (wasMultiTouch) mode = CropDragMode.PAN_IMAGE
@@ -250,7 +245,6 @@ fun PhotoCropDialog(
                                                             zoom,
                                                             imageOffset,
                                                         ),
-                                                        ratio = selectedRatio.value,
                                                         minimumSize = minimumCropSize,
                                                     )
                                                 }
@@ -309,27 +303,6 @@ fun PhotoCropDialog(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        cropRatios.forEach { ratio ->
-                            FilterChip(
-                                selected = selectedRatio == ratio,
-                                onClick = {
-                                    selectedRatio = ratio
-                                    if (ratio.value != null) {
-                                        cropRect = constrainCropRectToBounds(
-                                            centeredCropRect(viewport, ratio.value),
-                                            visibleImageBounds(previewSize, viewport, zoom, imageOffset),
-                                            ratio.value,
-                                        )
-                                    }
-                                },
-                                label = { Text(ratio.label) },
-                            )
-                        }
-                    }
                 } else {
                     Text("照片加载失败", color = MaterialTheme.colorScheme.error)
                 }
@@ -407,13 +380,13 @@ internal fun cropAndSave(
 
 
 /**
- * 裁剪视口（正方形）的最大边长：按窗口高度减去标题、比例条和按钮（约 260dp）来算，
+ * 裁剪视口（正方形）的最大边长：按窗口高度减去标题、提示和按钮来算，
  * 否则横屏下边长跟着屏宽走，弹窗比屏幕还高。极端小屏兜底 200dp。
  */
 @Composable
 private fun cropViewportMaxSide(): Dp {
     val configuration = LocalConfiguration.current
-    // 标题 + 提示 + 比例条 + 固定按钮行 + 弹窗边距，约 230dp；横屏矮屏（如 540px）兜底 160dp。
-    val usableHeight = configuration.screenHeightDp.dp - 230.dp
+    // 标题 + 提示 + 固定按钮行 + 弹窗边距，约 190dp；横屏矮屏（如 540px）兜底 160dp。
+    val usableHeight = configuration.screenHeightDp.dp - 190.dp
     return minOf(configuration.screenWidthDp.dp, usableHeight).coerceAtLeast(160.dp)
 }

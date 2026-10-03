@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -42,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.PageSwipeSurface
 import com.moge.app.ui.export.AnswerExportContent
 import com.moge.app.ui.export.AnswerExportDialog
 import com.moge.app.ui.photo.PhotoCropDialog
@@ -59,12 +59,21 @@ fun SolveScreen(
     onNewConversation: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     vm: SolveViewModel = hiltViewModel(),
+    onResumeConversation: (() -> Unit)? = null,
+    onConversationObserved: (String?) -> Unit = {},
+    onViewFavorite: (String) -> Unit = {},
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var exportContent by remember { mutableStateOf<AnswerExportContent?>(null) }
     var favorite by remember { mutableStateOf<FavoriteTarget?>(null) }
     var selection by remember { mutableStateOf<AnswerSelection?>(null) }
+    var savedFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
+    val observedId = state.conversationId ?: conversationId
+    LaunchedEffect(observedId) { onConversationObserved(observedId) }
+    LaunchedEffect(state.notice) {
+        if (state.notice != "已保存到题册") savedFavoriteId = null
+    }
     val title = if (state.conversationId == null && conversationId == null) "新对话" else state.title
     var cropQueue by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     val pickPhotos = rememberLauncherForActivityResult(
@@ -87,29 +96,34 @@ fun SolveScreen(
         else selection = AnswerSelection(answer, current, alternatives, collect)
     }
 
-    PaperScaffold(title = title, onBack = onBack, actions = {
-        ConversationActions(
-            existingConversation = state.conversationId != null || conversationId != null,
-            onNewConversation = onNewConversation,
-            onOpenHistory = onOpenHistory,
-            onOpenSettings = onOpenSettings,
-        )
-    }) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onOpenNotebook) {
-                Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                Text("我的题册")
-            }
+    val existing = observedId != null
+    PageSwipeSurface(enabled = viewer == null && exportContent == null && favorite == null &&
+        selection == null && cropQueue.isEmpty(),
+        onLeft = if (existing) onOpenNotebook else onResumeConversation,
+        onRight = if (existing) onNewConversation else onOpenHistory,
+        leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
+        rightLabel = if (existing) "开始新对话" else "前往历史对话") {
+        PaperScaffold(title = title, onBack = onBack, actions = {
+            ConversationActions(
+                existingConversation = state.conversationId != null || conversationId != null,
+                onNewConversation = onNewConversation,
+                onOpenHistory = onOpenHistory,
+                onOpenSettings = onOpenSettings,
+            )
+        }) {
+            SolveList(state, vm::retry, vm::regenerate,
+                onOpenImages = { paths, index -> viewer = paths to index },
+                onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) })
+            NoticeLine(state.notice, vm::dismissNotice,
+                action = savedFavoriteId?.takeIf { state.notice == "已保存到题册" }?.let { id ->
+                    { onViewFavorite(id); vm.dismissNotice() }
+                })
+            FollowUpBar(state, vm::onInputChange, vm::send, vm::stop,
+                onTakePhoto = onTakePhoto,
+                onPickPhotos = { pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onOpenPendingPhoto = { index -> viewer = state.photos to index },
+                onRemovePendingPhoto = vm::removePhoto)
         }
-        SolveList(state, vm::retry, vm::regenerate,
-            onOpenImages = { paths, index -> viewer = paths to index },
-            onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) })
-        NoticeLine(state.notice, vm::dismissNotice)
-        FollowUpBar(state, vm::onInputChange, vm::send, vm::stop,
-            onTakePhoto = onTakePhoto,
-            onPickPhotos = { pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            onOpenPendingPhoto = { index -> viewer = state.photos to index },
-            onRemovePendingPhoto = vm::removePhoto)
     }
     cropQueue.firstOrNull()?.let { path ->
         val next = { cropQueue = cropQueue.drop(1); vm.addPhotos(listOf(path)) }
@@ -118,7 +132,8 @@ fun SolveScreen(
     }
     viewer?.let { (paths, index) -> PhotoViewer(paths, index.coerceAtLeast(0), onDismiss = { viewer = null }) }
     exportContent?.let { content -> AnswerExportDialog(content, onDismiss = { exportContent = null }) }
-    favorite?.let { target -> FavoriteDialog(target, onDismiss = { favorite = null }, onSaved = {
+    favorite?.let { target -> FavoriteDialog(target, onDismiss = { favorite = null }, onSaved = { id ->
+        savedFavoriteId = id
         favorite = null; vm.showNotice("已保存到题册")
     }) }
     selection?.let { pending ->
@@ -204,9 +219,13 @@ private fun ColumnScope.SolveList(
 }
 
 @Composable
-private fun NoticeLine(notice: String?, onTimeout: () -> Unit) {
+private fun NoticeLine(notice: String?, onTimeout: () -> Unit, action: (() -> Unit)? = null) {
     if (notice == null) return
     LaunchedEffect(notice) { delay(4_000); onTimeout() }
-    Text(notice, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp).liveRegion())
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(notice, style = MaterialTheme.typography.bodyMedium,
+            color = if (action != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            modifier = Modifier.weight(1f).liveRegion())
+        if (action != null) TextButton(onClick = action) { Text("查看题册") }
+    }
 }

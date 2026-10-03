@@ -10,6 +10,7 @@ import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.GenerationManager.ActiveState
 import io.mockk.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -160,5 +161,52 @@ class HistoryViewModelTest {
         model.deleteItems(setOf("a", "b"))
         coVerify { repository.deleteIdle(setOf("b")) }
         assertTrue(model.state.value.message!!.contains("生成中的对话已保留"))
+    }
+
+    @Test fun `collecting history saves selected ids and exposes the actual single favorite id`() {
+        val handle = SavedStateHandle()
+        val model = vm(handle)
+        model.toggleSelection("a")
+        coEvery { notebooks.saveConversations(setOf("a")) } returns listOf("saved-a")
+        model.collectSelected()
+        coVerify(exactly = 1) { notebooks.saveConversations(setOf("a")) }
+        assertEquals("saved-a", model.state.value.savedFavoriteId)
+        assertTrue(model.state.value.message!!.contains("1"))
+        assertFalse(model.state.value.busy)
+        assertTrue(model.state.value.selectedIds.isEmpty())
+        assertTrue(handle.get<ArrayList<String>>("historySelected")!!.isEmpty())
+        model.dismissSavedFavorite()
+        assertNull(model.state.value.savedFavoriteId)
+    }
+
+    @Test fun `collecting multiple entries reports count and no complete answer clears selection`() {
+        val model = vm()
+        model.selectAll()
+        coEvery { notebooks.saveConversations(setOf("a", "b")) } returns listOf("saved-a", "saved-b")
+        model.collectSelected()
+        assertTrue(model.state.value.message!!.contains("2"))
+        assertNull(model.state.value.savedFavoriteId)
+        model.selectAll()
+        coEvery { notebooks.saveConversations(setOf("a", "b")) } returns emptyList()
+        model.collectSelected()
+        assertTrue(model.state.value.message!!.contains("暂无完整解答"))
+        assertTrue(model.state.value.selectedIds.isEmpty())
+        assertNull(model.state.value.savedFavoriteId)
+    }
+
+    @Test fun `collect failure preserves selection and overlapping collections are ignored`() {
+        val pending = CompletableDeferred<List<String>>()
+        coEvery { notebooks.saveConversations(setOf("a")) } coAnswers { pending.await() }
+        val model = vm()
+        model.toggleSelection("a")
+        model.collectSelected()
+        assertTrue(model.state.value.busy)
+        model.collectSelected()
+        coVerify(exactly = 1) { notebooks.saveConversations(setOf("a")) }
+        pending.completeExceptionally(IllegalStateException("disk"))
+        assertFalse(model.state.value.busy)
+        assertEquals(setOf("a"), model.state.value.selectedIds)
+        assertEquals("disk", model.state.value.message)
+        assertNull(model.state.value.savedFavoriteId)
     }
 }

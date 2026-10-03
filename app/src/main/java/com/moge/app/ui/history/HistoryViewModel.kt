@@ -41,6 +41,7 @@ data class HistoryUiState(
     val message: String? = null,
     val busy: Boolean = false,
     val activeConversationId: String? = null,
+    val savedFavoriteId: String? = null,
 ) {
     val selecting: Boolean get() = selectedIds.isNotEmpty()
     val filtered: Boolean get() = query.isNotBlank() || categoryId != null || uncategorizedOnly
@@ -188,6 +189,30 @@ class HistoryViewModel @Inject constructor(
         persistSelection()
     }
 
+    fun collectSelected() {
+        val ids = state.value.selectedIds
+        if (ids.isEmpty() || state.value.busy) return
+        _state.update { it.copy(busy = true, message = null, savedFavoriteId = null) }
+        viewModelScope.launch {
+            try {
+                val saved = notebooks.saveConversations(ids)
+                _state.update { it.copy(
+                    selectedIds = emptySet(),
+                    savedFavoriteId = saved.singleOrNull(),
+                    message = if (saved.isEmpty()) "所选对话暂无完整解答，暂不能收藏" else "已收藏 ${saved.size} 条题目",
+                ) }
+                persistSelection()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: "收藏失败，请重试") }
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    fun dismissSavedFavorite() { _state.update { it.copy(savedFavoriteId = null) } }
     fun retry() { reload.value++ }
     fun dismissMessage() { _state.update { it.copy(message = null) } }
 

@@ -5,6 +5,7 @@ import com.moge.app.data.db.*
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.*
@@ -125,5 +126,68 @@ class NotebookViewModelTest {
         coVerify { repository.deleteFavorites(setOf("a")) }
         coVerify(exactly = 0) { history.deleteIdle(any()) }
         assertTrue(model.state.value.message!!.contains("历史对话仍保留"))
+    }
+
+    @Test fun `route favorite loads independently of stale query and category and closing survives recreation`() {
+        every { repository.observeEntries("old search", "category", false) } returns MutableStateFlow<List<NotebookEntryEntity>>(emptyList())
+        val handle = SavedStateHandle(mapOf("notebookEntryId" to "a", "notebookQuery" to "old search",
+            "notebookCategory" to "category"))
+        val model = vm(handle)
+        assertEquals("a", model.state.value.openEntryId)
+        assertEquals("a", model.state.value.detailEntry!!.id)
+        assertTrue(model.state.value.entries.isEmpty())
+        assertEquals("old search", model.state.value.query)
+        assertEquals("category", model.state.value.categoryId)
+        verify { repository.observeEntry("a") }
+        model.closeEntry()
+        val restored = vm(handle)
+        assertNull(restored.state.value.openEntryId)
+        assertNull(restored.state.value.detailEntry)
+        assertEquals("", handle.get<String>("notebookOpenEntry"))
+    }
+
+    @Test fun `explicit restored open key overrides navigation argument including empty value`() {
+        val opened = vm(SavedStateHandle(mapOf("notebookEntryId" to "b", "notebookOpenEntry" to "a")))
+        assertEquals("a", opened.state.value.openEntryId)
+        val closed = vm(SavedStateHandle(mapOf("notebookEntryId" to "b", "notebookOpenEntry" to "")))
+        assertNull(closed.state.value.openEntryId)
+        verify(exactly = 0) { repository.observeEntry("b") }
+    }
+
+    @Test fun `changing detail cancels old source immediately even when new favorite has not loaded`() {
+        var oldSourceCancelled = false
+        var pendingEntryCancelled = false
+        every { history.observeConversation("source") } returns flow {
+            try { emit(source.value); awaitCancellation() }
+            finally { oldSourceCancelled = true }
+        }
+        every { repository.observeEntry("b") } returns flow {
+            try { awaitCancellation() }
+            finally { pendingEntryCancelled = true }
+        }
+        val model = vm(SavedStateHandle(mapOf("notebookOpenEntry" to "a")))
+        assertTrue(model.state.value.sourceExists)
+        model.openEntry("b")
+        assertTrue(oldSourceCancelled)
+        assertEquals("b", model.state.value.openEntryId)
+        assertNull(model.state.value.detailEntry)
+        assertFalse(model.state.value.sourceExists)
+        model.closeEntry()
+        assertTrue(pendingEntryCancelled)
+        assertNull(model.state.value.openEntryId)
+    }
+
+    @Test fun `changed favorite loads its own detail and old favorite updates cannot replace it`() {
+        val second = MutableStateFlow<NotebookEntryEntity?>(entry("b").copy(sourceConversationId = "second"))
+        every { repository.observeEntry("b") } returns second
+        every { history.observeConversation("second") } returns MutableStateFlow(null)
+        val model = vm(SavedStateHandle(mapOf("notebookEntryId" to "a")))
+        model.openEntry("b")
+        assertEquals("b", model.state.value.detailEntry!!.id)
+        assertFalse(model.state.value.sourceExists)
+        detail.value = entry("obsolete")
+        assertEquals("b", model.state.value.detailEntry!!.id)
+        second.value = second.value!!.copy(answerText = "updated answer")
+        assertEquals("updated answer", model.state.value.detailEntry!!.answerText)
     }
 }

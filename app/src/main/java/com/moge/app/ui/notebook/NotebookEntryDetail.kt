@@ -1,5 +1,6 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -34,7 +35,7 @@ internal fun NotebookEntryDetail(
         if (entry.questionText.isNotBlank()) AnswerMarkdownBody(entry.questionText, emptyList(), onImage)
         if (photos.isFailure) Text("题目照片记录无法读取", color = MaterialTheme.colorScheme.error)
         photos.getOrDefault(emptyList()).let { paths ->
-            if (paths.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            if (paths.isNotEmpty()) Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 paths.forEachIndexed { index, path ->
                     PhotoThumb(path, "题目照片 ${index + 1}", { onImage(paths, index) }, Modifier.size(112.dp))

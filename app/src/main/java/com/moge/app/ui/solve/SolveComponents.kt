@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import android.widget.Toast
+import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -123,7 +124,7 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
 private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int) -> Unit) {
     if (paths.isEmpty()) return
     Row(
-        Modifier.horizontalScroll(rememberScrollState()),
+        Modifier.excludePageSwipe().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         paths.forEachIndexed { index, path ->
@@ -438,7 +439,7 @@ internal fun FollowUpBar(
     onOpenPendingPhoto: (Int) -> Unit,
     onRemovePendingPhoto: (String) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
         Column(
             Modifier.fillMaxWidth()
@@ -496,7 +497,7 @@ internal fun FollowUpBar(
 @Composable
 private fun PendingPhotos(paths: List<String>, onOpen: (Int) -> Unit, onRemove: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
+        Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         paths.forEachIndexed { index, path ->

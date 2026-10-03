@@ -171,15 +171,20 @@ fun HomeScreen(
         }
     }
 
+    val cropping = state.cropQueue.isNotEmpty() || editingPhoto?.let { it in state.photos } == true
     val useViewfinder = cameraGranted && !controller.failed
+    val cameraActive = useViewfinder && !cropping
     val backdrop = if (useViewfinder) Color.Black else MaterialTheme.colorScheme.background
     CameraLayout(
         modifier = Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
         preview = {
             if (useViewfinder) {
-                CameraViewfinder(controller, Modifier.fillMaxSize())
-                ScanCorners(Modifier.fillMaxSize().padding(top = 48.dp, bottom = 32.dp))
-                if (levelEnabled) LevelIndicator(Modifier.align(Alignment.Center))
+                // 裁剪时移除预览：DisposableEffect 解绑 CameraX 并停止方向监听，底层只留黑色背景。
+                if (cameraActive) {
+                    CameraViewfinder(controller, Modifier.fillMaxSize())
+                    ScanCorners(Modifier.fillMaxSize().padding(top = 48.dp, bottom = 32.dp))
+                    if (levelEnabled) LevelIndicator(Modifier.align(Alignment.Center))
+                }
             } else {
                 GridPaper(Modifier.fillMaxSize()) { }
                 Box(Modifier.fillMaxSize().padding(top = 56.dp, bottom = 32.dp), contentAlignment = Alignment.Center) {
@@ -219,11 +224,11 @@ fun HomeScreen(
                 sideControls = sideControls,
                 levelEnabled = levelEnabled,
                 onLevel = { levelEnabled = it },
-                shutterEnabled = !controller.busy && (!cameraGranted || controller.ready || controller.failed),
+                shutterEnabled = !cropping && !controller.busy && (!cameraGranted || controller.ready || controller.failed),
                 onGallery = ::openGallery,
                 onShutter = ::shoot,
                 onOpenStack = vm::openConfirm,
-                cameraActive = useViewfinder,
+                cameraActive = cameraActive,
             )
         },
     )

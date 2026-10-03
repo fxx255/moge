@@ -7,14 +7,14 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前源码版本：**0.2.5**（`versionCode = 7`），仍处于开发阶段。
+当前源码版本：**0.2.6**（`versionCode = 8`），仍处于开发阶段。
 
 ## 功能
 
-- **新对话与多轮提问**：文字、拍照、相册共用输入栏；输入公式有排版预览，发送后的题目卡渲染 LaTeX；历史支持搜索、分组、重命名、置顶和删除。
-- **拍照解题**：照片裁剪、多图输入、横屏拍摄与方向旋转动画；提供标准解答和帮我查错。
+- **新对话与多轮提问**：文字、拍照、相册共用输入栏；输入公式有排版预览，发送后的题目卡渲染 LaTeX；历史支持搜索、分组、重命名、置顶、收藏和删除；左右滑动切换新对话、历史与题册。
+- **拍照解题**：自由裁剪、多图输入、横屏拍摄与方向旋转动画；裁剪期间暂停相机预览，水平参考线随屏幕方向校正；提供标准解答和帮我查错。
 - **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
-- **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史和题册共用分类但独立保存归属。长按选择后可向上拖入分组，向下拖入红色垃圾桶区域删除。
+- **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史和题册共用分类但独立保存归属。长按选择后可保持原卡片拖动；向上拖动展开全部分组，向下拖入红色垃圾桶区域删除。历史收藏可直接打开对应题册条目。
 - **长图分享**：稿纸风格预览、保存和系统分享题目与解答；极长内容按顺序分图。
 - **模型配置**：自行填写兼容接口地址、模型名称和 API Key，按服务能力选择图片输入、搜索协议和推理强度。
 - **GitHub 更新流程**：已实现版本检查、下载校验和系统安装流程；正式更新需配置长期签名并发布正式版本。
@@ -79,11 +79,13 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-截至 0.2.5 回答滚动显示修复，本地完整验证通过 **808 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
+截至 0.2.6 收藏、导航与拍照交互改进，本地完整验证通过 **918 项 Android 单元测试**，发布脚本有 **11 项测试**。实际 CI 结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
 0.2.5 修复回答首次测量使用空文本高度的问题，覆盖完成回答与流式正文，详见 [滚动显示修复报告](docs/answer-scroll-fix-report.md)。
+
+0.2.6 的收藏互通、历史卡片、拖动、滑动导航与相机调整详见 [修改报告](docs/notebook-navigation-revision-report.md)。
 
 ## 稿纸分享示例
 

@@ -1,6 +1,7 @@
 package com.moge.app.ui.markdown
 
 import android.graphics.Bitmap
+import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -145,7 +146,7 @@ private fun FigureImage(figure: LoadedFigure, label: String, onClick: () -> Unit
         // 先量出有限的视口宽度再挂 horizontalScroll，后者会给子项无限宽。
         BoxWithConstraints(Modifier.fillMaxWidth().then(frame)) {
             val viewport = maxWidth.takeIf { it.value.isFinite() && it.value > 0f } ?: DIAGRAM_MIN_INLINE_WIDTH
-            Box(Modifier.width(viewport).horizontalScroll(rememberScrollState())) {
+            Box(Modifier.width(viewport).excludePageSwipe().horizontalScroll(rememberScrollState())) {
                 Image(
                     bitmap = image,
                     contentDescription = label,

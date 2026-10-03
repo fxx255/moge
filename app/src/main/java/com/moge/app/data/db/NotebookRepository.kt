@@ -70,6 +70,32 @@ class NotebookRepository @Inject constructor(
         }
     }
 
+    /** 历史批量收藏：每个会话取最新的完整问答，重复收藏保留原快照及分类，所有写入共享事务。 */
+    suspend fun saveConversations(ids: Set<String>): List<String> = withContext(io) {
+        db.withTransaction {
+            val conversations = db.conversationDao()
+            val savedIds = mutableListOf<String>()
+            for (id in ids.sorted()) {
+                val conversation = conversations.getConversation(id) ?: continue
+                val answer = conversations.latestCompletedAnswer(id) ?: continue
+                val saved = dao.getBySourceAnswerId(answer.id)
+                if (saved != null) {
+                    savedIds += saved.id
+                    continue
+                }
+                val question = conversations.getMessage(answer.replyToMessageId) ?: continue
+                val entry = snapshot(conversation, question, answer, conversation.categoryId)
+                validateSnapshot(entry)
+                requireCategory(entry.categoryId)
+                val now = Instant.now()
+                val favorite = entry.copy(title = validName(entry.title), createdAt = now, updatedAt = now)
+                dao.insertEntry(favorite)
+                savedIds += favorite.id
+            }
+            savedIds
+        }
+    }
+
     /** 相同源回答再次收藏只返回原快照；源回答重新生成不会静默改写收藏。 */
     suspend fun saveFavorite(snapshot: NotebookEntryEntity): NotebookEntryEntity = withContext(io) {
         validateSnapshot(snapshot)

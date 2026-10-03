@@ -46,17 +46,20 @@ class NotebookViewModel @Inject constructor(
     private val conversations: ConversationRepository,
 ) : ViewModel() {
     private val restoredCategory = savedState.get<String>(CATEGORY).orEmpty()
+    private val initialOpenEntryId = (if (savedState.contains(OPEN)) savedState.get<String>(OPEN)
+        else savedState.get<String>("notebookEntryId"))?.takeIf { it.isNotBlank() }
     private val _state = MutableStateFlow(NotebookUiState(
         query = savedState.get<String>(QUERY).orEmpty(),
         categoryId = restoredCategory.takeIf { it.isNotEmpty() && it != UNCATEGORIZED },
         uncategorizedOnly = restoredCategory == UNCATEGORIZED,
         selectedIds = savedState.get<ArrayList<String>>(SELECTED)?.toSet().orEmpty(),
-        openEntryId = savedState.get<String>(OPEN)?.takeIf { it.isNotEmpty() },
+        openEntryId = initialOpenEntryId,
     ))
     val state = _state.asStateFlow()
     private val reload = MutableStateFlow(0)
 
     init {
+        savedState[OPEN] = initialOpenEntryId.orEmpty()
         viewModelScope.launch {
             reload.flatMapLatest {
                 repository.observeCategories().map { Categories(it) }.catch { error ->
@@ -94,18 +97,26 @@ class NotebookViewModel @Inject constructor(
         }
         viewModelScope.launch {
             combine(savedState.getStateFlow(OPEN, state.value.openEntryId.orEmpty()), reload) { id, _ -> id }
-                .flatMapLatest { id -> if (id.isBlank()) flowOf(null) else repository.observeEntry(id)
-                    .catch { error ->
-                        if (error is CancellationException) throw error
-                        _state.update { it.copy(message = "收藏读取失败，请重试") }
-                        emit(null)
-                    } }
-                .flatMapLatest { entry ->
-                    _state.update { it.copy(detailEntry = entry, sourceExists = false) }
-                    if (entry == null) flowOf(false)
-                    else conversations.observeConversation(entry.sourceConversationId).map { it != null }
-                        .catch { error -> if (error is CancellationException) throw error; emit(false) }
-                }.collect { exists -> _state.update { it.copy(sourceExists = exists) } }
+                .flatMapLatest { id ->
+                    if (id.isBlank()) flowOf(id to false)
+                    else repository.observeEntry(id)
+                        .onStart {
+                            _state.update { it.copy(detailEntry = null, sourceExists = false) }
+                        }
+                        .catch { error ->
+                            if (error is CancellationException) throw error
+                            if (state.value.openEntryId == id) _state.update { it.copy(message = "收藏读取失败，请重试") }
+                            emit(null)
+                        }
+                        .flatMapLatest { entry ->
+                            if (state.value.openEntryId == id) _state.update { it.copy(detailEntry = entry, sourceExists = false) }
+                            if (entry == null) flowOf(false)
+                            else conversations.observeConversation(entry.sourceConversationId).map { it != null }
+                                .catch { error -> if (error is CancellationException) throw error; emit(false) }
+                        }.map { id to it }
+                }.collect { (id, exists) ->
+                    if (state.value.openEntryId.orEmpty() == id) _state.update { it.copy(sourceExists = exists) }
+                }
         }
     }
 

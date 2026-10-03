@@ -3,7 +3,6 @@ package com.moge.app.ui.photo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -14,17 +13,6 @@ import kotlin.math.roundToInt
  *
  * 坐标约定：照片以「cover」方式铺满视口（baseScale = max(视口/照片)），再乘 [zoom]、平移 imageOffset。
  */
-internal data class CropRatio(val label: String, val value: Float?)
-
-internal val cropRatios = listOf(
-    CropRatio("自由", null),
-    CropRatio("1:1", 1f),
-    CropRatio("4:3", 4f / 3f),
-    CropRatio("3:4", 3f / 4f),
-    CropRatio("16:9", 16f / 9f),
-    CropRatio("3:1", 3f),
-)
-
 internal enum class CropDragMode {
     PAN_IMAGE,
     MOVE_CROP,
@@ -94,9 +82,10 @@ internal fun constrainImageOffset(requested: Offset, previewSize: IntSize, viewp
     return Offset(requested.x.coerceIn(-maxX, maxX), requested.y.coerceIn(-maxY, maxY))
 }
 
-internal fun centeredCropRect(viewport: IntSize, ratio: Float?, freeRatio: Float = 1f): Rect {
+/** 只用原图比例初始化选框；之后拖动边角不会锁定比例。 */
+internal fun centeredCropRect(viewport: IntSize, initialRatio: Float = 1f): Rect {
     if (viewport == IntSize.Zero) return Rect.Zero
-    val targetRatio = (ratio ?: freeRatio).coerceIn(0.05f, 20f)
+    val targetRatio = initialRatio.coerceIn(0.05f, 20f)
     val maxWidth = viewport.width * 0.86f
     val maxHeight = viewport.height * 0.86f
     val width: Float
@@ -129,24 +118,10 @@ internal fun cropDragMode(position: Offset, rect: Rect, handleRadius: Float): Cr
     }
 }
 
-internal fun constrainCropRectToBounds(rect: Rect, bounds: Rect, ratio: Float?): Rect {
+internal fun constrainCropRectToBounds(rect: Rect, bounds: Rect): Rect {
     if (rect == Rect.Zero || bounds.width <= 0f || bounds.height <= 0f) return rect
-    val width: Float
-    val height: Float
-    if (ratio == null) {
-        width = min(rect.width, bounds.width)
-        height = min(rect.height, bounds.height)
-    } else {
-        val safeRatio = ratio.coerceAtLeast(0.01f)
-        var candidateWidth = min(rect.width, bounds.width)
-        var candidateHeight = candidateWidth / safeRatio
-        if (candidateHeight > bounds.height) {
-            candidateHeight = bounds.height
-            candidateWidth = candidateHeight * safeRatio
-        }
-        width = candidateWidth
-        height = candidateHeight
-    }
+    val width = min(rect.width, bounds.width)
+    val height = min(rect.height, bounds.height)
     val left = (rect.center.x - width / 2f).coerceIn(bounds.left, bounds.right - width)
     val top = (rect.center.y - height / 2f).coerceIn(bounds.top, bounds.bottom - height)
     return Rect(left, top, left + width, top + height)
@@ -164,16 +139,15 @@ internal fun resizeCropRectWithinBounds(
     mode: CropDragMode,
     delta: Offset,
     bounds: Rect,
-    ratio: Float?,
     minimumSize: Float,
 ): Rect {
     if (bounds.width <= 0f || bounds.height <= 0f) return rect
     val localRect = rect.translate(-bounds.topLeft)
     val localViewport = IntSize(bounds.width.toInt().coerceAtLeast(1), bounds.height.toInt().coerceAtLeast(1))
     val effectiveMinimum = min(minimumSize, min(bounds.width, bounds.height)).coerceAtLeast(1f)
-    val resized = resizeCropRect(localRect, mode, delta, localViewport, ratio, effectiveMinimum)
+    val resized = resizeCropRect(localRect, mode, delta, localViewport, effectiveMinimum)
         .translate(bounds.topLeft)
-    return constrainCropRectToBounds(resized, bounds, ratio)
+    return constrainCropRectToBounds(resized, bounds)
 }
 
 private fun resizeCropRect(
@@ -181,129 +155,57 @@ private fun resizeCropRect(
     mode: CropDragMode,
     delta: Offset,
     viewport: IntSize,
-    ratio: Float?,
     minimumSize: Float,
 ): Rect {
-    if (ratio == null) {
-        return when (mode) {
-            CropDragMode.TOP_LEFT -> Rect(
-                (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-                (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-                rect.right,
-                rect.bottom,
-            )
-            CropDragMode.TOP_RIGHT -> Rect(
-                rect.left,
-                (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-                (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-                rect.bottom,
-            )
-            CropDragMode.BOTTOM_LEFT -> Rect(
-                (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-                rect.top,
-                rect.right,
-                (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-            )
-            CropDragMode.BOTTOM_RIGHT -> Rect(
-                rect.left,
-                rect.top,
-                (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-                (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-            )
-            CropDragMode.TOP_EDGE -> Rect(
-                rect.left,
-                (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-                rect.right,
-                rect.bottom,
-            )
-            CropDragMode.RIGHT_EDGE -> Rect(
-                rect.left,
-                rect.top,
-                (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-                rect.bottom,
-            )
-            CropDragMode.BOTTOM_EDGE -> Rect(
-                rect.left,
-                rect.top,
-                rect.right,
-                (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-            )
-            CropDragMode.LEFT_EDGE -> Rect(
-                (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-                rect.top,
-                rect.right,
-                rect.bottom,
-            )
-            else -> rect
-        }
-    }
-
-    if (mode == CropDragMode.TOP_EDGE || mode == CropDragMode.BOTTOM_EDGE) {
-        val centerX = rect.center.x
-        val requestedHeight = if (mode == CropDragMode.TOP_EDGE) rect.height - delta.y else rect.height + delta.y
-        val verticalLimit = if (mode == CropDragMode.TOP_EDGE) rect.bottom else viewport.height - rect.top
-        val horizontalLimit = 2f * min(centerX, viewport.width - centerX) / ratio
-        val maximumHeight = min(verticalLimit, horizontalLimit)
-        val minimumHeight = max(minimumSize, minimumSize / ratio).coerceAtMost(maximumHeight)
-        val height = requestedHeight.coerceIn(minimumHeight, maximumHeight)
-        val width = height * ratio
-        val left = centerX - width / 2f
-        return if (mode == CropDragMode.TOP_EDGE) {
-            Rect(left, rect.bottom - height, left + width, rect.bottom)
-        } else {
-            Rect(left, rect.top, left + width, rect.top + height)
-        }
-    }
-
-    if (mode == CropDragMode.LEFT_EDGE || mode == CropDragMode.RIGHT_EDGE) {
-        val centerY = rect.center.y
-        val requestedWidth = if (mode == CropDragMode.LEFT_EDGE) rect.width - delta.x else rect.width + delta.x
-        val horizontalLimit = if (mode == CropDragMode.LEFT_EDGE) rect.right else viewport.width - rect.left
-        val verticalLimit = 2f * min(centerY, viewport.height - centerY) * ratio
-        val maximumWidth = min(horizontalLimit, verticalLimit)
-        val minimumWidth = max(minimumSize, minimumSize * ratio).coerceAtMost(maximumWidth)
-        val width = requestedWidth.coerceIn(minimumWidth, maximumWidth)
-        val height = width / ratio
-        val top = centerY - height / 2f
-        return if (mode == CropDragMode.LEFT_EDGE) {
-            Rect(rect.right - width, top, rect.right, top + height)
-        } else {
-            Rect(rect.left, top, rect.left + width, top + height)
-        }
-    }
-
-    val anchor = when (mode) {
-        CropDragMode.TOP_LEFT -> rect.bottomRight
-        CropDragMode.TOP_RIGHT -> rect.bottomLeft
-        CropDragMode.BOTTOM_LEFT -> rect.topRight
-        CropDragMode.BOTTOM_RIGHT -> rect.topLeft
-        else -> return rect
-    }
-    val moving = when (mode) {
-        CropDragMode.TOP_LEFT -> rect.topLeft + delta
-        CropDragMode.TOP_RIGHT -> rect.topRight + delta
-        CropDragMode.BOTTOM_LEFT -> rect.bottomLeft + delta
-        CropDragMode.BOTTOM_RIGHT -> rect.bottomRight + delta
-        else -> return rect
-    }
-    val widthFromX = abs(moving.x - anchor.x)
-    val widthFromY = abs(moving.y - anchor.y) * ratio
-    val requestedWidth = if (abs(widthFromX - rect.width) >= abs(widthFromY - rect.width)) widthFromX else widthFromY
-    val maximumWidth = when (mode) {
-        CropDragMode.TOP_LEFT -> min(anchor.x, anchor.y * ratio)
-        CropDragMode.TOP_RIGHT -> min(viewport.width - anchor.x, anchor.y * ratio)
-        CropDragMode.BOTTOM_LEFT -> min(anchor.x, (viewport.height - anchor.y) * ratio)
-        CropDragMode.BOTTOM_RIGHT -> min(viewport.width - anchor.x, (viewport.height - anchor.y) * ratio)
-        else -> rect.width
-    }
-    val minimumWidth = max(minimumSize, minimumSize * ratio).coerceAtMost(maximumWidth)
-    val width = requestedWidth.coerceIn(minimumWidth, maximumWidth)
-    val height = width / ratio
     return when (mode) {
-        CropDragMode.TOP_LEFT -> Rect(anchor.x - width, anchor.y - height, anchor.x, anchor.y)
-        CropDragMode.TOP_RIGHT -> Rect(anchor.x, anchor.y - height, anchor.x + width, anchor.y)
-        CropDragMode.BOTTOM_LEFT -> Rect(anchor.x - width, anchor.y, anchor.x, anchor.y + height)
-        CropDragMode.BOTTOM_RIGHT -> Rect(anchor.x, anchor.y, anchor.x + width, anchor.y + height)
+        CropDragMode.TOP_LEFT -> Rect(
+            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
+            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
+            rect.right,
+            rect.bottom,
+        )
+        CropDragMode.TOP_RIGHT -> Rect(
+            rect.left,
+            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
+            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
+            rect.bottom,
+        )
+        CropDragMode.BOTTOM_LEFT -> Rect(
+            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
+            rect.top,
+            rect.right,
+            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
+        )
+        CropDragMode.BOTTOM_RIGHT -> Rect(
+            rect.left,
+            rect.top,
+            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
+            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
+        )
+        CropDragMode.TOP_EDGE -> Rect(
+            rect.left,
+            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
+            rect.right,
+            rect.bottom,
+        )
+        CropDragMode.RIGHT_EDGE -> Rect(
+            rect.left,
+            rect.top,
+            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
+            rect.bottom,
+        )
+        CropDragMode.BOTTOM_EDGE -> Rect(
+            rect.left,
+            rect.top,
+            rect.right,
+            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
+        )
+        CropDragMode.LEFT_EDGE -> Rect(
+            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
+            rect.top,
+            rect.right,
+            rect.bottom,
+        )
         else -> rect
     }
 }

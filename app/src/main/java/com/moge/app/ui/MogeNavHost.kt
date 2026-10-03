@@ -1,6 +1,19 @@
 package com.moge.app.ui
 
 import android.net.Uri
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavHostController
+import com.moge.app.ui.theme.MogeTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -25,6 +38,8 @@ import kotlinx.coroutines.flow.filterNotNull
 object Routes {
     const val HOME = "home"
     const val NOTEBOOK = "notebook"
+    const val ARG_NOTEBOOK_ENTRY_ID = "notebookEntryId"
+    const val NOTEBOOK_ROUTE = "notebook?$ARG_NOTEBOOK_ENTRY_ID={$ARG_NOTEBOOK_ENTRY_ID}"
     const val HISTORY = "history"
     const val SETTINGS = "settings"
     const val ARG_CONVERSATION_ID = "conversationId"
@@ -36,6 +51,9 @@ object Routes {
 
     /** 会话 id 是 UUID 字符串，走可选查询参数：缺省（null）表示还没有会话的新题目。 */
     const val SOLVE = "solve?$ARG_CONVERSATION_ID={$ARG_CONVERSATION_ID}&$ARG_CAPTURE={$ARG_CAPTURE}"
+
+    fun notebook(entryId: String? = null): String = if (entryId.isNullOrBlank()) NOTEBOOK
+        else "$NOTEBOOK?$ARG_NOTEBOOK_ENTRY_ID=${Uri.encode(entryId)}"
 
     /** 新建题目不传 id；打开题册里的已有题目传其 UUID。 */
     fun solve(conversationId: String? = null): String =
@@ -66,30 +84,68 @@ object Routes {
 @Composable
 fun MogeNavHost() {
     val nav = rememberNavController()
+    val navigation: ConversationNavigationViewModel = hiltViewModel()
+    val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
+    var direction by remember { mutableIntStateOf(0) }
+    val duration = if (MogeTheme.motionEnabled) 240 else 0
+    val ordinary: (String) -> Unit = { route -> direction = 0; nav.navigate(route) { launchSingleTop = true } }
+    val back: () -> Unit = { direction = 0; nav.popBackStack(); Unit }
+    val newPage: (Int) -> Unit = { swipe -> direction = swipe; navigateToNewConversation(nav) }
+    val resume: (Int) -> Unit = { swipe ->
+        direction = swipe
+        previousConversation?.let { navigateToConversation(nav, it) } ?: navigateToNewConversation(nav)
+    }
+    val openConversation: (String) -> Unit = { id ->
+        direction = 0
+        navigation.rememberConversation(id)
+        navigateToConversation(nav, id)
+    }
+    val openNotebook: (String?) -> Unit = { id ->
+        direction = 0
+        // A specific favorite uses a fresh route/VM so old filters cannot conceal it.
+        nav.navigate(Routes.notebook(id)) { launchSingleTop = id == null }
+    }
     AppUpdateNotice()
-    NavHost(navController = nav, startDestination = Routes.solve()) {
+    NavHost(navController = nav, startDestination = Routes.solve(),
+        enterTransition = {
+            if (direction == 0) fadeIn(tween(duration))
+            else slideInHorizontally(tween(duration)) { -direction * it }
+        },
+        exitTransition = {
+            if (direction == 0) fadeOut(tween(duration))
+            else slideOutHorizontally(tween(duration)) { direction * it }
+        },
+        popEnterTransition = {
+            if (direction == 0) fadeIn(tween(duration))
+            else slideInHorizontally(tween(duration)) { -direction * it }
+        },
+        popExitTransition = {
+            if (direction == 0) fadeOut(tween(duration))
+            else slideOutHorizontally(tween(duration)) { direction * it }
+        }) {
         composable(Routes.HOME) {
             HomeScreen(
-                onOpenNotebook = { nav.popBackStack() },
-                onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                onAskByText = { nav.popBackStack() },
+                onOpenNotebook = back,
+                onOpenSettings = { ordinary(Routes.SETTINGS) },
+                onAskByText = back,
                 onStartSolve = { batch ->
                     nav.previousBackStackEntry?.savedStateHandle?.set(Routes.CAPTURE_RESULT, Routes.encodeCapture(batch))
-                    nav.popBackStack()
+                    back()
                 },
             )
         }
         composable(Routes.HISTORY) {
-            HistoryScreen(onBack = { nav.popBackStack() }, onOpenConversation = { id -> nav.navigate(Routes.solve(id)) })
+            HistoryScreen(onBack = back, onOpenConversation = openConversation,
+                onOpenNotebook = openNotebook, onNewConversation = { newPage(-1) })
         }
-        composable(Routes.NOTEBOOK) {
-            NotebookScreen(
-                onBack = { nav.popBackStack() },
-                onOpenConversation = { id -> nav.navigate(Routes.solve(id)) },
-            )
+        composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
+            navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
+        )) {
+            NotebookScreen(onBack = back, onOpenConversation = openConversation,
+                onReturnToConversation = { resume(1) })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { nav.popBackStack() })
+            SettingsScreen(onBack = back, onOpenNotebook = { openNotebook(null) })
         }
         composable(
             route = Routes.SOLVE,
@@ -107,21 +163,48 @@ fun MogeNavHost() {
             ),
         ) { entry ->
             val vm: SolveViewModel = hiltViewModel(entry)
-            LaunchedEffect(entry, vm) {
-                relayCaptureResults(entry.savedStateHandle, vm::onCaptureResult)
-            }
+            LaunchedEffect(entry, vm) { relayCaptureResults(entry.savedStateHandle, vm::onCaptureResult) }
             SolveScreen(
                 conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
-                onBack = if (nav.previousBackStackEntry != null) ({ nav.popBackStack(); Unit }) else null,
-                onOpenSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                onOpenHistory = { nav.navigate(Routes.HISTORY) { launchSingleTop = true } },
-                onOpenNotebook = { nav.navigate(Routes.NOTEBOOK) { launchSingleTop = true } },
-                onNewConversation = { nav.navigate(Routes.solve()) },
-                onTakePhoto = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
+                onBack = if (nav.previousBackStackEntry != null) back else null,
+                onOpenSettings = { ordinary(Routes.SETTINGS) },
+                onOpenHistory = { direction = 1; nav.navigate(Routes.HISTORY) { launchSingleTop = true } },
+                onOpenNotebook = { direction = -1; nav.navigate(Routes.notebook()) },
+                onNewConversation = { newPage(1) },
+                onTakePhoto = { ordinary(Routes.HOME) },
                 vm = vm,
+                onResumeConversation = previousConversation?.let { { resume(-1) } },
+                onConversationObserved = { id ->
+                    entry.savedStateHandle[LOGICAL_CONVERSATION_ID] = id.orEmpty()
+                    navigation.rememberConversation(id)
+                },
+                onViewFavorite = { openNotebook(it) },
             )
         }
     }
+}
+
+// A new page gains its ID after its first send; navigation arguments remain unchanged.
+internal const val LOGICAL_CONVERSATION_ID = "logical_conversation_id"
+internal fun NavBackStackEntry.logicalConversationId(): String? =
+    (if (savedStateHandle.contains(LOGICAL_CONVERSATION_ID)) savedStateHandle.get<String>(LOGICAL_CONVERSATION_ID)
+    else arguments?.getString(Routes.ARG_CONVERSATION_ID))?.takeIf { it.isNotBlank() }
+
+/** Reuse the immediately adjacent page to preserve its draft and avoid reciprocal stack growth. */
+internal fun navigateToNewConversation(nav: NavHostController) {
+    val current = nav.currentBackStackEntry
+    if (current?.destination?.route == Routes.SOLVE && current.logicalConversationId() == null) return
+    val previous = nav.previousBackStackEntry
+    if (previous?.destination?.route == Routes.SOLVE && previous.logicalConversationId() == null) nav.popBackStack()
+    else nav.navigate(Routes.solve())
+}
+
+internal fun navigateToConversation(nav: NavHostController, id: String) {
+    val current = nav.currentBackStackEntry
+    if (current?.destination?.route == Routes.SOLVE && current.logicalConversationId() == id) return
+    val previous = nav.previousBackStackEntry
+    if (previous?.destination?.route == Routes.SOLVE && previous.logicalConversationId() == id) nav.popBackStack()
+    else nav.navigate(Routes.solve(id))
 }
 
 /** NavBackStackEntry 和 Hilt ViewModel 的 SavedStateHandle 并非同一个对象。 */

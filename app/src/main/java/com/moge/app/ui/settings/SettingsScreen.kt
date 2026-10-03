@@ -16,6 +16,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Delete
@@ -71,6 +72,7 @@ private const val NEW_PROFILE = "__new__"
 fun SettingsScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
+    onOpenNotebook: (() -> Unit)? = null,
 ) {
     val models by vm.models.collectAsStateWithLifecycle()
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -102,6 +104,12 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (onOpenNotebook != null) SettingsSection("我的题册") {
+                TextButton(onClick = onOpenNotebook, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.padding(end = 8.dp))
+                    Text("查看收藏的题目与解答")
+                }
+            }
             ModelsSection(
                 state = models,
                 onSelect = vm::selectProfile,

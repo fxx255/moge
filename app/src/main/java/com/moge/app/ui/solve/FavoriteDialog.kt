@@ -25,6 +25,7 @@ import com.moge.app.data.db.NotebookRepository
 import com.moge.app.data.db.RequestRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -46,30 +47,38 @@ class FavoriteViewModel @Inject constructor(private val notebook: NotebookReposi
     val loading = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     private var selectedAnswerId = ""
+    private var openRevision = 0L
+    private var openJob: Job? = null
+    private var saveJob: Job? = null
 
     fun open(answerId: String) {
+        val revision = ++openRevision
         selectedAnswerId = answerId
+        openJob?.cancel()
+        saveJob?.cancel()
+        busy.value = false
         loading.value = true
         existing.value = null
         error.value = null
-        viewModelScope.launch {
+        openJob = viewModelScope.launch {
             try {
                 val entry = notebook.favorite(answerId)
-                if (selectedAnswerId == answerId) existing.value = entry
+                if (openRevision == revision) existing.value = entry
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (selectedAnswerId == answerId) error.value = e.message ?: "收藏读取失败" }
-            finally { if (selectedAnswerId == answerId) loading.value = false }
+            catch (e: Exception) { if (openRevision == revision) error.value = e.message ?: "收藏读取失败" }
+            finally { if (openRevision == revision) loading.value = false }
         }
     }
 
-    internal fun save(target: FavoriteTarget, categoryId: String?, newCategory: String, onSaved: () -> Unit) {
-        if (busy.value || loading.value) return
+    internal fun save(target: FavoriteTarget, categoryId: String?, newCategory: String, onSaved: (String) -> Unit) {
+        if (busy.value || loading.value || target.answer.id != selectedAnswerId) return
+        val revision = openRevision
         busy.value = true
         error.value = null
-        viewModelScope.launch {
+        saveJob = viewModelScope.launch {
             try {
                 val category = if (newCategory.isNotBlank()) notebook.createCategory(newCategory).id else categoryId
-                notebook.save(NotebookEntryEntity(
+                val savedId = notebook.save(NotebookEntryEntity(
                     categoryId = category,
                     sourceConversationId = target.conversationId,
                     sourceQuestionId = target.question.id,
@@ -82,16 +91,16 @@ class FavoriteViewModel @Inject constructor(private val notebook: NotebookReposi
                     finalAnswer = target.answer.finalAnswer,
                     figurePaths = RequestRepository.encodePathList(target.answer.figurePaths),
                 ))
-                onSaved()
+                if (openRevision == revision) onSaved(savedId)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error.value = e.message ?: "收藏失败，请重试" }
-            finally { busy.value = false }
+            catch (e: Exception) { if (openRevision == revision) error.value = e.message ?: "收藏失败，请重试" }
+            finally { if (openRevision == revision) busy.value = false }
         }
     }
 }
 
 @Composable
-internal fun FavoriteDialog(target: FavoriteTarget, onDismiss: () -> Unit, onSaved: () -> Unit, vm: FavoriteViewModel = hiltViewModel()) {
+internal fun FavoriteDialog(target: FavoriteTarget, onDismiss: () -> Unit, onSaved: (String) -> Unit, vm: FavoriteViewModel = hiltViewModel()) {
     val categories by vm.categories.collectAsStateWithLifecycle()
     val existing by vm.existing.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()

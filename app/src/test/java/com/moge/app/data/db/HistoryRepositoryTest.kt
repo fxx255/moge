@@ -137,4 +137,35 @@ class HistoryRepositoryTest {
             assertEquals(photo.path, db.conversationDao().getConversation("b")!!.coverImage)
         } finally { photo.delete() }
     }
+
+    @Test fun `question preview uses only the first user message with display content and transcript fallbacks`() = runBlocking {
+        val expected = mapOf("display" to "first display", "content" to "first content",
+            "transcript" to "first transcript", "blank" to "")
+        for ((id, _) in expected) {
+            db.conversationDao().insertConversation(ConversationEntity(id = id, title = id))
+            db.requestDao().insertMessage(MessageEntity(id = "early-assistant-" + id, conversationId = id,
+                role = "assistant", content = "never a question", createdAt = Instant.ofEpochMilli(0)))
+            db.requestDao().insertMessage(MessageEntity(id = "first-user-" + id, conversationId = id, role = "user",
+                displayContent = if (id == "display") "  first display  " else "  ",
+                content = if (id in setOf("display", "content")) "  first content  " else "  ",
+                transcript = if (id != "blank") "  first transcript  " else "  ",
+                createdAt = Instant.ofEpochMilli(1)))
+            // Equal timestamps exercise Room's rowid ordering, rather than guessing by message id.
+            db.requestDao().insertMessage(MessageEntity(id = "a-followup-" + id, conversationId = id,
+                role = "user", content = "later question", createdAt = Instant.ofEpochMilli(1)))
+            db.requestDao().insertMessage(MessageEntity(id = "latest-assistant-" + id, conversationId = id,
+                role = "assistant", content = "latest answer", createdAt = Instant.ofEpochMilli(2)))
+        }
+        val entries = repository.observeHistory().first()
+        assertEquals(expected, entries.associate { it.conversation.id to it.questionPreview })
+        assertTrue(entries.all { it.recentContent == "latest answer" && it.requestStatus == "" && it.favoriteCount == 0 })
+    }
+
+    @Test fun `new history projection fields default without changing existing dto semantics`() {
+        val entry = HistoryEntry(ConversationEntity(id = "c", title = "题目"), "latest answer", "INTERRUPTED")
+        assertEquals("latest answer", entry.recentContent)
+        assertEquals("INTERRUPTED", entry.requestStatus)
+        assertEquals("", entry.questionPreview)
+        assertEquals(0, entry.favoriteCount)
+    }
 }
