@@ -67,7 +67,10 @@ internal fun paperDragScale(origin: Rect, displacement: Offset, categoryWidth: F
     if (origin.width <= 0f || origin.height <= 0f || !displacement.x.isFinite() || !displacement.y.isFinite() ||
         categoryWidth <= 0f || categoryHeight <= 0f) return 1f
     val compact = (min(categoryWidth / origin.width, categoryHeight / origin.height) * 0.9f).coerceIn(0.01f, 0.95f)
-    val distance = max(abs(displacement.x) / origin.width, abs(displacement.y) / origin.height).coerceIn(0f, 1f)
+    // Reach the compact preview after a shorter travel distance so a drag
+    // does not need to cross the whole card before it visually settles.
+    val distance = (max(abs(displacement.x) / origin.width, abs(displacement.y) / origin.height) / 0.6f)
+        .coerceIn(0f, 1f)
     val progress = distance * distance * (3f - 2f * distance)
     return 1f + (compact - 1f) * progress
 }

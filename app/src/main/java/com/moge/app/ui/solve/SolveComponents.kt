@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
@@ -444,6 +445,7 @@ internal fun FollowUpBar(
     onPickPhotos: () -> Unit,
     onOpenPendingPhoto: (Int) -> Unit,
     onRemovePendingPhoto: (String) -> Unit,
+    onPickDocument: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
@@ -475,6 +477,9 @@ internal fun FollowUpBar(
                     }
                     IconButton(onClick = onPickPhotos, enabled = state.canAddPhoto) {
                         Icon(Icons.Outlined.PhotoLibrary, contentDescription = "从相册选图")
+                    }
+                    IconButton(onClick = onPickDocument, enabled = !state.submitting) {
+                        Icon(Icons.Outlined.AttachFile, contentDescription = "上传文档")
                     }
                 }
                 if (state.generating) {

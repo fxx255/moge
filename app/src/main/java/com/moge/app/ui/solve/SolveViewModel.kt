@@ -39,6 +39,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -139,6 +141,8 @@ class SolveViewModel @Inject constructor(
     private val transient: Flow<Transient> =
         combine(input, photos, submitting, notice) { text, pics, busy, message -> Transient(text, pics, busy, message) }
 
+    private val documentImportMutex = Mutex()
+
     val uiState: StateFlow<SolveUiState> =
         combine(conversationId, roomState, generationManager.active, transient, settings.settings) { id, room, active, local, prefs ->
             val generatingHere = active.isRunning && id != null && active.conversationId == id
@@ -163,6 +167,7 @@ class SolveViewModel @Inject constructor(
             savedState.getStateFlow<String?>(Routes.ARG_CAPTURE, null).filterNotNull().collect { raw ->
                 Routes.decodeCapture(raw)?.let { batch ->
                     addPhotos(batch.photoPaths)
+                    importDocuments(batch.documentPaths)
                     if (batch.note.isNotBlank()) onInputChange(listOf(input.value, batch.note).filter { it.isNotBlank() }.joinToString("\n"))
                 }
                 savedState[Routes.ARG_CAPTURE] = null
@@ -200,6 +205,45 @@ class SolveViewModel @Inject constructor(
     fun onInputChange(text: String) {
         input.value = text
         saveDraft()
+    }
+
+    /** Importing a document produces a bounded text section in the same draft/input flow. */
+    fun importDocument(uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val path = captureStore.importDocument(uri)
+                importDocuments(listOf(path))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notice.value = e.message ?: "文件导入失败"
+            }
+        }
+    }
+
+    private suspend fun importDocuments(paths: List<String>) {
+        if (paths.isEmpty()) return
+        documentImportMutex.withLock {
+            try {
+                paths.forEach { path ->
+                    try {
+                        val text = captureStore.extractDocument(path)
+                        val section = "【文件：${File(path).name}】\n$text"
+                        onInputChange(listOf(input.value, section).filter { it.isNotBlank() }.joinToString("\n\n"))
+                        if (File(path).extension.equals("pdf", ignoreCase = true) &&
+                            text.contains("未提供可直接读取的文字层")) {
+                            addPhotos(captureStore.renderPdf(path))
+                        }
+                    } finally {
+                        File(path).delete()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notice.value = e.message ?: "文件文字提取失败"
+            }
+        }
     }
 
     /** 追问拍照的目标文件（落在私有 photos 目录，裁剪原地改写）。 */

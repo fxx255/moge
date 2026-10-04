@@ -88,6 +88,9 @@ fun SolveScreen(
     val pickPhotos = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(CaptureStore.MAX_PHOTOS),
     ) { uris -> vm.importPicked(uris) { imported -> cropQueue = cropQueue + imported } }
+    val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(vm::importDocument)
+    }
 
     fun performAction(answer: SolveItem.Answer, question: SolveItem.Question, collect: Boolean) {
         if (collect) {
@@ -127,6 +130,20 @@ fun SolveScreen(
             FollowUpBar(state, vm::onInputChange, vm::send, vm::stop,
                 onTakePhoto = onTakePhoto,
                 onPickPhotos = { pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onPickDocument = {
+                    pickDocument.launch(arrayOf(
+                        "application/pdf",
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.ms-powerpoint",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "text/plain",
+                        "text/markdown",
+                        "text/csv",
+                    ))
+                },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto)
         }) { padding ->

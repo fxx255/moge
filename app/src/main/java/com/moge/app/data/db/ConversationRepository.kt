@@ -28,7 +28,7 @@ class ConversationRepository @Inject constructor(
     /**
      * 批量移动或以 null 取消分类，返回实际变更的会话数；不存在的会话与原分类相同的会话不计入。
      * 空集合直接返回 0；非空集合指定无效分类时抛出 IllegalArgumentException，所有批次原子提交。
-     * 只更新分类，不改变历史时间、消息、请求或独立收藏快照。
+     * 更新历史分类；已存在的题册快照在下一次同步时跟随该分类。
      */
     suspend fun moveToCategory(ids: Set<String>, categoryId: String?): Int = withContext(io) {
         dao.moveToCategory(ids.toList(), categoryId)

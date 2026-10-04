@@ -11,8 +11,8 @@ object DiagramLayout {
     // The previous values left the empty stage columns and three rails much
     // farther apart than the reference diagrams, so labels became tiny after
     // the bitmap was fitted into the message bubble.
-    private const val TEMPLATE_GAP_X = 52f
-    private const val TEMPLATE_GAP_Y = 62f
+    private const val TEMPLATE_GAP_X = 36f
+    private const val TEMPLATE_GAP_Y = 52f
     private const val TEMPLATE_COLUMN_WIDTH = 102f
     private const val TEMPLATE_ROW_HEIGHT = 78f
     private const val GENERIC_PADDING = 28f
@@ -177,7 +177,9 @@ object DiagramLayout {
         // between the phase block and the carrier extractor.  Reserving its
         // whole width between *every* pair of stages made the image sparse;
         // the label placer already checks the actual segment for collisions.
-        val gapX = max(TEMPLATE_GAP_X, 96f)
+        // Keep stage spacing compact enough for a phone preview while
+        // retaining a clear rectangular wire corridor.
+        val gapX = max(TEMPLATE_GAP_X, 64f)
         val gapY = max(TEMPLATE_GAP_Y, 54f)
         val x = starts(widths, TEMPLATE_PADDING, gapX)
         val y = starts(heights, TEMPLATE_PADDING + title.height + (if (spec.title.isBlank()) 0f else 16f), gapY)

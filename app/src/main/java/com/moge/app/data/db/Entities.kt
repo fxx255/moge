@@ -34,7 +34,7 @@ data class ConversationEntity(
     val updatedAt: Instant = createdAt,
     @ColumnInfo(defaultValue = "0")
     val pinned: Boolean = false,
-    /** 历史分类与收藏快照的分类独立；删除分类时仅清空归属。 */
+    /** 历史分类；已有题册快照会在历史分类同步时跟随，删除分类时仅清空归属。 */
     @ColumnInfo(name = "category_id")
     val categoryId: String? = null,
 )

@@ -63,12 +63,17 @@ object Routes {
     fun solveCaptured(batch: CaptureBatch): String = "solve?$ARG_CAPTURE=${Uri.encode(encodeCapture(batch))}"
 
     @Serializable
-    private data class CaptureArg(val photos: List<String>, val mode: String, val note: String)
+    private data class CaptureArg(
+        val photos: List<String>, val mode: String, val note: String,
+        val documents: List<String> = emptyList(),
+    )
 
     private val captureJson = Json { ignoreUnknownKeys = true }
 
     fun encodeCapture(batch: CaptureBatch): String =
-        captureJson.encodeToString(CaptureArg.serializer(), CaptureArg(batch.photoPaths, batch.solveMode.name, batch.note))
+        captureJson.encodeToString(CaptureArg.serializer(), CaptureArg(
+            batch.photoPaths, batch.solveMode.name, batch.note, batch.documentPaths,
+        ))
 
     /** 解析失败（被篡改、旧格式）时返回 null：宁可当成普通新题目，也不发出一道残缺的题。 */
     fun decodeCapture(raw: String?): CaptureBatch? {
@@ -76,18 +81,28 @@ object Routes {
         val arg = runCatching { captureJson.decodeFromString(CaptureArg.serializer(), raw) }.getOrNull() ?: return null
         val mode = com.moge.app.domain.SolveMode.fromName(arg.mode) ?: return null
         val photos = arg.photos.filter { it.isNotBlank() }
-        if (photos.isEmpty()) return null
-        return CaptureBatch(photos, mode, arg.note)
+        val documents = arg.documents.filter { it.isNotBlank() }
+        if (photos.isEmpty() && documents.isEmpty()) return null
+        return CaptureBatch(photos, mode, arg.note, documents)
     }
 }
 
 @Composable
-fun MogeNavHost() {
+fun MogeNavHost(
+    sharedCapture: CaptureBatch? = null,
+    onSharedCaptureConsumed: () -> Unit = {},
+) {
     val nav = rememberNavController()
     val navigation: ConversationNavigationViewModel = hiltViewModel()
     val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
     var swipeTransition by remember { mutableStateOf<SwipeTransition?>(null) }
     val duration = if (MogeTheme.motionEnabled) 240 else 0
+    LaunchedEffect(sharedCapture) {
+        sharedCapture?.let {
+            nav.navigate(Routes.solveCaptured(it))
+            onSharedCaptureConsumed()
+        }
+    }
     val ordinary: (String) -> Unit = { route -> swipeTransition = null; nav.navigate(route) { launchSingleTop = true } }
     val back: () -> Unit = { swipeTransition = null; nav.popBackStack(); Unit }
     val swipe: (Int, () -> Unit) -> Unit = { direction, navigate ->

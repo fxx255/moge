@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -113,14 +112,6 @@ fun ConfirmSheet(
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = onNoteChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("补充说明（可选）") },
-                    placeholder = { Text("比如：只做第 2 小问，也可以回到对话后补充") },
-                    maxLines = 4,
-                )
             }
             Button(
                 onClick = onStart,

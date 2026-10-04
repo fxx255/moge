@@ -51,6 +51,9 @@ interface NotebookDao {
     @Query("SELECT * FROM notebook_entry WHERE source_answer_id = :sourceAnswerId")
     suspend fun getBySourceAnswerId(sourceAnswerId: String): NotebookEntryEntity?
 
+    @Query("SELECT * FROM notebook_entry WHERE source_conversation_id IN (:conversationIds)")
+    suspend fun entriesForConversations(conversationIds: List<String>): List<NotebookEntryEntity>
+
     @Query("SELECT * FROM notebook_entry WHERE source_answer_id = :sourceAnswerId")
     fun observeBySourceAnswerId(sourceAnswerId: String): Flow<NotebookEntryEntity?>
 
