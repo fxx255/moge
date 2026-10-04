@@ -155,11 +155,26 @@ class HistoryViewModel @Inject constructor(
         if (ids.isEmpty()) return
         mutate {
             val moved = repository.moveToCategory(ids, categoryId)
-            val saved = notebooks.saveConversations(ids)
-            notebooks.syncConversationCategories(ids)
+            var notebookSyncFailed = false
+            val saved = try {
+                notebooks.saveConversations(ids)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                notebookSyncFailed = true
+                emptyList()
+            }
+            try {
+                notebooks.syncConversationCategories(ids)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                notebookSyncFailed = true
+            }
             _state.update { it.copy(selectedIds = it.selectedIds - ids) }
             persistSelection()
-            if (saved.isEmpty()) "已移动 $moved 个对话；暂无完整解答可加入题册"
+            if (notebookSyncFailed) "已移动 $moved 个对话；题册同步失败，可稍后重试"
+            else if (saved.isEmpty()) "已移动 $moved 个对话；暂无完整解答可加入题册"
             else "已移动 $moved 个对话，并同步收藏 ${saved.size} 条"
         }
     }
