@@ -29,7 +29,12 @@ data class AiModelProfile(
     val hasApiKey: Boolean,
 )
 
-data class AiProfileCredentials(val baseUrl: String, val model: String, val apiKey: String)
+data class AiProfileCredentials(
+    val baseUrl: String,
+    val model: String,
+    val apiKey: String,
+    val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
+)
 
 /**
  * 一次调用内**同时**解析出的安全身份与凭证。
@@ -54,6 +59,8 @@ enum class AiSearchProtocol {
     RESPONSES,
     /** OpenAI Chat Completions + web_search 工具（如小米 MiMo）。 */
     CHAT_COMPLETIONS,
+    /** Anthropic Messages API，支持 Claude 的原生消息与 web_search 工具。 */
+    ANTHROPIC,
     /** 关闭联网。 */
     OFF,
 }
@@ -189,7 +196,9 @@ class AiCredentialStore @Inject constructor(
 
     @Synchronized
     fun credentialsFor(id: String): AiProfileCredentials? =
-        storedProfiles().firstOrNull { it.id == id }?.let { AiProfileCredentials(it.baseUrl, it.model, it.apiKey) }
+        storedProfiles().firstOrNull { it.id == id }?.let {
+            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol)
+        }
 
     /** **同一次锁内**解析活动档案的安全身份与凭证；没有可用档案时返回 null。 */
     @Synchronized

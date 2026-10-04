@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 
 from generate_update import APK_NAME, validate_repository
 
@@ -26,11 +27,16 @@ def verify_assets(release, manifest, downloaded_apk, downloaded_manifest):
         raise ValueError("Draft update manifest mismatch")
 
 
-def find_draft(repository, tag):
+def find_draft(repository, tag, attempts=1):
     # The by-tag endpoint only reliably finds published releases. The authenticated
     # release list includes drafts and lets us require one exact matching draft.
-    releases = json.loads(gh("api", f"repos/{repository}/releases?per_page=100"))
-    matches = [release for release in releases if release.get("tag_name") == tag]
+    for attempt in range(attempts):
+        releases = json.loads(gh("api", f"repos/{repository}/releases?per_page=100"))
+        matches = [release for release in releases if release.get("tag_name") == tag]
+        if matches or attempt == attempts - 1:
+            break
+        # GitHub's release list may briefly lag behind draft creation/upload.
+        time.sleep(2)
     if len(matches) != 1:
         raise ValueError("Require one existing release for this tag")
     release = matches[0]
@@ -62,7 +68,7 @@ def main():
            "--title", f"Moge {manifest['versionName']}", *notes_arguments)
         # Any failure below leaves a draft, which the default updater never observes.
         gh("release", "upload", args.tag, str(args.apk), str(args.manifest), "--repo", args.repository)
-    release = find_draft(args.repository, args.tag)
+    release = find_draft(args.repository, args.tag, attempts=5)
     with tempfile.TemporaryDirectory(prefix="moge-draft-") as directory:
         gh("release", "download", args.tag, "--repo", args.repository, "--dir", directory)
         verify_assets(release, manifest, Path(directory) / APK_NAME, Path(directory) / "update.json")

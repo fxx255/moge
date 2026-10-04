@@ -94,8 +94,10 @@ fun ModelEditorScreen(
                                 selected = baseUrl.trim() == preset.baseUrl,
                                 onClick = {
                                     baseUrl = preset.baseUrl
+                                    protocol = preset.searchProtocol
                                     if (name.isBlank()) name = preset.name
                                     vm.invalidateModels()
+                                    vm.clearWebSearchResult()
                                     vm.clearEditorError()
                                 },
                                 label = { Text(preset.name) },
@@ -113,7 +115,7 @@ fun ModelEditorScreen(
                             if (isCleartextUrl(baseUrl)) {
                                 Text("http 地址：请求和密钥会明文传输，只建议在局域网内用。", color = MaterialTheme.colorScheme.error)
                             } else {
-                                Text("填到 /v1 这一级即可，会自动补 /chat/completions。")
+                                Text("填写服务的接口地址即可，会按所选协议补全请求路径。")
                             }
                         },
                         singleLine = true,
@@ -145,7 +147,7 @@ fun ModelEditorScreen(
             SettingsSection("模型") {
                 Field {
                     OutlinedButton(
-                        onClick = { vm.fetchModels(baseUrl, apiKey, profile?.id) },
+                        onClick = { vm.fetchModels(baseUrl, apiKey, profile?.id, protocol) },
                         enabled = !editor.modelsBusy && baseUrl.isNotBlank() && (apiKey.isNotBlank() || hasStoredKey),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -194,13 +196,13 @@ fun ModelEditorScreen(
                 }
             }
 
-            SettingsSection("联网搜索") {
-                Hint("小米 MiMo 选 Chat Completions；DeepSeek 等走 Responses。不确定就点「测试联网」。")
+            SettingsSection("接口协议与联网搜索") {
+                Hint("Anthropic 原生接口选 Messages；小米 MiMo 选 Chat Completions；DeepSeek 等选 Responses。联网是否启用由设置中的联网开关控制。")
                 ChipRow {
                     AiSearchProtocol.entries.forEach { value ->
                         FilterChip(
                             selected = protocol == value,
-                            onClick = { protocol = value; vm.clearWebSearchResult() },
+                            onClick = { protocol = value; vm.invalidateModels(); vm.clearWebSearchResult() },
                             label = { Text(searchProtocolLabel(value)) },
                         )
                     }

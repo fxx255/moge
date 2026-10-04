@@ -191,6 +191,24 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     publish.find_draft("test-owner/moge", "v0.2.0")
 
+    def test_new_draft_lookup_waits_for_release_list_to_catch_up(self):
+        draft = {"tag_name": "v0.2.0", "draft": True, "prerelease": False}
+        with patch.object(publish, "gh", side_effect=["[]", json.dumps([draft])]), patch.object(publish.time, "sleep") as sleep:
+            self.assertEqual(publish.find_draft("test-owner/moge", "v0.2.0", attempts=5), draft)
+            sleep.assert_called_once_with(2)
+
+    def test_new_draft_lookup_is_bounded_and_never_retries_published_release(self):
+        with patch.object(publish, "gh", return_value="[]") as gh, patch.object(publish.time, "sleep"):
+            with self.assertRaises(ValueError):
+                publish.find_draft("test-owner/moge", "v0.2.0", attempts=5)
+            self.assertEqual(gh.call_count, 5)
+        published = {"tag_name": "v0.2.0", "draft": False, "prerelease": False}
+        with patch.object(publish, "gh", return_value=json.dumps([published])) as gh, patch.object(publish.time, "sleep") as sleep:
+            with self.assertRaises(ValueError):
+                publish.find_draft("test-owner/moge", "v0.2.0", attempts=5)
+            self.assertEqual(gh.call_count, 1)
+            sleep.assert_not_called()
+
     def test_older_published_release_also_blocks_downgrade(self):
         with tempfile.TemporaryDirectory() as directory:
             _, _, current = self.fixture(directory)

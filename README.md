@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.3.3**（`versionCode = 13`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
+当前正式版本：**0.3.4**（`versionCode = 14`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -16,7 +16,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；兼容公式内的中文标签和概率条件符号，无法排版时完整显示公式源码；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史拖动分组后会同步生成或更新对应题册快照。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。
 - **长图分享**：稿纸风格预览、保存和系统分享题目与解答；极长内容按顺序分图。
-- **模型配置**：自行填写兼容接口地址、模型名称和 API Key，按服务能力选择图片输入、搜索协议和推理强度。
+- **模型配置**：自行填写兼容接口地址、模型名称和 API Key，按服务能力选择图片输入、搜索协议和推理强度；支持 Anthropic Messages 原生接口、模型列表及 Claude 联网搜索。
 - **应用内更新**：正式版启用版本检查、下载校验和系统安装，默认使用 `https://ghfast.top/` 镜像，失败时回退 GitHub 直连。
 
 图表由结构化数据在本地绘制，当前没有接入通用文生图服务。图片理解、搜索等能力取决于所选模型和服务端接口。
@@ -90,6 +90,8 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 0.2.7 的公式兜底、滑动专用动画、阅读位置恢复、浮动输入栏和分类卡片详见 [修改报告](docs/formula-navigation-ui-revision-report.md)。
 
 0.3.3 的文档分析、历史收藏同步、长图分享和图表布局详见 [版本说明](docs/releases/0.3.3.md)。首个正式版采用新的专用签名，同包名开发版无法被它直接覆盖；卸载前请保存需要的内容，卸载会清除应用数据。
+
+0.3.4 新增 Anthropic 原生消息、图片输入及联网搜索支持，详见 [版本说明](docs/releases/0.3.4.md)。添加配置时可选 Anthropic 快捷地址，协议选「Anthropic Messages」；关闭全局联网开关时仍使用原生 Messages 接口。
 
 ## 稿纸分享示例
 
