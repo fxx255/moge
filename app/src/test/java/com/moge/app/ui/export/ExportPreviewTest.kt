@@ -20,6 +20,15 @@ import androidx.compose.ui.graphics.Color as UiColor
 import androidx.compose.material3.MaterialTheme
 import com.moge.app.data.prefs.Appearance
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.runBlocking
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertFalse
@@ -56,7 +65,7 @@ class ExportPreviewTest {
             when (source) { "first" -> first; "second" -> pendingSecond.await(); else -> third }
         }
         compose.setContent {
-            MogeTheme { ExportPreviewImage(path, "Preview $path", previewPage = true, decoder = decoder) }
+            MogeTheme { ExportPreviewImage(path, "Preview $path", decoder = decoder) }
         }
         awaitImage("Preview first")
         compose.runOnIdle { path = "second" }
@@ -108,6 +117,27 @@ class ExportPreviewTest {
             assertTrue(action(layout))
         }
         assertEquals(expected, layout.single().layoutInput.style.color)
+    }
+
+    @Test fun `long preview scrolls to the end and doubles its displayed width on zoom`() {
+        val context = RuntimeEnvironment.getApplication()
+        val files = runBlocking { ExportFiles.create(context) }
+        val path = runBlocking {
+            files.writePage(2160, 24000, 1) { canvas, _, _ -> canvas.drawColor(Color.WHITE) }.path
+        }
+        try {
+            compose.setContent { MogeTheme {
+                ExportLongImagePreview(path, "高清预览", Modifier.size(300.dp, 500.dp))
+            } }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithContentDescription("高清预览").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNode(hasScrollToIndexAction()).performScrollToIndex(exportPreviewTiles(24000).lastIndex)
+            val before = compose.onNode(hasScrollToIndexAction()).fetchSemanticsNode().layoutInfo.width
+            compose.onNodeWithTag("export-preview").performTouchInput { doubleClick() }
+            val after = compose.onNode(hasScrollToIndexAction()).fetchSemanticsNode().layoutInfo.width
+            assertTrue("Zoom must enlarge the page while the viewport stays fixed", after > before * 1.9f)
+        } finally { runBlocking { files.close(force = true) } }
     }
 
 }

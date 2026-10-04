@@ -22,7 +22,11 @@ class DocumentShareImporter @Inject constructor(
         val uris = documentUris(intent)
         if (uris.isEmpty()) return null
         require(uris.size <= DocumentStore.MAX_ATTACHMENTS) { "一次最多分享 8 个文档" }
-        val paths = uris.map { documents.import(it) }
+        val nameHint = if (uris.size == 1) intent.getStringExtra(Intent.EXTRA_TITLE)
+            ?: intent.clipData?.description?.label?.toString()?.takeIf {
+                it.substringAfterLast('.', "").lowercase() in DocumentStore.EXTENSIONS
+            } else null
+        val paths = uris.map { documents.import(it, mimeHint = intent.type, nameHint = nameHint) }
         val name = documents.attachment(paths.first()).name
         val conversation = conversations.createConversation(name, settings.current().defaultSolveMode)
         try {
@@ -38,11 +42,20 @@ class DocumentShareImporter @Inject constructor(
         @Suppress("DEPRECATION")
         fun documentUris(intent: Intent): List<Uri> {
             if (intent.type.orEmpty().startsWith("image/")) return emptyList()
-            val supplied = when (intent.action) {
-                Intent.ACTION_VIEW -> listOfNotNull(intent.data)
-                Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
-                Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
-                else -> return emptyList()
+            if (intent.action !in setOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return emptyList()
+            // Some open-with providers put the URI in EXTRA_STREAM instead of data,
+            // and some share providers supply data instead of EXTRA_STREAM.
+            val supplied = buildList {
+                fun addStream(value: Any?) {
+                    when (value) {
+                        is Uri -> add(value)
+                        is String -> add(Uri.parse(value))
+                        is Iterable<*> -> value.forEach(::addStream)
+                        is Array<*> -> value.forEach(::addStream)
+                    }
+                }
+                addStream(intent.extras?.get(Intent.EXTRA_STREAM))
+                intent.data?.let(::add)
             }
             val clipped = buildList {
                 intent.clipData?.let { clip ->

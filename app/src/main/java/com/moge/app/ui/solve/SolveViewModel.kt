@@ -62,14 +62,15 @@ data class SolveUiState(
     val notice: String? = null,
     /** 待随下一问发出的照片（追问时拍的 / 选的，或拍题首问提交失败后退回来的）。 */
     val photos: List<String> = emptyList(),
+    val importingPhotos: Boolean = false,
     val documentPaths: List<String> = emptyList(),
     val answerFirst: Boolean = false,
 ) {
     val canSend: Boolean
-        get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting
+        get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting && !importingPhotos
 
     val canAddPhoto: Boolean
-        get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting
+        get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting && !importingPhotos
 }
 
 /**
@@ -103,6 +104,9 @@ class SolveViewModel @Inject constructor(
 
     private val input = MutableStateFlow("")
     private val photos = MutableStateFlow<List<String>>(emptyList())
+    private val importingPhotos = MutableStateFlow(false)
+    private val photoPasteMutex = Mutex()
+    private var pendingPhotoPastes = 0
     private val documents = MutableStateFlow<List<String>>(emptyList())
     private val submitting = MutableStateFlow(false)
     private val notice = MutableStateFlow<String?>(null)
@@ -162,7 +166,8 @@ class SolveViewModel @Inject constructor(
                 documentPaths = local.documents,
                 answerFirst = prefs.answerFirst,
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SolveUiState(conversationId.value))
+        }.combine(importingPhotos) { state, importing -> state.copy(importingPhotos = importing) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SolveUiState(conversationId.value))
 
     init {
         restoreDraft()
@@ -263,6 +268,53 @@ class SolveViewModel @Inject constructor(
         }
     }
 
+    /** Paste directly into the draft, without interrupting typing with a crop dialog. */
+    fun pasteImages(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        if (submitting.value) {
+            notice.value = "正在发送，请稍后再粘贴图片"
+            return
+        }
+        pendingPhotoPastes++
+        importingPhotos.value = true
+        viewModelScope.launch {
+            try {
+                photoPasteMutex.withLock {
+                    draftReady.await()
+                    var failures = 0
+                    var overLimit = false
+                    for (uri in uris.distinct()) {
+                        if (photos.value.size >= CaptureStore.MAX_PHOTOS) {
+                            overLimit = true
+                            break
+                        }
+                        try {
+                            val path = captureStore.importPastedPhoto(uri)
+                            // A returning camera result may have used the last slot while copying.
+                            if (photos.value.size < CaptureStore.MAX_PHOTOS) addPhotos(listOf(path))
+                            else {
+                                captureStore.discard(listOf(path))
+                                overLimit = true
+                                break
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            failures++
+                        }
+                    }
+                    if (failures > 0 || overLimit) notice.value = listOfNotNull(
+                        if (failures > 0) "有 $failures 张图片未能粘贴，请重新复制后再试" else null,
+                        if (overLimit) "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入" else null,
+                    ).joinToString("；")
+                }
+            } finally {
+                pendingPhotoPastes--
+                importingPhotos.value = pendingPhotoPastes > 0
+            }
+        }
+    }
+
     /** 裁剪界面「取消」：这张不要了。 */
     fun discardPhoto(path: String) {
         viewModelScope.launch { runCatching { captureStore.discard(listOf(path)) } }
@@ -318,6 +370,7 @@ class SolveViewModel @Inject constructor(
 
     /** 发送输入框里的内容（文字和 / 或照片）。新题目会先建会话再提交。 */
     fun send() {
+        if (importingPhotos.value) return
         val text = input.value.trim()
         val pics = photos.value
         if (text.isEmpty() && pics.isEmpty() && documents.value.isEmpty()) return

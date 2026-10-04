@@ -99,7 +99,7 @@ fun MogeNavHost(
     val duration = if (MogeTheme.motionEnabled) 240 else 0
     LaunchedEffect(sharedRoute) {
         sharedRoute?.let {
-            nav.navigate(it) { launchSingleTop = true }
+            navigateToSharedDraft(nav, it)
             onSharedCaptureConsumed()
         }
     }
@@ -237,6 +237,11 @@ internal fun navigateToConversation(nav: NavHostController, id: String) {
     val previous = nav.previousBackStackEntry
     if (previous?.destination?.route == Routes.SOLVE && previous.logicalConversationId() == id) nav.popBackStack()
     else nav.navigate(Routes.solve(id))
+}
+
+/** A shared draft needs a fresh entry/VM even when the previous page is also a solve page. */
+internal fun navigateToSharedDraft(nav: NavHostController, route: String) {
+    nav.navigate(route)
 }
 
 /** NavBackStackEntry 和 Hilt ViewModel 的 SavedStateHandle 并非同一个对象。 */

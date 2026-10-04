@@ -64,4 +64,20 @@ class DocumentShareImporterTest {
         assertEquals(listOf(first, second), DocumentShareImporter.documentUris(intent))
         assertTrue(DocumentShareImporter.documentUris(Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, first)).isEmpty())
     }
+
+    @Test fun openWithAcceptsStreamExtraAndShareAcceptsDataUri() {
+        val uri = Uri.parse("content://com.tencent.mm.external.fileprovider/document/42")
+        assertEquals(listOf(uri), DocumentShareImporter.documentUris(
+            Intent(Intent.ACTION_VIEW).setType("application/pdf").putExtra(Intent.EXTRA_STREAM, uri)))
+        assertEquals(listOf(uri), DocumentShareImporter.documentUris(
+            Intent(Intent.ACTION_VIEW).setType("application/pdf").putExtra(Intent.EXTRA_STREAM, uri.toString())))
+        assertEquals(listOf(uri), DocumentShareImporter.documentUris(
+            Intent(Intent.ACTION_SEND).setDataAndType(uri, "application/pdf")))
+        val duplicated = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+        duplicated.clipData = ClipData.newRawUri("document", uri)
+        assertEquals(listOf(uri), DocumentShareImporter.documentUris(duplicated))
+        assertTrue(DocumentShareImporter.documentUris(
+            Intent(Intent.ACTION_VIEW).putExtra(Intent.EXTRA_STREAM, "https://example.com/a.pdf")).isEmpty())
+    }
 }

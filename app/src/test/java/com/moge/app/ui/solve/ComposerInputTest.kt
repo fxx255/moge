@@ -1,10 +1,15 @@
 package com.moge.app.ui.solve
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextRange
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -30,4 +35,56 @@ class ComposerInputTest {
         compose.onNodeWithContentDescription("发送").performClick()
         assertEquals(raw, sent)
     }
+
+    @Test fun `native image paste adds an attachment without changing text or selection`() {
+        val context = compose.activity
+        val image = ClipboardImageFixture(context)
+        val state = mutableStateOf(SolveUiState(input = "abcd"))
+        var pasted = emptyList<android.net.Uri>()
+        compose.setContent { MogeTheme {
+            FollowUpBar(state.value, { state.value = state.value.copy(input = it) }, {}, {}, {}, {}, {}, {},
+                onPasteImages = { pasted = it })
+        } }
+        val input = compose.onNode(hasSetTextAction())
+        input.performClick().performTextInputSelection(TextRange(1, 3))
+        compose.runOnIdle {
+            clipboard().setPrimaryClip(ClipData.newUri(context.contentResolver, "复制的图片", image.uri))
+        }
+        input.performSemanticsAction(SemanticsActions.PasteText) { it() }
+        compose.runOnIdle {
+            assertEquals(listOf(image.uri), pasted)
+            assertEquals("abcd", state.value.input)
+            clipboard().setPrimaryClip(ClipData.newPlainText("文字", "替换"))
+        }
+        input.performSemanticsAction(SemanticsActions.PasteText) { it() }
+        input.assertTextEquals("a替换d")
+        compose.runOnIdle { assertEquals("a替换d", state.value.input) }
+    }
+
+    @Test fun `mixed image and text paste retains text at cursor and external clear resets field`() {
+        val context = compose.activity
+        val image = ClipboardImageFixture(context)
+        val state = mutableStateOf(SolveUiState(input = "前后"))
+        var pasted = emptyList<android.net.Uri>()
+        compose.setContent { MogeTheme {
+            FollowUpBar(state.value, { state.value = state.value.copy(input = it) },
+                { state.value = state.value.copy(input = "") }, {}, {}, {}, {}, {}, onPasteImages = { pasted = it })
+        } }
+        val input = compose.onNode(hasSetTextAction())
+        input.performClick().performTextInputSelection(TextRange(1))
+        compose.runOnIdle {
+            clipboard().setPrimaryClip(ClipData("图文", arrayOf("image/png", "text/plain"), ClipData.Item(image.uri)).apply {
+                addItem(ClipData.Item("注释"))
+            })
+        }
+        input.performSemanticsAction(SemanticsActions.PasteText) { it() }
+        input.assertTextEquals("前注释后")
+        compose.runOnIdle { assertEquals(listOf(image.uri), pasted) }
+        compose.onNodeWithContentDescription("发送").performClick()
+        input.assertTextEquals("", "输入问题")
+        compose.runOnIdle { state.value = state.value.copy(input = "恢复的草稿") }
+        input.assertTextEquals("恢复的草稿")
+    }
+
+    private fun clipboard() = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 }

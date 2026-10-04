@@ -2,32 +2,41 @@ package com.moge.app.ui.export
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.OutputStream
 import java.util.UUID
 
 internal class ExportFiles private constructor(val directory: File) {
     private var retainedForSharing = false
 
-    suspend fun writePage(bitmap: Bitmap, number: Int): File = withContext(Dispatchers.IO) {
+    suspend fun writePage(width: Int, height: Int, number: Int, drawBand: suspend (Canvas, Int, Int) -> Unit): File = withContext(Dispatchers.IO) {
         val operation = currentCoroutineContext()
         operation.ensureActive()
         val target = File(directory, "page_${number.toString().padStart(4, '0')}.png")
         val partial = File(directory, "${target.name}.partial")
         try {
             partial.outputStream().use { raw ->
-                val checked = object : OutputStream() {
-                    override fun write(value: Int) { operation.ensureActive(); raw.write(value) }
-                    override fun write(bytes: ByteArray, offset: Int, length: Int) {
-                        operation.ensureActive(); raw.write(bytes, offset, length)
+                StreamingPngWriter(raw, width, height) { operation.ensureActive() }.use { writer ->
+                    var top = 0
+                    while (top < height) {
+                        operation.ensureActive()
+                        val bandHeight = minOf(ExportLimits.RENDER_BAND_HEIGHT, height - top)
+                        val band = Bitmap.createBitmap(width, bandHeight, Bitmap.Config.ARGB_8888)
+                        band.density = Bitmap.DENSITY_NONE
+                        try {
+                            val canvas = Canvas(band).apply { translate(0f, -top.toFloat()) }
+                            drawBand(canvas, top, top + bandHeight)
+                            writer.append(band)
+                        } finally { band.recycle() }
+                        top += bandHeight
                     }
+                    writer.finish()
                 }
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, checked)) { "无法编码导出图片" }
                 raw.fd.sync()
             }
             operation.ensureActive()

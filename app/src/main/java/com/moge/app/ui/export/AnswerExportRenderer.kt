@@ -24,7 +24,6 @@ import com.moge.app.ui.markdown.BaselineLatexSpan
 import com.moge.app.ui.markdown.baselineAlignedLatex
 import com.moge.app.ui.markdown.createMarkdownTextView
 import com.moge.app.ui.markdown.splitMarkdownTableBlocks
-import com.moge.app.ui.photo.decodeUprightPhoto
 import io.noties.markwon.Markwon
 import io.noties.markwon.image.AsyncDrawableSpan
 import kotlinx.coroutines.Dispatchers
@@ -43,12 +42,12 @@ internal val EXPORT_PAPER = Paper.toArgb()
 internal val EXPORT_TITLE = Ink.toArgb()
 internal val EXPORT_MARGIN = PaperExtras.marginLine.toArgb()
 private val EXPORT_LINK = Ink.toArgb()
-private const val CELL_PADDING = 16
+private const val CELL_PADDING = 16 * ExportLimits.SCALE
 
 /**
  * Dedicated native layout, never a screenshot of Compose or its LazyColumn. TextViews and TeX
  * are prepared and drawn on Main; decoding, file work and PNG encoding are dispatched to IO.
- * Only the current bounded page and one sampled image are retained, regardless of page count.
+ * Only the current page's drawing commands, one image and a 512px render band are retained.
  */
 internal suspend fun renderAnswerExport(
     context: Context,
@@ -87,17 +86,17 @@ internal fun exportTextView(
     warning: (String) -> Unit = {},
 ): TextView {
     val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
-        fontSizePx = if (heading) 44f else ExportLimits.TEXT_SIZE).apply {
+        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE).apply {
         includeFontPadding = true
         setPadding(0, 0, 0, 0)
-        setLineSpacing(8f, 1f)
+        setLineSpacing(8f * ExportLimits.SCALE, 1f)
         if (heading) setTypeface(Typeface.SERIF, Typeface.BOLD)
     }
     if (!markdown) view.text = source
     else {
         try {
             val normalized = sanitizeReplyLatex(normalizeReplyMarkdown(source))
-            val wrapped = wrapLongFormulas(normalized, width - 8) { latex ->
+            val wrapped = wrapLongFormulas(normalized, width - 8 * ExportLimits.SCALE) { latex ->
                 require(latex.length <= ExportLimits.FORMULA_CHARS) { "公式过长" }
                 JLatexMathDrawable.builder(latex).textSize(view.textSize).build().intrinsicWidth
             }
@@ -154,40 +153,48 @@ private class NativeExportRenderer(
     private val files: ExportFiles,
     private val progress: (String) -> Unit,
 ) {
-    private var page: Bitmap? = null
-    private var canvas: Canvas? = null
+    private data class Drawing(val top: Float, val bottom: Float, val draw: suspend (Canvas) -> Unit)
+    private val drawings = mutableListOf<Drawing>()
+    private var hasPage = false
+    private var cachedImage: Bitmap? = null
+    private var cachedImagePath: String? = null
     private var y = ExportLimits.MARGIN
     private val pages = mutableListOf<File>()
     private val warnings = linkedSetOf<String>()
-    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.toArgb(); strokeWidth = 2f }
-    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = InkMuted.toArgb(); textSize = 25f; typeface = Typeface.MONOSPACE }
-    private val marginRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EXPORT_MARGIN; strokeWidth = 2f }
-    private val gridRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.copy(alpha = 0.48f).toArgb(); strokeWidth = 1f }
+    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.toArgb(); strokeWidth = 2f * ExportLimits.SCALE }
+    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = InkMuted.toArgb(); textSize = 25f * ExportLimits.SCALE; typeface = Typeface.MONOSPACE }
+    private val marginRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EXPORT_MARGIN; strokeWidth = 2f * ExportLimits.SCALE }
+    private val gridRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.copy(alpha = 0.48f).toArgb(); strokeWidth = 1f * ExportLimits.SCALE }
     private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Highlighter.copy(alpha = 0.65f).toArgb() }
 
     private fun warning(message: String) { warnings += message }
 
     private fun ensurePage() {
-        if (page != null) return
-        page = Bitmap.createBitmap(ExportLimits.WIDTH, ExportLimits.HEIGHT, Bitmap.Config.ARGB_8888)
-        canvas = Canvas(page!!).apply {
-            drawColor(EXPORT_PAPER)
-            var step = 48f
-            while (step < ExportLimits.WIDTH) {
-                drawLine(step, 0f, step, ExportLimits.HEIGHT.toFloat(), gridRule)
-                step += 48f
-            }
-            step = 48f
-            while (step < ExportLimits.HEIGHT) {
-                drawLine(0f, step, ExportLimits.WIDTH.toFloat(), step, gridRule)
-                step += 48f
-            }
-            val margin = ExportLimits.MARGIN - 28f
-            drawLine(margin, ExportLimits.MARGIN / 2f, margin, ExportLimits.HEIGHT.toFloat(), marginRule)
-            drawLine(margin + 7f, ExportLimits.MARGIN / 2f, margin + 7f, ExportLimits.HEIGHT.toFloat(),
-                Paint(marginRule).apply { alpha = 90 })
-        }
+        if (hasPage) return
+        hasPage = true
         y = ExportLimits.MARGIN
+    }
+
+    private fun draw(top: Float, bottom: Float, action: suspend (Canvas) -> Unit) {
+        drawings += Drawing(top, bottom, action)
+    }
+
+    private fun paper(canvas: Canvas) {
+        canvas.drawColor(EXPORT_PAPER)
+        var step = 48f * ExportLimits.SCALE
+        while (step < ExportLimits.WIDTH) {
+            canvas.drawLine(step, 0f, step, ExportLimits.HEIGHT.toFloat(), gridRule)
+            step += 48f * ExportLimits.SCALE
+        }
+        step = 48f * ExportLimits.SCALE
+        while (step < ExportLimits.HEIGHT) {
+            canvas.drawLine(0f, step, ExportLimits.WIDTH.toFloat(), step, gridRule)
+            step += 48f * ExportLimits.SCALE
+        }
+        val margin = ExportLimits.MARGIN - 28f * ExportLimits.SCALE
+        canvas.drawLine(margin, ExportLimits.MARGIN / 2f, margin, ExportLimits.HEIGHT.toFloat(), marginRule)
+        canvas.drawLine(margin + 7f * ExportLimits.SCALE, ExportLimits.MARGIN / 2f,
+            margin + 7f * ExportLimits.SCALE, ExportLimits.HEIGHT.toFloat(), Paint(marginRule).apply { alpha = 90 })
     }
 
     private suspend fun space(height: Int) {
@@ -199,22 +206,29 @@ private class NativeExportRenderer(
     }
 
     private suspend fun flush() {
-        val bitmap = page ?: return
-        var cropped: Bitmap? = null
+        if (!hasPage) return
         try {
             val actualHeight = (y + ExportLimits.MARGIN + ExportLimits.FOOTER)
                 .coerceAtMost(ExportLimits.HEIGHT).coerceAtLeast(ExportLimits.MARGIN * 2 + ExportLimits.FOOTER)
             val bottom = actualHeight - ExportLimits.MARGIN
-            canvas!!.drawLine(ExportLimits.MARGIN.toFloat(), (bottom - 40).toFloat(),
-                (ExportLimits.WIDTH - ExportLimits.MARGIN).toFloat(), (bottom - 40).toFloat(), rule)
-            canvas!!.drawText("墨格 · ${pages.size + 1} · 按页码连续阅读", ExportLimits.MARGIN.toFloat(), bottom.toFloat(), footer)
-            progress("正在编码第 ${pages.size + 1} 张图片…")
-            val output = if (actualHeight == bitmap.height) bitmap else
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, actualHeight).also { cropped = it }
-            pages += files.writePage(output, pages.size + 1)
+            val footerLabel = "墨格 · ${pages.size + 1} · 按页码连续阅读"
+            draw(bottom - ExportLimits.FOOTER.toFloat(), bottom.toFloat() + 4 * ExportLimits.SCALE) { canvas ->
+                canvas.drawLine(ExportLimits.MARGIN.toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(),
+                    (ExportLimits.WIDTH - ExportLimits.MARGIN).toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(), rule)
+                canvas.drawText(footerLabel, ExportLimits.MARGIN.toFloat(), bottom.toFloat(), footer)
+            }
+            progress("正在编码第 ${pages.size + 1} 张高清图片…")
+            pages += files.writePage(ExportLimits.WIDTH, actualHeight, pages.size + 1) { canvas, top, end ->
+                withContext(Dispatchers.Main.immediate) {
+                    paper(canvas)
+                    for (drawing in drawings) {
+                        if (drawing.bottom > top && drawing.top < end) drawing.draw(canvas)
+                    }
+                }
+            }
         } finally {
-            if (cropped !== bitmap) cropped?.recycle()
-            bitmap.recycle(); page = null; canvas = null
+            drawings.clear(); hasPage = false
+            cachedImage?.recycle(); cachedImage = null; cachedImagePath = null
         }
     }
 
@@ -252,10 +266,10 @@ private class NativeExportRenderer(
                 for (line in 0 until layout.lineCount) {
                     val baseline = layout.getLineBaseline(line)
                     if (baseline in slice.top until slice.bottom) {
-                        val left = ExportLimits.MARGIN - 5f
-                        val top = y + (baseline - slice.top) * slice.scale - 8f
-                        val right = (left + layout.getLineWidth(line) * slice.scale + 10f).coerceAtMost(ExportLimits.WIDTH - ExportLimits.MARGIN.toFloat())
-                        canvas!!.drawRect(left, top, right, top + 16f, highlight)
+                        val left = ExportLimits.MARGIN - 5f * ExportLimits.SCALE
+                        val top = y + (baseline - slice.top) * slice.scale - 8f * ExportLimits.SCALE
+                        val right = (left + layout.getLineWidth(line) * slice.scale + 10f * ExportLimits.SCALE).coerceAtMost(ExportLimits.WIDTH - ExportLimits.MARGIN.toFloat())
+                        draw(top, top + 16f * ExportLimits.SCALE) { it.drawRect(left, top, right, top + 16f * ExportLimits.SCALE, highlight) }
                     }
                 }
             }
@@ -266,15 +280,16 @@ private class NativeExportRenderer(
     }
 
     private fun drawSlice(view: TextView, slice: VerticalSlice, x: Float, top: Float) {
-        val target = canvas!!
-        val save = target.save()
-        try {
-            target.translate(x, top)
-            target.scale(slice.scale, slice.scale)
-            target.clipRect(0, 0, view.width, slice.bottom - slice.top)
-            target.translate(0f, -slice.top.toFloat())
-            view.draw(target)
-        } finally { target.restoreToCount(save) }
+        draw(top, top + slice.height) { target ->
+            val save = target.save()
+            try {
+                target.translate(x, top)
+                target.scale(slice.scale, slice.scale)
+                target.clipRect(0, 0, view.width, slice.bottom - slice.top)
+                target.translate(0f, -slice.top.toFloat())
+                view.draw(target)
+            } finally { target.restoreToCount(save) }
+        }
     }
 
     private suspend fun table(table: ExportTable) {
@@ -303,7 +318,7 @@ private class NativeExportRenderer(
                 val headerBands = cellBands(headers, ExportLimits.CONTENT_HEIGHT / 3 - CELL_PADDING * 2)
                 val headerHeight = headerBands.sumOf { band -> band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2 }
                 val capacity = (ExportLimits.CONTENT_HEIGHT - headerHeight - CELL_PADDING * 2)
-                if (capacity < 100) {
+                if (capacity < 100 * ExportLimits.SCALE) {
                     plainNotice("表头较长，按列续排以保留全部内容")
                     for (column in columns) {
                         text(ExportPart.Text(table.headers[column], heading = true))
@@ -350,51 +365,63 @@ private class NativeExportRenderer(
         for ((index, view) in views.withIndex()) {
             val left = ExportLimits.MARGIN + index * width
             val rect = RectF(left.toFloat(), y.toFloat(), (left + width).toFloat(), (y + height).toFloat())
-            canvas!!.drawRect(rect, background)
-            rule.style = Paint.Style.STROKE
-            canvas!!.drawRect(rect, rule)
+            val border = Paint(rule).apply { style = Paint.Style.STROKE }
+            draw(rect.top - border.strokeWidth, rect.bottom + border.strokeWidth) { canvas ->
+                canvas.drawRect(rect, background)
+                canvas.drawRect(rect, border)
+            }
             slices[index]?.let { drawSlice(view, it, (left + CELL_PADDING).toFloat(), (y + CELL_PADDING).toFloat()) }
         }
         y += height
     }
 
     suspend fun image(part: ExportPart.Image, resolver: FigurePathResolver) {
-        var bitmap: Bitmap? = null
-        try {
-            try {
-                withContext(Dispatchers.IO) {
-                    val path = if (part.generated) resolver.resolve(part.path, false) else part.path
-                    if (!path.isNullOrBlank()) bitmap = decodeUprightPhoto(path, ExportLimits.IMAGE_DIMENSION)
-                }
-            } catch (error: kotlinx.coroutines.CancellationException) { throw error }
-            catch (_: Exception) { /* Decode/resolve failures get a visible placeholder below. */ }
-            val image = bitmap
-            if (image == null) {
-                val message = "${part.label}缺失或无法读取，请核对原题 / 重试生成图形"
-                warning(message); plainNotice("[$message]"); return
+        val resolved = try {
+            withContext(Dispatchers.IO) {
+                val path = if (part.generated) resolver.resolve(part.path, false) else part.path
+                path?.let { source -> exportImageInfo(source)?.let { source to it } }
             }
-            plainNotice(part.label)
-            val scale = minOf(ExportLimits.CONTENT_WIDTH.toFloat() / image.width,
-                ExportLimits.CONTENT_HEIGHT.toFloat() / image.height, 1f)
-            val width = (image.width * scale).roundToInt().coerceAtLeast(1)
-            val height = ceil(image.height * scale).toInt().coerceAtMost(ExportLimits.CONTENT_HEIGHT)
-            space(height)
-            val left = (ExportLimits.WIDTH - width) / 2f
-            val rect = RectF(left, y.toFloat(), left + width, (y + height).toFloat())
-            canvas!!.drawRect(rect, Paint().apply { color = android.graphics.Color.WHITE })
-            canvas!!.drawBitmap(image, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-            canvas!!.drawRect(rect, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = PaperExtras.cardStroke.copy(alpha = 0.45f).toArgb(); style = Paint.Style.STROKE; strokeWidth = 2f
+        } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        catch (_: Exception) { null }
+        if (resolved == null) {
+            val message = "${part.label}缺失或无法读取，请核对原题 / 重试生成图形"
+            warning(message); plainNotice("[$message]"); return
+        }
+        val (path, info) = resolved
+        plainNotice(part.label)
+        val scale = minOf(ExportLimits.CONTENT_WIDTH.toFloat() / info.width,
+            ExportLimits.CONTENT_HEIGHT.toFloat() / info.height, ExportLimits.SCALE.toFloat())
+        val width = (info.width * scale).roundToInt().coerceAtLeast(1)
+        val height = ceil(info.height * scale).toInt().coerceAtMost(ExportLimits.CONTENT_HEIGHT)
+        space(height)
+        val left = (ExportLimits.WIDTH - width) / 2f
+        val rect = RectF(left, y.toFloat(), left + width, (y + height).toFloat())
+        draw(rect.top - 24f * ExportLimits.SCALE, rect.bottom + 2f * ExportLimits.SCALE) { canvas ->
+            val image = image(path)
+            canvas.drawRect(rect, Paint().apply { color = android.graphics.Color.WHITE })
+            canvas.drawBitmap(image, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            canvas.drawRect(rect, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = PaperExtras.cardStroke.copy(alpha = 0.45f).toArgb()
+                style = Paint.Style.STROKE; strokeWidth = 2f * ExportLimits.SCALE
             })
             if (!part.generated) {
                 val tape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperExtras.tape.toArgb() }
-                val save = canvas!!.save()
-                canvas!!.rotate(-7f, rect.right - 48f, rect.top + 4f)
-                canvas!!.drawRect(rect.right - 94f, rect.top - 8f, rect.right - 4f, rect.top + 22f, tape)
-                canvas!!.restoreToCount(save)
+                val save = canvas.save()
+                canvas.rotate(-7f, rect.right - 48f * ExportLimits.SCALE, rect.top + 4f * ExportLimits.SCALE)
+                canvas.drawRect(rect.right - 94f * ExportLimits.SCALE, rect.top - 8f * ExportLimits.SCALE,
+                    rect.right - 4f * ExportLimits.SCALE, rect.top + 22f * ExportLimits.SCALE, tape)
+                canvas.restoreToCount(save)
             }
-            y += height + ExportLimits.GAP
-        } finally { bitmap?.recycle() }
+        }
+        y += height + ExportLimits.GAP
+    }
+
+    private suspend fun image(path: String): Bitmap {
+        if (cachedImagePath == path) return checkNotNull(cachedImage)
+        cachedImage?.recycle(); cachedImage = null; cachedImagePath = null
+        withContext(Dispatchers.IO) { cachedImage = decodeExportImage(path) }
+        cachedImagePath = path
+        return checkNotNull(cachedImage) { "配图无法读取，请重新添加后导出" }
     }
 
     suspend fun finish(): ExportResult {
@@ -402,5 +429,5 @@ private class NativeExportRenderer(
         return ExportResult(files, pages.toList(), warnings.toList())
     }
 
-    fun release() { page?.recycle(); page = null; canvas = null }
+    fun release() { drawings.clear(); cachedImage?.recycle(); cachedImage = null; cachedImagePath = null }
 }

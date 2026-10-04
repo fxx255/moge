@@ -82,7 +82,7 @@ class AnswerExportRendererTest {
             result.pages.forEach { path ->
                 val bitmap = BitmapFactory.decodeFile(path.absolutePath)!!
                 try {
-                    assertEquals(1080, bitmap.width)
+                    assertEquals(2160, bitmap.width)
                     assertTrue(bitmap.height in 1..ExportLimits.HEIGHT)
                     assertTrue("short exports crop trailing blank paper", bitmap.height < ExportLimits.HEIGHT)
                     assertEquals(EXPORT_PAPER, bitmap.getPixel(0, 0))
@@ -152,8 +152,8 @@ class AnswerExportRendererTest {
             val bitmap = BitmapFactory.decodeFile(result.pages.first().path)!!
             try {
                 assertEquals(EXPORT_PAPER, bitmap.getPixel(0, 0))
-                assertEquals(EXPORT_MARGIN, bitmap.getPixel(ExportLimits.MARGIN - 28, 100))
-                assertNotEquals("The paper must carry a subtle grid", EXPORT_PAPER, bitmap.getPixel(48, 40))
+                assertEquals(EXPORT_MARGIN, bitmap.getPixel(ExportLimits.MARGIN - 28 * ExportLimits.SCALE, 100 * ExportLimits.SCALE))
+                assertNotEquals("The paper must carry a subtle grid", EXPORT_PAPER, bitmap.getPixel(48 * ExportLimits.SCALE, 40 * ExportLimits.SCALE))
             } finally { bitmap.recycle() }
             System.getProperty("moge.export.qaDirectory")?.let { directory ->
                 val output = File(directory).apply { mkdirs() }

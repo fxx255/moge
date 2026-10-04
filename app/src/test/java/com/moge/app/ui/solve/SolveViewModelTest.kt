@@ -42,6 +42,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -546,6 +547,89 @@ class SolveViewModelTest {
         assertEquals(CaptureStore.MAX_PHOTOS, state.photos.size)
         assertFalse(state.canAddPhoto)
         assertTrue(state.notice!!.contains("最多"))
+    }
+
+    @Test fun `pasted image survives source removal draft restore and submission`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val existing = conversations.createConversation("图片追问", SolveMode.DETAILED)
+        drafts.save(existing.id, "已有文字", emptyList())
+        val image = ClipboardImageFixture(context, denyMetadata = true)
+        val original = image.source.readBytes()
+        val vm = vm(existing.id)
+        vm.pasteImages(listOf(image.uri))
+        val pending = vm.awaitState { it.photos.size == 1 && !it.importingPhotos }
+        image.source.delete()
+        assertEquals("已有文字", pending.input)
+        val path = pending.photos.single()
+        assertArrayEquals(original, File(path).readBytes())
+        withTimeout(5_000) { while (drafts.load(existing.id)?.photoPaths != listOf(path)) delay(10) }
+        val restored = vm(existing.id)
+        assertEquals("已有文字", restored.awaitState { it.photos == listOf(path) }.input)
+        restored.send()
+        restored.awaitState { it.items.size == 2 && !it.submitting }
+        coVerify { manager.submit(match {
+            it.userText == "已有文字" && it.attachmentPaths == listOf(File(path).canonicalPath)
+        }, any(), any(), any(), any()) }
+        assertTrue(restored.uiState.value.photos.isEmpty())
+        assertTrue(File(path).exists())
+    }
+
+    @Test fun `consecutive pastes are serialized and excess images do not enter the draft`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val first = List(6) { ClipboardImageFixture(context) }
+        val second = List(6) { ClipboardImageFixture(context) }
+        val vm = vm()
+        vm.pasteImages(first.map { it.uri })
+        vm.pasteImages(second.map { it.uri })
+        val state = vm.awaitState { it.photos.size == CaptureStore.MAX_PHOTOS && !it.importingPhotos }
+        assertFalse(state.canAddPhoto)
+        assertTrue(state.notice!!.contains("最多"))
+        assertEquals(CaptureStore.MAX_PHOTOS, state.photos.distinct().size)
+        assertTrue(state.photos.all { File(it).length() > 0 })
+    }
+
+    @Test
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Config(sdk = [33])
+    fun `unreadable and corrupt pasted images do not discard valid images or text`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val valid = ClipboardImageFixture(context)
+        val expired = ClipboardImageFixture(context, unreadable = true)
+        val corrupt = ClipboardImageFixture(context, corrupt = true)
+        val vm = vm()
+        vm.onInputChange("保留问题")
+        vm.pasteImages(listOf(expired.uri, valid.uri, corrupt.uri))
+        val state = vm.awaitState { !it.importingPhotos && it.notice != null }
+        assertEquals("Only the valid image is imported: ${state.notice}", 1, state.photos.size)
+        assertEquals("保留问题", state.input)
+        assertTrue(state.notice!!.contains("2 张图片"))
+        assertArrayEquals(valid.source.readBytes(), File(state.photos.single()).readBytes())
+        assertTrue(state.canSend)
+    }
+
+    @Test fun `sending waits for pasted image imports to finish`() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val image = ClipboardImageFixture(ApplicationProvider.getApplicationContext(), onOpen = {
+            entered.countDown()
+            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        })
+        val vm = vm()
+        vm.onInputChange("问题")
+        vm.pasteImages(listOf(image.uri))
+        try {
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val importing = vm.awaitState { it.importingPhotos }
+            assertFalse(importing.canSend)
+            assertFalse(importing.canAddPhoto)
+            vm.send()
+            coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        } finally { release.countDown() }
+        val pending = vm.awaitState { it.photos.size == 1 && !it.importingPhotos }
+        assertTrue(pending.canSend)
+        vm.send()
+        vm.awaitState { it.items.size == 2 && !it.submitting }
+        coVerify(exactly = 1) { manager.submit(match { it.attachmentPaths.size == 1 }, any(), any(), any(), any()) }
     }
 
     @Test

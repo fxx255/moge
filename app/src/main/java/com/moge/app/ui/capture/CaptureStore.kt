@@ -1,6 +1,7 @@
 package com.moge.app.ui.capture
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import com.moge.app.domain.SolveMode
 import com.moge.app.ui.photo.importPhoto
@@ -42,6 +43,20 @@ class CaptureStore @Inject constructor(
     /** 相册选图：复制进私有目录，返回绝对路径。任何一张失败都向上抛。 */
     suspend fun importFromGallery(uris: List<Uri>): List<String> = withContext(Dispatchers.IO) {
         uris.map { importPhoto(context, it, photosDir(), "pick").absolutePath }
+    }
+
+    /** Clipboard URI grants are temporary; keep a verified original in persistent storage. */
+    suspend fun importPastedPhoto(uri: Uri): String = withContext(Dispatchers.IO) {
+        val file = importPhoto(context, uri, photosDir(), "paste")
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            check(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法读取剪贴板中的图片，请重新复制" }
+            file.absolutePath
+        } catch (error: Throwable) {
+            file.delete()
+            throw error
+        }
     }
 
     /** Copy a shared or picked document into private storage before its provider URI expires. */

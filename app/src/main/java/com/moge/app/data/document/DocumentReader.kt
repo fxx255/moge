@@ -14,6 +14,10 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.ParserConfigurationException
+import org.xml.sax.InputSource
+import org.xml.sax.SAXException
+import java.io.StringReader
 
 data class DocumentSection(val id: String, val title: String, val text: String)
 data class DocumentTable(val id: String, val title: String, val source: String, val text: String)
@@ -276,10 +280,30 @@ object DocumentReader {
             output.toByteArray()
         }
     }
-    private fun xml(zip: ZipFile, path: String) = DocumentBuilderFactory.newInstance().apply {
-        isNamespaceAware = true
-        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-        setFeature("http://xml.org/sax/features/external-general-entities", false)
-        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-    }.newDocumentBuilder().parse(bytes(zip, path).inputStream())
+    private fun xml(zip: ZipFile, path: String) = parseOfficeXml(bytes(zip, path))
+
+    internal fun parseOfficeXml(data: ByteArray, factory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()): org.w3c.dom.Document {
+        // Android's DOM parser rejects the desktop SAX feature names. Reject DTDs
+        // before parsing and block entity resolution independently of those features.
+        val charset = when {
+            data.size >= 2 && (data[0] == 0xfe.toByte() && data[1] == 0xff.toByte() || data[0] == 0.toByte() && data[1] == '<'.code.toByte()) -> Charsets.UTF_16BE
+            data.size >= 2 && (data[0] == 0xff.toByte() && data[1] == 0xfe.toByte() || data[0] == '<'.code.toByte() && data[1] == 0.toByte()) -> Charsets.UTF_16LE
+            else -> Charsets.UTF_8
+        }
+        val content = data.toString(charset).removePrefix("\uFEFF")
+        require(!content.contains("<!DOCTYPE", ignoreCase = true)) { "文档 XML 不支持 DTD 或外部实体" }
+        factory.isNamespaceAware = true
+        factory.isExpandEntityReferences = false
+        for ((feature, value) in listOf(
+            "http://apache.org/xml/features/disallow-doctype-decl" to true,
+            "http://xml.org/sax/features/external-general-entities" to false,
+            "http://xml.org/sax/features/external-parameter-entities" to false,
+        )) {
+            try { factory.setFeature(feature, value) }
+            catch (_: ParserConfigurationException) { /* Guard and resolver also protect Android's parser. */ }
+        }
+        return factory.newDocumentBuilder().apply {
+            setEntityResolver { _, _ -> throw SAXException("文档不允许读取外部实体") }
+        }.parse(InputSource(StringReader(content)))
+    }
 }

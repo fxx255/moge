@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.3.5**（`versionCode = 15`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
+当前正式版本：**0.3.6**（`versionCode = 16`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -15,7 +15,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **拍照解题**：自由裁剪、多图输入、横屏拍摄与方向旋转动画；裁剪期间暂停相机预览，水平参考线随屏幕方向校正；提供标准解答和帮我查错。
 - **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；兼容公式内的中文标签和概率条件符号，无法排版时完整显示公式源码；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史拖动分组后会同步生成或更新对应题册快照。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。
-- **长图分享**：稿纸风格预览、保存和系统分享题目与解答；极长内容按顺序分图。
+- **长图分享**：以 2160 像素宽高清稿纸预览、保存和系统分享题目与解答；预览支持双击放大及滑动查看细节，极长内容按顺序分图。
 - **文档附件分析**：保留 PDF、DOCX、PPTX、XLSX 等原件，通过附件卡片预览；模型按需调用页、章节、表格、检索和图像读取工具，回答附可点击来源，追问与收藏保留文档引用。确认接口支持后，可直接向模型发送原生 PDF 内容块。微信等应用的分享和“打开方式”会建立独立的新对话草稿，不把文档正文填入输入框。
 - **模型配置**：自行填写接口地址、模型名称和 API Key，分别选择 Chat Completions、Responses 或 Anthropic Messages 协议，以及看图、联网和推理设置。关闭联网不会改变已选择的接口；Anthropic 服务端暂停搜索时携带完整响应继续请求。
 - **应用内更新**：正式版启用版本检查、下载校验和系统安装，默认使用 `https://ghfast.top/` 镜像，失败时回退 GitHub 直连。
@@ -97,6 +97,8 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 0.3.4 新增 Anthropic 原生消息、图片输入及联网搜索支持，详见 [版本说明](docs/releases/0.3.4.md)。添加配置时可选 Anthropic 快捷地址，协议选「Anthropic Messages」；关闭全局联网开关时仍使用原生 Messages 接口。
 
 0.3.5 改为保留文档原件并按需读取，支持分享或“打开方式”添加到独立新对话；移除输入框公式预览，修复加粗行内公式，并分离接口协议与联网开关，详见 [版本说明](docs/releases/0.3.5.md)。
+
+0.3.6 改进其他应用打开文档的接收兼容性，输入栏上方以椭圆附件卡片显示文档；支持直接粘贴复制的图片，提升长图导出和应用内预览清晰度，详见 [版本说明](docs/releases/0.3.6.md)。
 
 ## 稿纸分享示例
 

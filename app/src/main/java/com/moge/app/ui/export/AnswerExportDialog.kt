@@ -175,7 +175,7 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
                             Text("已有识别文本", style = MaterialTheme.typography.titleSmall)
                             Text(content.questionTranscript)
                         }
-                        Text("分享图片使用浅色稿纸；较长解答会按页码分成多张。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("分享图片使用高清浅色稿纸，优先生成一张长图；超长解答按页码分张。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Button(onClick = { confirmed = true; render() }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("export-confirm-question")) { Text("确认题目并预览") }
@@ -188,12 +188,12 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
                             TextButton(onClick = { page++ }, enabled = !busy && page < ready.pages.lastIndex) { Text("下一张") }
                         }
                         key(ready, page) {
-                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).testTag("export-preview")) {
-                                ready.pages.getOrNull(page)?.let { selected ->
-                                    ExportPreviewImage(selected.absolutePath, "导出预览，第 ${page + 1} 张", previewPage = true)
-                                }
+                            ready.pages.getOrNull(page)?.let { selected ->
+                                ExportLongImagePreview(selected.absolutePath, "导出预览，第 ${page + 1} 张",
+                                    Modifier.weight(1f).fillMaxWidth())
                             }
                         }
+                        Text("双击放大，滑动查看细节", style = MaterialTheme.typography.bodySmall)
                         if (ready.warnings.isNotEmpty()) {
                             Text("预览中已标明：" + ready.warnings.take(3).joinToString("；") +
                                 if (ready.warnings.size > 3) "；还有 ${ready.warnings.size - 3} 处，请逐页核对" else "",
@@ -260,7 +260,7 @@ private fun QuestionPhotos(paths: List<String>) {
     Text("题目照片 ${current + 1} / ${paths.size}", style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary)
     Box(Modifier.fillMaxWidth()) {
-        ExportPreviewImage(paths[current], "待确认的题目照片 ${current + 1}", previewPage = false)
+        ExportPreviewImage(paths[current], "待确认的题目照片 ${current + 1}")
         Tape(Modifier.align(Alignment.TopEnd).padding(end = 12.dp), width = 42.dp, height = 14.dp)
     }
     if (paths.size > 1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -279,20 +279,19 @@ private fun QuestionPhotos(paths: List<String>) {
 internal fun ExportPreviewImage(
     path: String,
     description: String,
-    previewPage: Boolean,
     decoder: suspend (String, Int) -> Bitmap? = { source, maxSide ->
         withContext(Dispatchers.IO) { decodeUprightPhoto(source, maxSide) }
     },
 ) {
-    key(path, previewPage) {
-        val preview by produceState<PreviewImage>(PreviewImage.Loading, path, previewPage) {
+    key(path) {
+        val preview by produceState<PreviewImage>(PreviewImage.Loading, path) {
             value = try {
-                decoder(path, if (previewPage) 3000 else 1000)?.let { PreviewImage.Ready(it) } ?: PreviewImage.Missing
+                decoder(path, 1000)?.let { PreviewImage.Ready(it) } ?: PreviewImage.Missing
             } catch (error: CancellationException) { throw error }
             catch (_: Exception) { PreviewImage.Missing }
         }
         val paper = MogeTheme.paper
-        Box(Modifier.fillMaxWidth().then(if (previewPage) Modifier else Modifier.height(240.dp))
+        Box(Modifier.fillMaxWidth().height(240.dp)
             .paperCard(MaterialTheme.colorScheme.surface, paper.cardStroke.copy(alpha = 0.55f)).padding(6.dp),
             contentAlignment = Alignment.Center) {
             when (val current = preview) {
@@ -300,8 +299,8 @@ internal fun ExportPreviewImage(
                 PreviewImage.Missing -> Text("图片无法读取，请返回核对原题或重新生成。", Modifier.padding(12.dp),
                     color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 is PreviewImage.Ready -> Image(current.bitmap.asImageBitmap(), description,
-                    contentScale = if (previewPage) ContentScale.FillWidth else ContentScale.Fit,
-                    modifier = if (previewPage) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize())
             }
         }
     }

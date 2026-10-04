@@ -47,8 +47,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,7 +58,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -449,10 +446,15 @@ internal fun FollowUpBar(
     onRemovePendingPhoto: (String) -> Unit,
     onPickDocument: () -> Unit = {},
     onRemoveDocument: (String) -> Unit = {},
+    onPasteImages: (List<android.net.Uri>) -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        com.moge.app.ui.document.DocumentCards(state.documentPaths, onRemoveDocument)
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
+        com.moge.app.ui.document.PendingDocumentChips(state.documentPaths, onRemoveDocument)
+        if (state.importingPhotos) {
+            Text("正在添加图片…", style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
+        }
         Column(
             Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp))
                 .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 28.dp),
@@ -461,19 +463,12 @@ internal fun FollowUpBar(
                 Modifier.fillMaxWidth().padding(start = 4.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextField(
+                ComposerTextField(
                     value = state.input,
                     onValueChange = onInputChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text(if (state.conversationId == null) "输入问题" else "继续对话") },
-                    maxLines = 5,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        disabledContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
+                    placeholder = if (state.conversationId == null) "输入问题" else "继续对话",
+                    onPasteImages = onPasteImages,
                 )
                 if (!state.generating) {
                     IconButton(onClick = onTakePhoto, enabled = state.canAddPhoto) {

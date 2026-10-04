@@ -145,7 +145,8 @@ fun SolveScreen(
                     ))
                 },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
-                onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument)
+                onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
+                onPasteImages = vm::pasteImages)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,

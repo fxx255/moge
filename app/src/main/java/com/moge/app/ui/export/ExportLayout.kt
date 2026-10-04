@@ -15,21 +15,22 @@ data class AnswerExportContent(
 
 internal enum class ExportChoice { FULL, ANSWER_ONLY }
 
-/** Long pictures are bounded to 12000px; longer answers continue as ordered pages. */
+/** Twice the original pixel density, with the same layout proportions and length per page. */
 internal object ExportLimits {
-    const val WIDTH = 1080
+    const val SCALE = 2
+    const val WIDTH = 1080 * SCALE
     // Prefer a single long image for sharing. Extremely long answers still
     // fall back to sequential pages in the renderer to keep allocations bounded.
-    const val HEIGHT = 12000
-    const val MARGIN = 72
-    const val FOOTER = 64
-    const val GAP = 24
-    const val TEXT_SIZE = 34f
+    const val HEIGHT = 12000 * SCALE
+    const val MARGIN = 72 * SCALE
+    const val FOOTER = 64 * SCALE
+    const val GAP = 24 * SCALE
+    const val TEXT_SIZE = 34f * SCALE
     const val CONTENT_WIDTH = WIDTH - MARGIN * 2
     const val CONTENT_HEIGHT = HEIGHT - MARGIN * 2 - FOOTER
     const val SOURCE_CHUNK = 6000
     const val FORMULA_CHARS = 2048
-    const val IMAGE_DIMENSION = 1200
+    const val RENDER_BAND_HEIGHT = 512
     const val CACHE_DIRECTORY = "answer_exports"
 }
 

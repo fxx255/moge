@@ -16,7 +16,7 @@ fun importPhoto(
     directory.mkdirs()
     check(directory.isDirectory) { "无法创建照片目录" }
 
-    val extension = context.contentResolver.getType(source)
+    val extension = runCatching { context.contentResolver.getType(source) }.getOrNull()
         ?.let(MimeTypeMap.getSingleton()::getExtensionFromMimeType)
         ?.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) }
         ?: "jpg"

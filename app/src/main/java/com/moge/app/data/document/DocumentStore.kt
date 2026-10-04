@@ -12,6 +12,8 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.Locale
+import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,26 +33,19 @@ class DocumentStore @Inject constructor(@param:ApplicationContext private val co
     private val json = Json { ignoreUnknownKeys = true }
     private fun root() = File(context.filesDir, DIRECTORY).apply { mkdirs() }
 
-    suspend fun import(uri: Uri): String = withContext(Dispatchers.IO) {
+    suspend fun import(uri: Uri, mimeHint: String? = null, nameHint: String? = null): String = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val name = runCatching { resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-            if (it.moveToFirst()) it.getString(0) else null
-        } }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment.orEmpty() }
+        val suppliedName = runCatching { resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            val column = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (column >= 0 && it.moveToFirst()) it.getString(column) else null
+        } }.getOrNull().orEmpty().ifBlank { nameHint.orEmpty() }
+        val name = suppliedName.ifBlank { uri.lastPathSegment.orEmpty() }
             .substringAfterLast('/').substringAfterLast('\\').take(240)
-        val mime = resolver.getType(uri).orEmpty().lowercase()
-        val extension = when (mime) {
-            "application/pdf" -> "pdf"
-            "application/msword" -> "doc"
-            "application/vnd.ms-powerpoint" -> "ppt"
-            "application/vnd.ms-excel" -> "xls"
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
-            else -> name.substringAfterLast('.', "").lowercase()
-        }
-        require(extension in EXTENSIONS) { "暂不支持这个文件格式" }
+        // An external provider may allow opening its URI but not querying MIME/name.
+        val mime = runCatching { resolver.getType(uri) }.getOrNull().orEmpty()
+            .substringBefore(';').trim().lowercase(Locale.ROOT)
         val id = UUID.randomUUID().toString()
-        val target = File(root(), "$id.$extension")
+        var target: File? = null
         val temporary = File(root(), "$id.importing")
         try {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -70,23 +65,67 @@ class DocumentStore @Inject constructor(@param:ApplicationContext private val co
                 }
             } ?: error("无法读取文件")
             require(size > 0) { "文件为空" }
-            check(temporary.renameTo(target)) { "文件保存失败" }
-            val attachment = DocumentAttachment(id, target.canonicalPath, name.ifBlank { "文档.$extension" },
-                mime.ifBlank { mimeFor(extension) }, size, digest.digest().joinToString("") { "%02x".format(it) })
-            val metadata = AtomicFile(File(target.path + METADATA_SUFFIX))
+            val extension = detectExtension(temporary)
+                ?: name.substringAfterLast('.', "").lowercase(Locale.ROOT).takeIf { it in EXTENSIONS }
+                ?: extensionForMime(mime)
+                ?: extensionForMime(mimeHint.orEmpty())
+                ?: error("暂不支持这个文件格式")
+            val original = File(root(), "$id.$extension")
+            target = original
+            check(temporary.renameTo(original)) { "文件保存失败" }
+            val displayName = name.takeIf { it.isNotBlank() &&
+                (suppliedName.isNotBlank() || it.substringAfterLast('.', "").lowercase(Locale.ROOT) in EXTENSIONS) }
+                ?: "文档.$extension"
+            val attachment = DocumentAttachment(id, original.canonicalPath, displayName,
+                mimeFor(extension), size, digest.digest().joinToString("") { "%02x".format(it) })
+            val metadata = AtomicFile(File(original.path + METADATA_SUFFIX))
             val stream = metadata.startWrite()
             try {
                 stream.write(json.encodeToString(DocumentAttachment.serializer(), attachment).toByteArray())
                 stream.fd.sync()
                 metadata.finishWrite(stream)
             } catch (error: Throwable) { metadata.failWrite(stream); throw error }
-            target.canonicalPath
+            original.canonicalPath
         } catch (error: Throwable) {
             temporary.delete()
-            target.delete()
-            File(target.path + METADATA_SUFFIX).delete()
+            target?.let { it.delete(); File(it.path + METADATA_SUFFIX).delete() }
             throw error
         }
+    }
+
+    /** Identify originals with opaque provider URIs without converting their content. */
+    private fun detectExtension(file: File): String? {
+        val header = file.inputStream().use { input ->
+            val bytes = ByteArray(1024)
+            bytes.copyOf(input.read(bytes).coerceAtLeast(0))
+        }
+        if (header.toString(Charsets.ISO_8859_1).contains("%PDF-")) return "pdf"
+        if (header.size < 4 || header[0] != 0x50.toByte() || header[1] != 0x4b.toByte()) return null
+        return runCatching {
+            ZipFile(file).use { zip ->
+                when {
+                    zip.getEntry("[Content_Types].xml") == null -> null
+                    zip.getEntry("word/document.xml") != null -> "docx"
+                    zip.getEntry("ppt/presentation.xml") != null -> "pptx"
+                    zip.getEntry("xl/workbook.xml") != null -> "xlsx"
+                    else -> null
+                }
+            }
+        }.getOrNull()
+    }
+
+    private fun extensionForMime(mime: String): String? = when (mime.substringBefore(';').trim().lowercase(Locale.ROOT)) {
+        "application/pdf" -> "pdf"
+        "application/msword" -> "doc"
+        "application/vnd.ms-powerpoint" -> "ppt"
+        "application/vnd.ms-excel" -> "xls"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
+        "text/plain" -> "txt"
+        "text/markdown" -> "md"
+        "text/csv" -> "csv"
+        else -> null
     }
 
     fun attachment(path: String, verifyHash: Boolean = false): DocumentAttachment {

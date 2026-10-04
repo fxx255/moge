@@ -182,6 +182,26 @@ class ConversationPageNavigationTest {
         assertReturned(original, model, "first conversation draft")
     }
 
+    @Test fun `shared drafts receive fresh ViewModels on cold and subsequent opens`() {
+        val original = start()
+        val model = draft(original).apply { draft = "unfinished question before sharing" }
+        navigate { navigateToSharedDraft(nav, Routes.solve("shared-pdf")) }
+        val first = requireNotNull(nav.currentBackStackEntry)
+        val firstModel = draft(first).apply { draft = "shared PDF attachment" }
+        assertNotSame(model, firstModel)
+        assertEquals("shared-pdf", first.logicalConversationId())
+        assertEquals("unfinished question before sharing", model.draft)
+
+        navigate { navigateToSharedDraft(nav, Routes.solve("shared-word")) }
+        val second = requireNotNull(nav.currentBackStackEntry)
+        assertNotSame(firstModel, draft(second))
+        assertEquals("shared-word", second.logicalConversationId())
+        assertEquals("shared PDF attachment", firstModel.draft)
+        navigate { nav.popBackStack() }
+        assertSame(firstModel, draft(requireNotNull(nav.currentBackStackEntry)))
+        assertEquals("shared PDF attachment", firstModel.draft)
+    }
+
     @Test fun `opening the current existing conversation is a no op preserving its entry and draft`() {
         val original = start("existing")
         val model = draft(original).apply { draft = "current draft" }

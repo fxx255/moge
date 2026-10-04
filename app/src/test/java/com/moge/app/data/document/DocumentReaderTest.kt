@@ -19,6 +19,8 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.ParserConfigurationException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class, shadows = [PosixAtomicFileShadow::class])
@@ -107,6 +109,34 @@ class DocumentReaderTest {
     @Test fun externalXmlEntitiesAreRejected() {
         val file = zip("docx", mapOf("word/document.xml" to """<!DOCTYPE document [<!ENTITY entity SYSTEM "file:///never-read">]><document>&entity;</document>"""))
         assertThrows(Exception::class.java) { DocumentReader.office(file) }
+    }
+
+    private fun unsupportedFeaturesFactory() = object : DocumentBuilderFactory() {
+        override fun setAttribute(name: String, value: Any?) { throw IllegalArgumentException(name) }
+        override fun getAttribute(name: String): Any = throw IllegalArgumentException(name)
+        override fun setFeature(name: String, value: Boolean) { throw ParserConfigurationException(name) }
+        override fun getFeature(name: String): Boolean = throw ParserConfigurationException(name)
+        override fun newDocumentBuilder(): javax.xml.parsers.DocumentBuilder {
+            val namespaces = isNamespaceAware
+            return DocumentBuilderFactory.newInstance().apply { isNamespaceAware = namespaces }.newDocumentBuilder()
+        }
+    }
+
+    @Test fun officeXmlReadsChineseWhenParserDoesNotSupportDesktopFeatures() {
+        val xml = """<?xml version="1.0"?><w:document xmlns:w="urn:word"><w:body>中文正文</w:body></w:document>"""
+        for (charset in listOf(Charsets.UTF_8, Charsets.UTF_16, Charsets.UTF_16LE, Charsets.UTF_16BE)) {
+            val parsed = DocumentReader.parseOfficeXml(xml.toByteArray(charset), unsupportedFeaturesFactory())
+            assertEquals("中文正文", parsed.getElementsByTagNameNS("urn:word", "body").item(0).textContent)
+        }
+    }
+
+    @Test fun dtdIsRejectedEvenWhenParserDoesNotSupportSecurityFeatures() {
+        val xml = """<!DOCTYPE document [<!ENTITY entity SYSTEM "file:///never-read">]><document>&entity;</document>"""
+        for (charset in listOf(Charsets.UTF_8, Charsets.UTF_16, Charsets.UTF_16LE, Charsets.UTF_16BE)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                DocumentReader.parseOfficeXml(xml.toByteArray(charset), unsupportedFeaturesFactory())
+            }
+        }
     }
 
     @Test fun docxAssociatesImagesAndPreservesFractionAndExponent() {
