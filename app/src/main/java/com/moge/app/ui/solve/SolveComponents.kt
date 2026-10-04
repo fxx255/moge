@@ -114,6 +114,7 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             QuestionPhotos(item.photoPaths, onOpenImages)
+            com.moge.app.ui.document.DocumentCards(item.documentPaths)
             if (item.text.isNotBlank()) {
                 UserQuestionText(item.text)
             }
@@ -172,6 +173,7 @@ internal fun FollowUpNote(item: SolveItem.Question, onOpenImages: (List<String>,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             QuestionPhotos(item.photoPaths, onOpenImages)
+            com.moge.app.ui.document.DocumentCards(item.documentPaths)
             UserQuestionText(item.text, color = MogeTheme.paper.onStickyNote)
         }
     }
@@ -446,8 +448,10 @@ internal fun FollowUpBar(
     onOpenPendingPhoto: (Int) -> Unit,
     onRemovePendingPhoto: (String) -> Unit,
     onPickDocument: () -> Unit = {},
+    onRemoveDocument: (String) -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        com.moge.app.ui.document.DocumentCards(state.documentPaths, onRemoveDocument)
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
         Column(
             Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp))
@@ -495,7 +499,6 @@ internal fun FollowUpBar(
                     }
                 }
             }
-            ComposerMathPreview(state.input)
         }
         if (state.busyElsewhere) {
             Text("另一段对话正在生成，结束后才能发送", style = MaterialTheme.typography.bodySmall,

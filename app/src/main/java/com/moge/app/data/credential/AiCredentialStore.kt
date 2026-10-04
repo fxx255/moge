@@ -27,6 +27,9 @@ data class AiModelProfile(
     val searchProtocol: AiSearchProtocol,
     val reasoningEffort: AiReasoningEffort,
     val hasApiKey: Boolean,
+    val apiProtocol: AiApiProtocol? = null,
+    val nativePdfEnabled: Boolean = false,
+    val searchEnabled: Boolean = true,
 )
 
 data class AiProfileCredentials(
@@ -34,6 +37,9 @@ data class AiProfileCredentials(
     val model: String,
     val apiKey: String,
     val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
+    val apiProtocol: AiApiProtocol? = null,
+    val nativePdfEnabled: Boolean = false,
+    val searchEnabled: Boolean = true,
 )
 
 /**
@@ -51,7 +57,21 @@ data class AiResolvedIdentity(
     val visionEnabled: Boolean,
     val searchProtocol: AiSearchProtocol,
     val reasoningEffort: AiReasoningEffort,
+    val apiProtocol: AiApiProtocol? = null,
+    val nativePdfEnabled: Boolean = false,
+    val searchEnabled: Boolean = true,
 )
+
+enum class AiApiProtocol {
+    CHAT_COMPLETIONS, RESPONSES, ANTHROPIC_MESSAGES;
+    companion object {
+        fun fromLegacy(protocol: AiSearchProtocol): AiApiProtocol = when (protocol) {
+            AiSearchProtocol.ANTHROPIC -> ANTHROPIC_MESSAGES
+            AiSearchProtocol.RESPONSES -> RESPONSES
+            else -> CHAT_COMPLETIONS
+        }
+    }
+}
 
 /** 联网搜索协议：模型配置里可自行选择，默认 OpenAI Responses API。 */
 enum class AiSearchProtocol {
@@ -82,6 +102,9 @@ private data class StoredAiModelProfile(
     val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
     val reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
     val apiKey: String,
+    val apiProtocol: AiApiProtocol? = null,
+    val nativePdfEnabled: Boolean = false,
+    val searchEnabled: Boolean = true,
 ) {
     fun summary() = AiModelProfile(
         id,
@@ -92,6 +115,7 @@ private data class StoredAiModelProfile(
         searchProtocol,
         reasoningEffort,
         apiKey.isNotBlank(),
+        apiProtocol, nativePdfEnabled, searchEnabled,
     )
 }
 
@@ -133,6 +157,9 @@ class AiCredentialStore @Inject constructor(
         visionEnabled: Boolean,
         searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
         reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
+        apiProtocol: AiApiProtocol? = null,
+        nativePdfEnabled: Boolean = false,
+        searchEnabled: Boolean = true,
     ): AiModelProfile {
         val cleanName = name.trim()
         val cleanBaseUrl = baseUrl.trim()
@@ -154,6 +181,9 @@ class AiCredentialStore @Inject constructor(
             searchProtocol = searchProtocol,
             reasoningEffort = reasoningEffort,
             apiKey = resolvedKey,
+            apiProtocol = apiProtocol ?: existing?.apiProtocol,
+            nativePdfEnabled = nativePdfEnabled,
+            searchEnabled = searchEnabled,
         )
         saveProfiles(
             if (existing == null) profiles + saved
@@ -197,7 +227,7 @@ class AiCredentialStore @Inject constructor(
     @Synchronized
     fun credentialsFor(id: String): AiProfileCredentials? =
         storedProfiles().firstOrNull { it.id == id }?.let {
-            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol)
+            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol, it.apiProtocol, it.nativePdfEnabled, it.searchEnabled)
         }
 
     /** **同一次锁内**解析活动档案的安全身份与凭证；没有可用档案时返回 null。 */
@@ -219,6 +249,9 @@ class AiCredentialStore @Inject constructor(
                     visionEnabled = it.visionEnabled,
                     searchProtocol = it.searchProtocol,
                     reasoningEffort = it.reasoningEffort,
+                    apiProtocol = it.apiProtocol,
+                    nativePdfEnabled = it.nativePdfEnabled,
+                    searchEnabled = it.searchEnabled,
                 )
             }
 

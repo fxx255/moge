@@ -49,6 +49,10 @@ data class RequestSnapshot(
     val originalHistory: List<SnapshotHistoryMessage> = emptyList(),
     /** Visible saved prefix for an explicit resume; independent of the bounded model echo. */
     val continuationText: String = "",
+    val documentPaths: List<String> = emptyList(),
+    val documentReadRequired: Boolean = false,
+    val apiProtocol: String = "",
+    val nativePdfEnabled: Boolean = false,
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean
@@ -74,6 +78,9 @@ data class RequestSnapshot(
         searchProtocol = protocol,
         reasoningEffort = reasoningEffort,
         effectiveWebSearchEnabled = effectiveWebSearchEnabled,
+        apiProtocol = apiProtocol,
+        nativePdfEnabled = nativePdfEnabled,
+        visionEnabled = primaryVisionEnabled,
     )
 
     companion object {
@@ -90,6 +97,7 @@ data class SnapshotHistoryMessage(
     val role: String = "",
     val text: String = "",
     val imagePaths: List<String> = emptyList(),
+    val documentPaths: List<String> = emptyList(),
 )
 
 /**
@@ -107,6 +115,9 @@ data class RequestPolicy(
     val searchProtocol: String = "",
     val reasoningEffort: String = "",
     val effectiveWebSearchEnabled: Boolean = false,
+    val apiProtocol: String = "",
+    val nativePdfEnabled: Boolean = false,
+    val visionEnabled: Boolean? = null,
 )
 
 /** 快照的序列化；坏快照解码成 null，调用方按「不可重试」处理。 */

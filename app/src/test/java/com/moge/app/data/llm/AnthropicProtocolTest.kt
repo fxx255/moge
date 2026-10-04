@@ -37,7 +37,7 @@ class AnthropicProtocolTest {
     private val requests = mutableListOf<Request>()
     private val payloads = mutableListOf<JsonObject>()
 
-    private fun client(body: String, code: Int = 200, webSearch: Boolean = true): ModelClient {
+    private fun client(body: String, code: Int = 200, webSearch: Boolean = true, following: List<String> = emptyList()): ModelClient {
         val settings = mockk<SettingsRepository>()
         coEvery { settings.current() } returns UserSettings(webSearchEnabled = webSearch)
         val credentials = mockk<AiCredentialStore>(relaxed = true)
@@ -58,7 +58,7 @@ class AnthropicProtocolTest {
                 payloads += Json.parseToJsonElement(buffer.readUtf8()).jsonObject
             }
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                .code(code).message("test").body(body.toResponseBody("application/json".toMediaType())).build()
+                .code(code).message("test").body((following.getOrNull(requests.size - 2) ?: body).toResponseBody("application/json".toMediaType())).build()
         }.build()
         return ModelClient(settings, credentials, Dispatchers.Unconfined).also {
             ModelClient::class.java.getDeclaredField("client").apply { isAccessible = true }.set(it, transport)
@@ -90,13 +90,38 @@ class AnthropicProtocolTest {
     }
 
     @Test
-    fun forcedSearchIncludesToolChoiceAndMissingSearchIsReported() = runBlocking {
-        val result = client(full).chatStreaming(
+    fun forcedSearchNeverSilentlyAnswersOfflineOrUsesUnsupportedForcedChoice() = runBlocking {
+        val error = runCatching { client(full).chatStreaming(
             listOf(ChatMessage("user", "question")), webSearchEnabled = true, forceWebSearch = true,
-        ) {}
-        assertEquals("web_search", payloads.single()["tool_choice"]!!.jsonObject["name"]!!.jsonPrimitive.content)
-        assertTrue(result.warnings.any { "未联网" in it })
+        ) {} }.exceptionOrNull()
+        assertTrue(error is ModelException && error.kind == ModelException.Kind.CONFIG_INVALID)
+        assertEquals("auto", payloads.single()["tool_choice"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(1, requests.size)
+    }
+
+    @Test
+    fun pausedSearchResendsCompleteAssistantBlocksIncludingSignatureAndServerInput() = runBlocking {
+        val paused = sse(
+            """{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"checking"}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque-signature"}}""",
+            """{"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","id":"server-call","name":"web_search","input":{}}}""",
+            """{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"today\"}"}}""",
+            """{"type":"message_delta","delta":{"stop_reason":"pause_turn"}}""", end,
+        )
+        val usages = mutableListOf<UsageSample?>()
+        val reply = client(paused, following = listOf(full)).chatStreaming(
+            listOf(ChatMessage("user", "question")), webSearchEnabled = true, onUsage = { usages += it },
+        ) {}
+        assertEquals("hello", reply.reply)
+        assertEquals(2, requests.size)
+        val assistant = payloads.last()["messages"]!!.jsonArray.last().jsonObject
+        assertEquals("assistant", assistant["role"]!!.jsonPrimitive.content)
+        val blocks = assistant["content"]!!.jsonArray
+        assertEquals("opaque-signature", blocks[0].jsonObject["signature"]!!.jsonPrimitive.content)
+        assertEquals("checking", blocks[0].jsonObject["thinking"]!!.jsonPrimitive.content)
+        assertEquals("today", blocks[1].jsonObject["input"]!!.jsonObject["query"]!!.jsonPrimitive.content)
+        assertEquals(2, usages.size)
     }
 
     @Test

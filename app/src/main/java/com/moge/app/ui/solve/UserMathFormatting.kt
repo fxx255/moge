@@ -7,10 +7,8 @@ internal data class UserMathSource(
     val renderSource: String,
     val formulas: List<String>,
     val incomplete: Boolean,
-    val truncated: Boolean = false,
 )
 
-internal const val COMPOSER_PREVIEW_CHAR_LIMIT = 6000
 private val MATH_DELIMITER = "$".repeat(2)
 private val MARKDOWN_BACKTICK = 96.toChar()
 
@@ -19,14 +17,13 @@ private val MARKDOWN_BACKTICK = 96.toChar()
  * Inspect its canonical math spans, but pass the ORIGINAL source to the renderer.
  * Only an unambiguous, formula-only paste gets a display-only wrapper.
  */
-internal fun userMathSource(raw: String, limit: Int = Int.MAX_VALUE): UserMathSource? {
-    require(limit > 0)
-    val source = raw.take(limit)
+internal fun userMathSource(raw: String): UserMathSource? {
+    val source = raw
     if (source.isBlank()) return null
     val normalized = normalizeReplyMarkdown(source)
     val scan = scanCanonicalMath(normalized)
     if (scan.formulas.isNotEmpty() || scan.incomplete) {
-        return UserMathSource(source, scan.formulas, scan.incomplete, raw.length > limit)
+        return UserMathSource(source, scan.formulas, scan.incomplete)
     }
     val formula = source.trim()
     if (!isStandaloneFormula(formula)) return null
@@ -34,7 +31,6 @@ internal fun userMathSource(raw: String, limit: Int = Int.MAX_VALUE): UserMathSo
         renderSource = "$MATH_DELIMITER\n$formula\n$MATH_DELIMITER",
         formulas = listOf(formula),
         incomplete = isUnfinishedFormula(formula),
-        truncated = raw.length > limit,
     )
 }
 

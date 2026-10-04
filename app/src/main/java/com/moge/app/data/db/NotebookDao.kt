@@ -9,6 +9,9 @@ import java.time.Instant
 
 @Dao
 interface NotebookDao {
+    @Query("SELECT document_paths FROM notebook_entry")
+    suspend fun allDocumentPathJson(): List<String>
+
     @Query("SELECT * FROM notebook_category ORDER BY sort_order, created_at, id")
     fun observeCategories(): Flow<List<NotebookCategoryEntity>>
 

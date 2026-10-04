@@ -111,6 +111,27 @@ class AttachmentJanitorTest {
     }
 
     @Test
+    fun `followup favorite keeps context documents and metadata after history deletion`() = runBlocking {
+        val document = file("documents", "original.pdf")
+        val metadata = file("documents", "original.pdf.meta.json")
+        val orphan = file("documents", "orphan.pdf")
+        val orphanMetadata = file("documents", "orphan.pdf.meta.json")
+        val conversation = conversations.createConversation("文档追问", SolveMode.DETAILED)
+        val record = requests.createRequest(conversation.id, "doc-u", "doc-a", "doc-att", "继续分析", emptyList(), "",
+            status = RequestStatus.COMPLETED, contextDocumentPaths = listOf(document.path))
+        val question = db.conversationDao().getMessage(record.userMessageId)!!
+        val answer = db.conversationDao().getMessage(record.answerMessageId)!!.copy(content = "来自原文档的回答")
+        assertEquals(emptyList<String>(), RequestRepository.decodePathList(question.documentPaths))
+        notebook.save(NotebookRepository.snapshot(conversation, question, answer))
+        conversations.deleteIdle(setOf(conversation.id))
+        janitor.sweep(now = now)
+        assertTrue(document.exists())
+        assertTrue(metadata.exists())
+        assertFalse(orphan.exists())
+        assertFalse(orphanMetadata.exists())
+    }
+
+    @Test
     fun `photos inside grace period survive`() = runBlocking {
         val fresh = photo("fresh.jpg", modified = now - 1000)
         assertEquals(0L, janitor.sweep(now = now))

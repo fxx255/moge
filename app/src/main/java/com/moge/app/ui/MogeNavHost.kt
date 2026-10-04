@@ -89,7 +89,7 @@ object Routes {
 
 @Composable
 fun MogeNavHost(
-    sharedCapture: CaptureBatch? = null,
+    sharedRoute: String? = null,
     onSharedCaptureConsumed: () -> Unit = {},
 ) {
     val nav = rememberNavController()
@@ -97,9 +97,9 @@ fun MogeNavHost(
     val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
     var swipeTransition by remember { mutableStateOf<SwipeTransition?>(null) }
     val duration = if (MogeTheme.motionEnabled) 240 else 0
-    LaunchedEffect(sharedCapture) {
-        sharedCapture?.let {
-            nav.navigate(Routes.solveCaptured(it))
+    LaunchedEffect(sharedRoute) {
+        sharedRoute?.let {
+            nav.navigate(it) { launchSingleTop = true }
             onSharedCaptureConsumed()
         }
     }

@@ -162,7 +162,7 @@ class NotebookRepository @Inject constructor(
     /** 严格解析：损坏的引用使 janitor 放弃本次回收，不能把仍有效的照片当孤儿。 */
     suspend fun referencedImagePaths(): Set<String> = withContext(io) {
         db.withTransaction {
-            (dao.allQuestionImagePathJson() + dao.allFigurePathJson())
+            (dao.allQuestionImagePathJson() + dao.allFigurePathJson() + dao.allDocumentPathJson())
                 .flatMap(RequestRepository::decodePathListStrict).filter { it.isNotBlank() }.toSet()
         }
     }
@@ -187,6 +187,7 @@ class NotebookRepository @Inject constructor(
             require(entry.answerText.isNotBlank() || entry.finalAnswer.isNotBlank()) { "解答尚未完成，暂不能收藏" }
             RequestRepository.decodePathListStrict(entry.questionImagePaths)
             RequestRepository.decodePathListStrict(entry.figurePaths)
+            RequestRepository.decodePathListStrict(entry.documentPaths)
         }
 
         /** 调用方确认回答已完成；按明确的问题关联保存，不猜前一条消息。 */
@@ -203,6 +204,8 @@ class NotebookRepository @Inject constructor(
                 sourceQuestionId = question.id, sourceAnswerId = answer.id, title = conversation.title,
                 questionText = question.displayContent ?: question.content,
                 questionTranscript = question.transcript, questionImagePaths = question.imagePaths,
+                documentPaths = RequestRepository.encodePathList((RequestRepository.decodePathListStrict(question.documentPaths) +
+                    RequestRepository.decodePathListStrict(answer.documentPaths)).distinct()),
                 answerText = answer.displayContent ?: answer.content,
                 finalAnswer = answer.finalAnswer, figurePaths = answer.imagePaths,
             )

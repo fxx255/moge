@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.credential.AiModelProfile
 import com.moge.app.data.credential.AiReasoningEffort
+import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.ui.components.PaperScaffold
 
@@ -67,10 +68,13 @@ fun ModelEditorScreen(
     var showKey by rememberSaveable(key) { mutableStateOf(false) }
     var vision by rememberSaveable(key) { mutableStateOf(profile?.visionEnabled ?: false) }
     var protocol by rememberSaveable(key) { mutableStateOf(profile?.searchProtocol ?: AiSearchProtocol.RESPONSES) }
+    var apiProtocol by rememberSaveable(key) { mutableStateOf(profile?.apiProtocol ?: AiApiProtocol.fromLegacy(profile?.searchProtocol ?: AiSearchProtocol.CHAT_COMPLETIONS)) }
+    var nativePdf by rememberSaveable(key) { mutableStateOf(profile?.nativePdfEnabled ?: false) }
+    var searchEnabled by rememberSaveable(key) { mutableStateOf(profile?.searchEnabled ?: (profile?.searchProtocol != AiSearchProtocol.OFF)) }
     var effort by rememberSaveable(key) { mutableStateOf(profile?.reasoningEffort ?: AiReasoningEffort.LOW) }
     val hasStoredKey = profile?.hasApiKey == true
 
-    fun draft() = ModelProfileDraft(name, baseUrl, model, apiKey, vision, protocol, effort)
+    fun draft() = ModelProfileDraft(name, baseUrl, model, apiKey, vision, when (apiProtocol) { AiApiProtocol.CHAT_COMPLETIONS -> AiSearchProtocol.CHAT_COMPLETIONS; AiApiProtocol.RESPONSES -> AiSearchProtocol.RESPONSES; AiApiProtocol.ANTHROPIC_MESSAGES -> AiSearchProtocol.ANTHROPIC }, effort, apiProtocol, nativePdf, searchEnabled)
 
     PaperScaffold(
         title = if (profile == null) "添加模型" else "编辑模型",
@@ -95,6 +99,8 @@ fun ModelEditorScreen(
                                 onClick = {
                                     baseUrl = preset.baseUrl
                                     protocol = preset.searchProtocol
+                                    apiProtocol = AiApiProtocol.fromLegacy(preset.searchProtocol)
+                                    nativePdf = preset.name == "OpenAI" || preset.name == "Anthropic"
                                     if (name.isBlank()) name = preset.name
                                     vm.invalidateModels()
                                     vm.clearWebSearchResult()
@@ -196,17 +202,35 @@ fun ModelEditorScreen(
                 }
             }
 
-            SettingsSection("接口协议与联网搜索") {
-                Hint("Anthropic 原生接口选 Messages；小米 MiMo 选 Chat Completions；DeepSeek 等选 Responses。联网是否启用由设置中的联网开关控制。")
+            SettingsSection("接口协议") {
+                Hint("按服务实际接口选择。Claude 的 OpenAI 兼容网关选择 Chat Completions；原生 Anthropic 选择 Messages。关闭联网不会切换接口。")
                 ChipRow {
-                    AiSearchProtocol.entries.forEach { value ->
-                        FilterChip(
-                            selected = protocol == value,
-                            onClick = { protocol = value; vm.invalidateModels(); vm.clearWebSearchResult() },
-                            label = { Text(searchProtocolLabel(value)) },
-                        )
+                    AiApiProtocol.entries.forEach { value ->
+                        FilterChip(selected = apiProtocol == value, onClick = {
+                            apiProtocol = value
+                            protocol = when (value) {
+                                AiApiProtocol.CHAT_COMPLETIONS -> AiSearchProtocol.CHAT_COMPLETIONS
+                                AiApiProtocol.RESPONSES -> AiSearchProtocol.RESPONSES
+                                AiApiProtocol.ANTHROPIC_MESSAGES -> AiSearchProtocol.ANTHROPIC
+                            }
+                            nativePdf = false
+                            vm.invalidateModels(); vm.clearWebSearchResult()
+                        }, label = { Text(when (value) {
+                            AiApiProtocol.CHAT_COMPLETIONS -> "Chat Completions"
+                            AiApiProtocol.RESPONSES -> "Responses"
+                            AiApiProtocol.ANTHROPIC_MESSAGES -> "Anthropic Messages"
+                        }) })
                     }
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Switch(checked = searchEnabled, onCheckedChange = { searchEnabled = it })
+                    Text("允许此接口使用联网搜索")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Switch(checked = nativePdf, onCheckedChange = { nativePdf = it })
+                    Text("接口支持原生 PDF 输入")
+                }
+                Hint("兼容网关需确认支持原生 PDF。关闭后使用按页读取工具；图表和扫描件需要开启模型看图能力。")
                 Field {
                     OutlinedButton(
                         onClick = { vm.testWebSearch(draft(), profile?.id) },

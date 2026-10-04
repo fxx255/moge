@@ -108,7 +108,8 @@ class GenerationPreparer @Inject constructor(
         if (photo.failure != null) return failure(owner, photo.failure)
         val outgoing = photo.outgoingText
         // 历史来自快照，绝不重读当前会话。
-        val history = historyFromSnapshot(initial) + ChatMessage("user", outgoing)
+        val history = historyFromSnapshot(initial) + ChatMessage("user", outgoing, documentPaths = initial.documentPaths,
+            documentReadRequired = initial.documentReadRequired)
         val policy = initial.toPolicy()
         return Prepared(
             outgoingText = outgoing,
@@ -160,13 +161,18 @@ class GenerationPreparer @Inject constructor(
             model = identity?.model.orEmpty(),
             endpointIdentity = endpointIdentityOf(baseUrl),
             protocol = protocolOf(identity?.searchProtocol),
+            apiProtocol = identity?.apiProtocol?.name.orEmpty(),
+            nativePdfEnabled = identity?.nativePdfEnabled ?: false,
+            documentReadRequired = submission.documentPaths.isNotEmpty(),
+            documentPaths = (conversationDao.getMessages(conversationId).filter { it.role == "user" }
+                .flatMap { RequestRepository.decodePathList(it.documentPaths) } + submission.documentPaths).distinct(),
             reasoningEffort = (identity?.reasoningEffort ?: AiReasoningEffort.LOW).name,
             solveMode = submission.solveMode.name,
             hasImages = submission.attachmentPaths.isNotEmpty(),
             sourceUserText = submission.userText,
             prepared = false,
             forceWebSearch = submission.forceWebSearch,
-            effectiveWebSearchEnabled = prefs.webSearchEnabled,
+            effectiveWebSearchEnabled = prefs.webSearchEnabled && (identity?.searchEnabled != false),
             maxContinuations = prefs.maxContinuations.coerceAtLeast(0),
             primaryProfileId = identity?.profileId.orEmpty(),
             primaryVisionEnabled = visionDirect,
@@ -197,6 +203,7 @@ class GenerationPreparer @Inject constructor(
             conversationId = owner.conversationId,
             userText = snapshot.sourceUserText,
             attachmentPaths = attachments,
+            documentPaths = RequestRepository.decodePathList(owner.documentPaths),
             solveMode = SolveMode.fromName(snapshot.solveMode) ?: SolveMode.DETAILED,
             forceWebSearch = snapshot.forceWebSearch,
         )
@@ -209,7 +216,8 @@ class GenerationPreparer @Inject constructor(
         attachments: List<String>,
     ): Prepared {
         val outgoing = snapshot.sourceUserText
-        val history = historyFromSnapshot(snapshot) + ChatMessage("user", outgoing)
+        val history = historyFromSnapshot(snapshot) + ChatMessage("user", outgoing, documentPaths = snapshot.documentPaths,
+            documentReadRequired = snapshot.documentReadRequired)
         val imageBase64s = when (snapshot.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_DIRECT -> {
                 if (attachments.isEmpty()) {
@@ -347,6 +355,7 @@ class GenerationPreparer @Inject constructor(
                         role = message.role,
                         text = if (message.role == "assistant") historyAnswerText(message.displayContent ?: message.content, message.finalAnswer) else message.content,
                         // 助手消息的 imagePaths 是渲染出的图表，不回传给模型。
+                        documentPaths = if (message.role == "user") RequestRepository.decodePathList(message.documentPaths) else emptyList(),
                         imagePaths = if (message.role == "user") {
                             RequestRepository.decodePathList(message.imagePaths).filter { it.isNotBlank() }
                         } else emptyList(),
@@ -395,7 +404,7 @@ class GenerationPreparer @Inject constructor(
                 message.text.isBlank() -> DEFAULT_VISION_PROMPT
                 else -> message.text
             }
-            ChatMessage(message.role, text, imageBase64s = images)
+            ChatMessage(message.role, text, imageBase64s = images, documentPaths = message.documentPaths)
         }
     }
 

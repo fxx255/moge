@@ -19,7 +19,7 @@ import javax.inject.Singleton
 @Database(
     entities = [ConversationEntity::class, MessageEntity::class, RequestEntity::class,
         NotebookCategoryEntity::class, NotebookEntryEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(InstantConverters::class)
@@ -29,6 +29,14 @@ abstract class MogeDatabase : RoomDatabase() {
     abstract fun notebookDao(): NotebookDao
 
     companion object {
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf("message", "request", "notebook_entry").forEach { table ->
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `document_paths` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -59,7 +67,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MogeDatabase =
         Room.databaseBuilder(context, MogeDatabase::class.java, "moge.db")
-            .addMigrations(MogeDatabase.MIGRATION_2_3)
+            .addMigrations(MogeDatabase.MIGRATION_2_3, MogeDatabase.MIGRATION_3_4)
             .build()
 
     @Provides

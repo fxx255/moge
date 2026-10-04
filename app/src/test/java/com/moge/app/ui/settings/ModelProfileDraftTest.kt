@@ -72,7 +72,8 @@ class ModelProfileDraftTest {
     @Test
     fun summaryAndBytes() {
         val p = AiModelProfile("a", "A", "u", "deepseek-chat", true, AiSearchProtocol.CHAT_COMPLETIONS, AiReasoningEffort.HIGH, true)
-        assertEquals("deepseek-chat · 可看图 · 联网 Chat · 高思考", profileSummary(p))
+        assertEquals("deepseek-chat · 可看图 · Chat Completions · 允许联网 · 高思考", profileSummary(p))
+        assertTrue(profileSummary(p.copy(searchEnabled = false)).contains("Chat Completions · 不联网"))
         assertEquals("512 B", formatBytes(512))
         assertEquals("1.5 KB", formatBytes(1536))
         assertEquals("2.0 MB", formatBytes(2L * 1024 * 1024))

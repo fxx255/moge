@@ -98,6 +98,7 @@ class SolveViewModelTest {
                     userText = submission.userText,
                     attachmentPaths = submission.attachmentPaths,
                     snapshotJson = "",
+                    documentPaths = submission.documentPaths,
                 )
             }
             coEvery { captureRetrySnapshot(any(), any(), any(), any()) } returns RequestSnapshot(model = "m")
@@ -150,6 +151,24 @@ class SolveViewModelTest {
         val record = requests.createRequest(conversationId, "u-$partial", "a-$partial", "att-old", "原题", emptyList(), "{}")
         requests.interrupt(record.requestId, "att-old", partial, FailureKind.NETWORK, "网络断了")
         return requests.get(record.requestId)!!
+    }
+
+    @Test
+    fun `document capture keeps blank question and sends persistent attachment independently`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val source = File(context.cacheDir, "document-source.txt").apply { writeText("文档内部文字不进入输入框") }
+        val document = captureStore.importDocument(android.net.Uri.fromFile(source))
+        source.delete()
+        val vm = vm(capture = CaptureBatch(emptyList(), SolveMode.DETAILED, documentPaths = listOf(document)))
+        vm.awaitState { it.documentPaths == listOf(document) && it.canSend }
+        assertEquals("", vm.uiState.value.input)
+        vm.send()
+        val state = vm.awaitState { it.items.size == 2 && it.documentPaths.isEmpty() }
+        val message = conversations.messages(state.conversationId!!).first { it.role == "user" }
+        assertEquals("", message.content)
+        assertEquals(listOf(document), RequestRepository.decodePathList(message.documentPaths))
+        assertTrue(File(document).isFile)
+        assertNull(drafts.load(state.conversationId))
     }
 
     @Test

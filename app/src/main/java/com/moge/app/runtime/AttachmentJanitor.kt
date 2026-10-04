@@ -62,12 +62,14 @@ class AttachmentJanitor @Inject constructor(
                 Log.w(TAG, "skip sweep: reference scan failed", e)
                 return@withContext null
             }
-            val canonical = referenced.mapNotNull { runCatching { File(it).canonicalPath }.getOrNull() }.toSet()
+            val allReferenced = referenced + referenced.flatMap { listOf(it + ".meta.json", it + ".meta.json.bak", it + ".meta.json.new") }
+            val canonical = allReferenced.mapNotNull { runCatching { File(it).canonicalPath }.getOrNull() }.toSet()
             val names = referenced.map { File(it).name }.toSet()
             val photoCutoff = now - photoGraceMs
             val figureCutoff = now - figureGraceMs
             sweepDir(File(context.filesDir, CaptureStore.PHOTOS_DIR), canonical, photoCutoff, dryRun) +
                 sweepDir(File(context.filesDir, DraftStore.ATTACHMENTS_DIR), canonical, photoCutoff, dryRun) +
+                sweepDir(File(context.filesDir, "documents"), canonical, photoCutoff, dryRun) +
                 plots.retainOnly(names, figureCutoff, dryRun) +
                 diagrams.retainOnly(names, figureCutoff, dryRun)
         }

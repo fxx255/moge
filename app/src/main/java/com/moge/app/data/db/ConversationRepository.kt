@@ -58,7 +58,7 @@ class ConversationRepository @Inject constructor(
      * 任一行解析失败即抛出，调用方据此放弃回收。
      */
     suspend fun referencedImagePaths(): Set<String> = withContext(io) {
-        val lists = dao.allImagePathJson() + dao.allAttachmentPathJson()
+        val lists = dao.allImagePathJson() + dao.allAttachmentPathJson() + dao.allDocumentPathJson()
         (lists.flatMap(RequestRepository::decodePathListStrict) + dao.allCoverPaths()).filter { it.isNotBlank() }.toSet()
     }
 

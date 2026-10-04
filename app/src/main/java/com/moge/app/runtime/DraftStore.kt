@@ -38,7 +38,7 @@ open class DraftStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     /** 一条草稿。[photoPaths] 是已固定在私有持久目录里的绝对路径。 */
-    data class Draft(val text: String, val photoPaths: List<String>)
+    data class Draft(val text: String, val photoPaths: List<String>, val documentPaths: List<String> = emptyList())
 
     /**
      * [reserveSave] 返回的句柄。只有当它仍是该会话**最新** revision 时，
@@ -85,10 +85,10 @@ open class DraftStore @Inject constructor(
      * 保存草稿；内容为空即删除。便捷写法：
      * 内部就是"同步 reserve → 同锁内 persist"，失败时异常向上传播、磁盘保旧。
      */
-    suspend fun save(conversationId: String?, text: String, photoPaths: List<String>) =
+    suspend fun save(conversationId: String?, text: String, photoPaths: List<String>, documentPaths: List<String> = emptyList()) =
         withContext(Dispatchers.IO) {
             withLock(conversationId) { state ->
-                val revision = reserveLocked(state, text, photoPaths)
+                val revision = reserveLocked(state, text, photoPaths + documentPaths.map { DOCUMENT_PREFIX + it })
                 persistReservedLocked(conversationId, state, revision)
             }
         }
@@ -123,6 +123,7 @@ open class DraftStore @Inject constructor(
         conversationId: String?,
         baselineText: String?,
         baselinePhotos: List<String> = emptyList(),
+        baselineDocuments: List<String> = emptyList(),
     ): Boolean = withContext(Dispatchers.IO) {
         withLock(conversationId) { state ->
             if (baselineText == null) return@withLock false
@@ -130,7 +131,7 @@ open class DraftStore @Inject constructor(
             if (current != null) {
                 val textChanged = current.text != baselineText
                 val photosChanged = current.photoPaths != baselinePhotos
-                if (textChanged || photosChanged) return@withLock false
+                if (textChanged || photosChanged || current.documentPaths != baselineDocuments) return@withLock false
             }
             val revision = reserveLocked(state, "", emptyList())
             persistReservedLocked(conversationId, state, revision)
@@ -149,9 +150,9 @@ open class DraftStore @Inject constructor(
      * ```
      * 同一会话更新的 reserve 会让更早的 reservation 过期（[persist] 只认最新）。
      */
-    fun reserveSave(conversationId: String?, text: String, photoPaths: List<String>): Reservation =
+    fun reserveSave(conversationId: String?, text: String, photoPaths: List<String>, documentPaths: List<String> = emptyList()): Reservation =
         withLock(conversationId) { state ->
-            val revision = reserveLocked(state, text, photoPaths)
+            val revision = reserveLocked(state, text, photoPaths + documentPaths.map { DOCUMENT_PREFIX + it })
             Reservation(conversationId, revision)
         }
 
@@ -178,7 +179,7 @@ open class DraftStore @Inject constructor(
         files.filter { it.name.startsWith("draft_") }.forEach { file ->
             result += file.readText(Charsets.UTF_8).split(DRAFT_SEPARATOR).drop(1)
         }
-        result.filter { it.isNotBlank() }.toSet()
+        result.filter { it.isNotBlank() }.map { it.removePrefix(DOCUMENT_PREFIX) }.toSet()
     }
 
     // ── 内部实现：每键串行 + revision + AtomicFile 原子写 ──
@@ -214,8 +215,10 @@ open class DraftStore @Inject constructor(
 
     /** 空草稿读成 null；只剔除空串段（格式噪声），**不**剔除已不存在的文件引用。 */
     private fun normalize(text: String, photoPaths: List<String>): Draft? {
-        val photos = photoPaths.filter { it.isNotBlank() }
-        return if (text.isEmpty() && photos.isEmpty()) null else Draft(text, photos)
+        val paths = photoPaths.filter { it.isNotBlank() }
+        val photos = paths.filterNot { it.startsWith(DOCUMENT_PREFIX) }
+        val documents = paths.filter { it.startsWith(DOCUMENT_PREFIX) }.map { it.removePrefix(DOCUMENT_PREFIX) }
+        return if (text.isEmpty() && paths.isEmpty()) null else Draft(text, photos, documents)
     }
 
     /**
@@ -374,6 +377,7 @@ open class DraftStore @Inject constructor(
         /** 从私有目录外复制进来的附件（见 [persistAttachments]）。 */
         const val ATTACHMENTS_DIR = "attachments"
 
+        private const val DOCUMENT_PREFIX = "document:"
         private const val DRAFT_SEPARATOR = "\u0000"
     }
 }

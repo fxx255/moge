@@ -32,6 +32,7 @@ internal fun NotebookEntryDetail(
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(category, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text("题目", style = MaterialTheme.typography.titleMedium)
+        com.moge.app.ui.document.DocumentCards(RequestRepository.decodePathList(entry.documentPaths))
         if (entry.questionText.isNotBlank()) AnswerMarkdownBody(entry.questionText, emptyList(), onImage)
         if (photos.isFailure) Text("题目照片记录无法读取", color = MaterialTheme.colorScheme.error)
         photos.getOrDefault(emptyList()).let { paths ->

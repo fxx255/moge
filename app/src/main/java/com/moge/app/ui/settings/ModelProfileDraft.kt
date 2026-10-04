@@ -2,6 +2,7 @@ package com.moge.app.ui.settings
 
 import com.moge.app.data.credential.AiModelProfile
 import com.moge.app.data.credential.AiReasoningEffort
+import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.credential.AiSearchProtocol
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.Locale
@@ -15,6 +16,9 @@ data class ModelProfileDraft(
     val visionEnabled: Boolean,
     val searchProtocol: AiSearchProtocol,
     val reasoningEffort: AiReasoningEffort,
+    val apiProtocol: AiApiProtocol? = null,
+    val nativePdfEnabled: Boolean = false,
+    val searchEnabled: Boolean = true,
 )
 
 /** 常见服务的快捷填入，模型名交给「获取模型列表」。 */
@@ -62,14 +66,13 @@ fun validateDraft(draft: ModelProfileDraft, hasStoredKey: Boolean): String? = wh
 fun profileSummary(profile: AiModelProfile): String = buildString {
     append(profile.model)
     append(if (profile.visionEnabled) " · 可看图" else " · 纯文字")
-    append(
-        when (profile.searchProtocol) {
-            AiSearchProtocol.RESPONSES -> " · 联网 Responses"
-            AiSearchProtocol.CHAT_COMPLETIONS -> " · 联网 Chat"
-            AiSearchProtocol.ANTHROPIC -> " · 联网 Anthropic"
-            AiSearchProtocol.OFF -> " · 不联网"
-        },
-    )
+    val api = profile.apiProtocol ?: AiApiProtocol.fromLegacy(profile.searchProtocol)
+    append(" · ").append(when (api) {
+        AiApiProtocol.RESPONSES -> "Responses"
+        AiApiProtocol.CHAT_COMPLETIONS -> "Chat Completions"
+        AiApiProtocol.ANTHROPIC_MESSAGES -> "Anthropic Messages"
+    })
+    append(if (profile.searchEnabled && profile.searchProtocol != AiSearchProtocol.OFF) " · 允许联网" else " · 不联网")
     append(" · ").append(reasoningLabel(profile.reasoningEffort)).append("思考")
 }
 

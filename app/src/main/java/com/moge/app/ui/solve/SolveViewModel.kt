@@ -62,10 +62,11 @@ data class SolveUiState(
     val notice: String? = null,
     /** 待随下一问发出的照片（追问时拍的 / 选的，或拍题首问提交失败后退回来的）。 */
     val photos: List<String> = emptyList(),
+    val documentPaths: List<String> = emptyList(),
     val answerFirst: Boolean = false,
 ) {
     val canSend: Boolean
-        get() = (input.isNotBlank() || photos.isNotEmpty()) && !generating && !busyElsewhere && !submitting
+        get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting
 
     val canAddPhoto: Boolean
         get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting
@@ -102,6 +103,7 @@ class SolveViewModel @Inject constructor(
 
     private val input = MutableStateFlow("")
     private val photos = MutableStateFlow<List<String>>(emptyList())
+    private val documents = MutableStateFlow<List<String>>(emptyList())
     private val submitting = MutableStateFlow(false)
     private val notice = MutableStateFlow<String?>(null)
 
@@ -136,10 +138,11 @@ class SolveViewModel @Inject constructor(
         val photos: List<String>,
         val submitting: Boolean,
         val notice: String?,
+        val documents: List<String>,
     )
 
     private val transient: Flow<Transient> =
-        combine(input, photos, submitting, notice) { text, pics, busy, message -> Transient(text, pics, busy, message) }
+        combine(input, photos, submitting, notice, documents) { text, pics, busy, message, docs -> Transient(text, pics, busy, message, docs) }
 
     private val documentImportMutex = Mutex()
 
@@ -156,6 +159,7 @@ class SolveViewModel @Inject constructor(
                 submitting = local.submitting,
                 notice = local.notice,
                 photos = local.photos,
+                documentPaths = local.documents,
                 answerFirst = prefs.answerFirst,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SolveUiState(conversationId.value))
@@ -196,6 +200,7 @@ class SolveViewModel @Inject constructor(
                 input.value = draft.text
                 // 缺图引用照样恢复：发送时 persistAttachments 会明确报错，而不是悄悄丢图。
                 photos.value = draft.photoPaths.take(CaptureStore.MAX_PHOTOS)
+                documents.value = draft.documentPaths
             }
             draftRestored = true
             draftReady.complete(Unit)
@@ -207,7 +212,7 @@ class SolveViewModel @Inject constructor(
         saveDraft()
     }
 
-    /** Importing a document produces a bounded text section in the same draft/input flow. */
+    /** Import originals as document attachments; never modify the question text. */
     fun importDocument(uri: android.net.Uri) {
         viewModelScope.launch {
             try {
@@ -224,26 +229,16 @@ class SolveViewModel @Inject constructor(
     private suspend fun importDocuments(paths: List<String>) {
         if (paths.isEmpty()) return
         documentImportMutex.withLock {
-            try {
-                paths.forEach { path ->
-                    try {
-                        val text = captureStore.extractDocument(path)
-                        val section = "【文件：${File(path).name}】\n$text"
-                        onInputChange(listOf(input.value, section).filter { it.isNotBlank() }.joinToString("\n\n"))
-                        if (File(path).extension.equals("pdf", ignoreCase = true) &&
-                            text.contains("未提供可直接读取的文字层")) {
-                            addPhotos(captureStore.renderPdf(path))
-                        }
-                    } finally {
-                        File(path).delete()
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                notice.value = e.message ?: "文件文字提取失败"
-            }
+            val remaining = com.moge.app.data.document.DocumentStore.MAX_ATTACHMENTS - documents.value.size
+            documents.value = (documents.value + paths.take(remaining.coerceAtLeast(0))).distinct()
+            saveDraft()
+            if (paths.size > remaining) notice.value = "每次最多添加 8 个文档"
         }
+    }
+
+    fun removeDocument(path: String) {
+        documents.value = documents.value.filterNot { it == path }
+        saveDraft()
     }
 
     /** 追问拍照的目标文件（落在私有 photos 目录，裁剪原地改写）。 */
@@ -298,7 +293,7 @@ class SolveViewModel @Inject constructor(
     private fun saveDraft() {
         draftRestored = true
         editRevision++
-        val reservation = draftStore.reserveSave(conversationId.value, input.value, photos.value)
+        val reservation = draftStore.reserveSave(conversationId.value, input.value, photos.value, documents.value)
         viewModelScope.launch {
             try {
                 draftStore.persist(reservation)
@@ -325,7 +320,7 @@ class SolveViewModel @Inject constructor(
     fun send() {
         val text = input.value.trim()
         val pics = photos.value
-        if (text.isEmpty() && pics.isEmpty()) return
+        if (text.isEmpty() && pics.isEmpty() && documents.value.isEmpty()) return
         submit(text, pics, mode = null, consumesInput = true)
     }
 
@@ -345,9 +340,10 @@ class SolveViewModel @Inject constructor(
         notice.value = null
         val ownerSlot = conversationId.value
         val revisionAtSend = editRevision
+        val documentsAtSend = documents.value.toList()
         viewModelScope.launch {
             try {
-                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput)
+                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend)
             } finally {
                 submitting.value = false
             }
@@ -361,16 +357,19 @@ class SolveViewModel @Inject constructor(
         ownerSlot: String?,
         revisionAtSend: Long,
         consumesInput: Boolean,
+        documentPaths: List<String>,
     ) {
         val mode = requestedMode
             ?: runCatching { settings.current().defaultSolveMode }.getOrDefault(SolveMode.DETAILED)
         // 缺图 / 空图绝不静默降级成纯文本：在建会话之前就拦下，输入框和照片都保留。
         val pinned = try {
-            draftStore.persistAttachments(attachments)
+            draftStore.persistAttachments(attachments).also {
+                documentPaths.forEach { path -> require(File(path).isFile && File(path).length() > 0) { "原文档已不存在" } }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            notice.value = "有照片读不出来了，请删掉后重新拍一张再发送"
+            notice.value = "有附件读不出来了，请重新添加后发送"
             return
         }
         // 用户可能从历史页删除了当前对话，再返回仍保留草稿的页面。
@@ -386,7 +385,7 @@ class SolveViewModel @Inject constructor(
         val created = existingId == null
         val targetId = existingId ?: try {
             // 纯照片题没有文字：先用「图片题目」占位，首次有效回答后由模型概括的主题替换。
-            conversationRepository.createConversation(text.ifBlank { PHOTO_PLACEHOLDER_TITLE }, mode).id
+            conversationRepository.createConversation(text.ifBlank { documentPaths.firstOrNull()?.let { "文档分析" } ?: PHOTO_PLACEHOLDER_TITLE }, mode).id
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -399,6 +398,7 @@ class SolveViewModel @Inject constructor(
                     conversationId = targetId,
                     userText = text,
                     attachmentPaths = pinned,
+                    documentPaths = documentPaths,
                     solveMode = mode,
                 ),
             )
@@ -432,10 +432,11 @@ class SolveViewModel @Inject constructor(
         if (unchanged) {
             input.value = ""
             photos.value = emptyList()
+            documents.value = emptyList()
         }
         try {
             if (!unchanged && ownerSlot != targetId) {
-                draftStore.persist(draftStore.reserveSave(targetId, input.value, photos.value))
+                draftStore.persist(draftStore.reserveSave(targetId, input.value, photos.value, documents.value))
             }
             if (unchanged || ownerSlot != targetId) {
                 draftStore.persist(draftStore.reserveSave(ownerSlot, "", emptyList()))

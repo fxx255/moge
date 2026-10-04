@@ -45,6 +45,8 @@ class RequestRepository @Inject constructor(
         /** 用户消息的展示内容（图片题的紧凑文案）；null 表示与正文一致。 */
         userDisplayContent: String? = null,
         status: RequestStatus = RequestStatus.PREPARING,
+        documentPaths: List<String> = emptyList(),
+        contextDocumentPaths: List<String> = documentPaths,
     ): RequestEntity = withContext(io) {
         // user / answer 两条消息必须严格先后：Instant 落库成 epochMillis，
         // 各自独立 Instant.now() 在同一毫秒内会得到相同 created_at。
@@ -56,6 +58,7 @@ class RequestRepository @Inject constructor(
             role = "user",
             content = userText,
             imagePaths = encodeList(attachmentPaths),
+            documentPaths = encodeList(documentPaths),
             displayContent = userDisplayContent,
             createdAt = now,
         )
@@ -65,6 +68,7 @@ class RequestRepository @Inject constructor(
             role = "assistant",
             content = "",
             replyToMessageId = userMessageId,
+            documentPaths = encodeList((contextDocumentPaths + documentPaths).distinct()),
             createdAt = now.plusMillis(1),
         )
         val request = RequestEntity(
@@ -75,6 +79,7 @@ class RequestRepository @Inject constructor(
             status = status.name,
             userText = userText,
             attachmentPaths = encodeList(attachmentPaths),
+            documentPaths = encodeList((contextDocumentPaths + documentPaths).distinct()),
             snapshotJson = snapshotJson,
             createdAt = now,
             updatedAt = now,

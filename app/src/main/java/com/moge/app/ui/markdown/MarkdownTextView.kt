@@ -130,6 +130,15 @@ internal fun createMarkdownTextView(
         // Keep its original input alive with its drawable, rather than logging only the latest source.
         val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
+            .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
+                override fun configureConfiguration(builder: io.noties.markwon.MarkwonConfiguration.Builder) {
+                    builder.linkResolver { view, link ->
+                        val uri = android.net.Uri.parse(link)
+                        if (uri.scheme == "moge-document") com.moge.app.ui.document.DocumentPreviewActivity.openLink(view.context, uri)
+                        else runCatching { view.context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
+                    }
+                }
+            })
             .textSetter { view, markdown, bufferType, onComplete ->
                 (view as? MarkdownRenderSourceOwner)?.renderSource?.let { source ->
                     synchronized(latexSources) {

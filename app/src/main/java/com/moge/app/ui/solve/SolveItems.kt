@@ -21,6 +21,7 @@ sealed interface SolveItem {
         val photoPaths: List<String>,
         val transcript: String,
         val isFirst: Boolean,
+        val documentPaths: List<String> = emptyList(),
     ) : SolveItem
 
     data class Answer(
@@ -45,6 +46,7 @@ sealed interface SolveItem {
         val usageJson: String = "",
         val finalAnswer: String = "",
         val replyToMessageId: String = "",
+        val documentPaths: List<String> = emptyList(),
     ) : SolveItem
 }
 
@@ -92,6 +94,7 @@ internal fun buildSolveItems(
                 photoPaths = RequestRepository.decodePathList(message.imagePaths).filter { it.isNotBlank() },
                 transcript = message.transcript,
                 isFirst = !seenQuestion,
+                documentPaths = RequestRepository.decodePathList(message.documentPaths),
             ).also { seenQuestion = true }
         } else {
             answerItem(
@@ -99,7 +102,9 @@ internal fun buildSolveItems(
                 request = requestByAnswer[message.id],
                 live = active.takeIf { activeHere && it.answerMessageId == message.id },
                 isLast = message.id == lastAnswerId,
-            ).copy(replyToMessageId = message.replyToMessageId.ifBlank { requestByAnswer[message.id]?.userMessageId.orEmpty() })
+            ).copy(replyToMessageId = message.replyToMessageId.ifBlank { requestByAnswer[message.id]?.userMessageId.orEmpty() },
+                documentPaths = (RequestRepository.decodePathList(message.documentPaths) +
+                    requestByAnswer[message.id]?.let { RequestRepository.decodePathList(it.documentPaths) }.orEmpty()).distinct())
         }
     }
 }

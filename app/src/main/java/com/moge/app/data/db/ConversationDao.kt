@@ -11,6 +11,9 @@ import java.time.Instant
 /** 独立历史与消息的读写（生成流程的写入走 [RequestDao]，带 attempt 围栏）。 */
 @Dao
 interface ConversationDao {
+    @Query("SELECT document_paths FROM message UNION ALL SELECT document_paths FROM request")
+    suspend fun allDocumentPathJson(): List<String>
+
 
     /** 一次查询取最近内容与请求状态；仅含用户消息的会话显示，分类筛选与搜索取交集。 */
     @Query("""

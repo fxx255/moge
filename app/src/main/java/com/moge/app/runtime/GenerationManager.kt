@@ -186,6 +186,7 @@ class GenerationManager @Inject constructor(
         val userDisplayContent: String? = null,
         val solveMode: SolveMode = SolveMode.DETAILED,
         val forceWebSearch: Boolean = false,
+        val documentPaths: List<String> = emptyList(),
     )
 
     /** 对外广播的生成事件。全部是纯数据，页面据此更新自己的 UI。 */
@@ -685,6 +686,8 @@ class GenerationManager @Inject constructor(
                     attachmentPaths = submission.attachmentPaths,
                     snapshotJson = snapshotJson.ifBlank { SnapshotCodec.encode(initialSnapshot) },
                     userDisplayContent = submission.userDisplayContent,
+                    documentPaths = submission.documentPaths,
+                    contextDocumentPaths = initialSnapshot.documentPaths,
                 )
             } catch (creationError: Throwable) {
                 // 落盘失败 ⇒ 输入草稿由调用方保留，本轮不开始、不发网络。
@@ -817,13 +820,14 @@ class GenerationManager @Inject constructor(
                 conversationId = record.conversationId,
                 userText = record.userText,
                 attachmentPaths = attachmentPaths,
+                documentPaths = RequestRepository.decodePathList(record.documentPaths),
                 solveMode = solveMode ?: SolveMode.fromName(previous?.solveMode) ?: SolveMode.DETAILED,
                 forceWebSearch = forceWebSearch ?: previous?.forceWebSearch ?: false,
             ),
             conversationId = record.conversationId,
             userMessageId = record.userMessageId,
             answerMessageId = record.answerMessageId,
-        )
+        ).copy(documentReadRequired = previous?.documentReadRequired ?: record.documentPaths.isNotBlank())
     }
 
     private suspend fun runRetry(record: RequestEntity, attemptId: String, owner: TaskOwner) {

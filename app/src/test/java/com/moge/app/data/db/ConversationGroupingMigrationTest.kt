@@ -60,12 +60,12 @@ class ConversationGroupingMigrationTest {
         execSQL("INSERT INTO $table ($columns) VALUES ($placeholders)", values.values.toTypedArray())
     }
 
-    private fun createV2Database(): Map<String, List<Map<String, String?>>> {
-        val resource = "com.moge.app.data.db.MogeDatabase/2.json"
+    private fun createV2Database(schemaVersion: Int = 2): Map<String, List<Map<String, String?>>> {
+        val resource = "com.moge.app.data.db.MogeDatabase/$schemaVersion.json"
         val schema = requireNotNull(javaClass.classLoader?.getResourceAsStream(resource)) {
             "Exported v2 Room schema is missing: $resource"
         }.bufferedReader().use { JSONObject(it.readText()).getJSONObject("database") }
-        assertEquals(2, schema.getInt("version"))
+        assertEquals(schemaVersion, schema.getInt("version"))
         return context.openOrCreateDatabase("moge.db", Context.MODE_PRIVATE, null).use { legacy ->
             legacy.setForeignKeyConstraintsEnabled(true)
             legacy.beginTransaction()
@@ -90,7 +90,7 @@ class ConversationGroupingMigrationTest {
             } finally {
                 legacy.endTransaction()
             }
-            legacy.version = 2
+            legacy.version = schemaVersion
             tables.associateWith { table ->
                 rows(legacy.rawQuery("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid", null))
             }
@@ -174,10 +174,11 @@ class ConversationGroupingMigrationTest {
         val room = openMigratedDatabase()
         // Opening runs Room's generated schema validation and checks the registered production migration.
         val sqlite = room.openHelper.writableDatabase
-        assertEquals(3, sqlite.version)
+        assertEquals(4, sqlite.version)
         tables.forEach { table ->
             val after = rows(sqlite.query("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid"))
-            val legacyColumns = if (table == "conversation") after.map { it - "category_id" } else after
+            val addedColumns = setOf("document_paths") + if (table == "conversation") setOf("category_id") else emptySet()
+            val legacyColumns = after.map { row -> row - addedColumns }
             assertEquals(table, before.getValue(table), legacyColumns)
         }
         assertGroupingSchema(sqlite)
@@ -187,6 +188,19 @@ class ConversationGroupingMigrationTest {
         assertEquals(listOf("old", "new"), repository.observeHistory().first().map { it.conversation.id })
         assertEquals(listOf("old", "new"), repository.observeHistory(uncategorizedOnly = true).first().map { it.conversation.id })
         assertTrue(repository.observeHistory(categoryId = "a").first().isEmpty())
+    }
+
+    @Test
+    fun `current installed v3 database migrates to v4 without losing records`() {
+        val before = createV2Database(3)
+        val sqlite = openMigratedDatabase().openHelper.writableDatabase
+        assertEquals(4, sqlite.version)
+        tables.forEach { table ->
+            val after = rows(sqlite.query("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid"))
+            assertEquals(table, before.getValue(table), after.map { it - "document_paths" })
+            if (table in setOf("message", "request", "notebook_entry")) assertTrue(after.all { it["document_paths"] == "" })
+        }
+        assertGroupingSchema(sqlite)
     }
 
     @Test

@@ -87,6 +87,7 @@ class FavoriteViewModel @Inject constructor(private val notebook: NotebookReposi
                     questionText = target.question.text,
                     questionTranscript = target.question.transcript,
                     questionImagePaths = RequestRepository.encodePathList(target.question.photoPaths),
+                    documentPaths = RequestRepository.encodePathList((target.question.documentPaths + target.answer.documentPaths).distinct()),
                     answerText = target.answer.text,
                     finalAnswer = target.answer.finalAnswer,
                     figurePaths = RequestRepository.encodePathList(target.answer.figurePaths),

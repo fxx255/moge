@@ -258,6 +258,9 @@ class SettingsViewModel @Inject constructor(
                         visionEnabled = draft.visionEnabled,
                         searchProtocol = draft.searchProtocol,
                         reasoningEffort = draft.reasoningEffort,
+                        apiProtocol = draft.apiProtocol,
+                        nativePdfEnabled = draft.nativePdfEnabled,
+                        searchEnabled = draft.searchEnabled,
                     )
                 }
             } catch (e: IllegalArgumentException) {

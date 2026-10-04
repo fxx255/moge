@@ -84,6 +84,7 @@ data class MessageEntity(
     /** 回答对应的用户消息；不依赖相邻消息或创建时间猜测。 */
     @ColumnInfo(name = "reply_to_message_id", defaultValue = "")
     val replyToMessageId: String = "",
+    @ColumnInfo(name = "document_paths", defaultValue = "") val documentPaths: String = "",
     @ColumnInfo(name = "created_at")
     val createdAt: Instant = Instant.now(),
 )
@@ -119,6 +120,7 @@ data class NotebookEntryEntity(
     @ColumnInfo(name = "question_transcript", defaultValue = "") val questionTranscript: String = "",
     /** JSON 数组，引用持久化的题目照片；附件回收须扫描此字段。 */
     @ColumnInfo(name = "question_image_paths", defaultValue = "") val questionImagePaths: String = "",
+    @ColumnInfo(name = "document_paths", defaultValue = "") val documentPaths: String = "",
     @ColumnInfo(name = "answer_text") val answerText: String,
     @ColumnInfo(name = "final_answer", defaultValue = "") val finalAnswer: String = "",
     /** JSON 数组，保留缺图空槽及原编号。 */
@@ -178,6 +180,7 @@ data class RequestEntity(
     /** 首次提交时已复制到私有目录的附件绝对路径（JSON 数组）。 */
     @ColumnInfo(name = "attachment_paths", defaultValue = "")
     val attachmentPaths: String = "",
+    @ColumnInfo(name = "document_paths", defaultValue = "") val documentPaths: String = "",
     /** 重试快照（JSON）：模型/端点身份、模式、联网设置与历史。**绝不**含密钥。 */
     @ColumnInfo(name = "snapshot_json", defaultValue = "")
     val snapshotJson: String = "",

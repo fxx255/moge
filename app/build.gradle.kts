@@ -53,8 +53,8 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.3.4"
+        versionCode = 15
+        versionName = "0.3.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -178,6 +178,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation(libs.androidx.exifinterface)
 
     // 回答渲染：Markdown + 本地 JLatexMath 公式（不用 WebView / CDN）

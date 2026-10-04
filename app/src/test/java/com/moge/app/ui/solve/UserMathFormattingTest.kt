@@ -83,23 +83,10 @@ class UserMathFormattingTest {
         assertEquals(listOf("y^2"), userMathSource(raw)!!.formulas)
     }
 
-    @Test fun preview_budget_does_not_truncate_display_or_modify_the_input() {
+    @Test fun sent_question_display_keeps_the_complete_source() {
         val raw = "\$x^2\$\n" + "原文\n".repeat(4000)
-        val preview = userMathSource(raw, COMPOSER_PREVIEW_CHAR_LIMIT)!!
-        assertTrue(preview.truncated)
-        assertEquals(raw.take(COMPOSER_PREVIEW_CHAR_LIMIT), preview.renderSource)
         val display = userMathSource(raw)!!
-        assertFalse(display.truncated)
         assertEquals(raw, display.renderSource)
-        assertTrue(raw.length > COMPOSER_PREVIEW_CHAR_LIMIT)
-    }
-
-    @Test fun truncation_inside_a_formula_is_incomplete_instead_of_parsed_as_closed() {
-        val raw = "\$\$" + "x+".repeat(COMPOSER_PREVIEW_CHAR_LIMIT) + "1\$\$"
-        val preview = userMathSource(raw, COMPOSER_PREVIEW_CHAR_LIMIT)!!
-        assertTrue(preview.truncated)
-        assertTrue(preview.incomplete)
-        assertTrue(preview.formulas.isEmpty())
     }
 
     @Test fun source_is_not_destructively_sanitized_for_display_detection() {

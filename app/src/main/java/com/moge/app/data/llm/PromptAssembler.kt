@@ -18,6 +18,8 @@ data class ChatMessage(
     val role: String,
     val content: String,
     val imageBase64s: List<String> = emptyList(),
+    val documentPaths: List<String> = emptyList(),
+    val documentReadRequired: Boolean = documentPaths.isNotEmpty(),
 )
 
 /**

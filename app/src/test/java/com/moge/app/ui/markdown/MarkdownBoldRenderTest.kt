@@ -5,6 +5,7 @@ import android.text.Spanned
 import android.view.ViewGroup
 import android.widget.TextView
 import io.noties.markwon.Markwon
+import com.moge.app.data.parse.normalizeReplyMarkdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -56,6 +57,16 @@ class MarkdownBoldRenderTest {
 
     private fun boldSpans(text: Spanned): List<Any> =
         text.getSpans(0, text.length, boldSpanClass).toList()
+
+    @Test
+    fun `加粗中的数字系数变量不会留下美元符号且仍保留加粗`() {
+        val text = render(normalizeReplyMarkdown("**H 中任意 $2t$ 列线性无关。**"))
+        val formulas = text.getSpans(0, text.length, BaselineLatexSpan::class.java)
+        assertEquals(1, formulas.size)
+        assertEquals("2t", formulas.single().drawable.destination)
+        assertTrue(boldSpans(text).isNotEmpty())
+        assertTrue(!text.contains('$'))
+    }
 
     /** `**` 必须被消费，不残留字面星号。 */
     @Test
