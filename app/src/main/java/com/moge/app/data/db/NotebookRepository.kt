@@ -9,7 +9,7 @@ import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 收藏与分类只写自己的表；从不更新或删除源会话、消息和附件文件。 */
+/** 收藏快照写自己的表；分类同步只更新快照归属，不改源会话、消息或附件文件。 */
 @Singleton
 class NotebookRepository @Inject constructor(
     private val db: MogeDatabase,
@@ -93,6 +93,26 @@ class NotebookRepository @Inject constructor(
                 savedIds += favorite.id
             }
             savedIds
+        }
+    }
+
+    /** Explicit history drag sync; ordinary repeated collection keeps its snapshot category. */
+    suspend fun syncConversationCategories(conversationIds: Set<String>): Int = withContext(io) {
+        if (conversationIds.isEmpty()) return@withContext 0
+        db.withTransaction {
+            val conversations = db.conversationDao()
+            var updated = 0
+            conversationIds.toList().chunked(500).forEach { batch ->
+                dao.entriesForConversations(batch).forEach { entry ->
+                    val conversation = conversations.getConversation(entry.sourceConversationId) ?: return@forEach
+                    val category = conversation.categoryId
+                    if (entry.categoryId != category) {
+                        check(dao.updateEntry(entry.copy(categoryId = category, updatedAt = Instant.now())) == 1)
+                        updated++
+                    }
+                }
+            }
+            updated
         }
     }
 

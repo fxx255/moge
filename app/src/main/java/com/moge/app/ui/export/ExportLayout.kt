@@ -15,10 +15,12 @@ data class AnswerExportContent(
 
 internal enum class ExportChoice { FULL, ANSWER_ONLY }
 
-/** Long pictures are bounded to 6000px; rendering/cropping plus one attachment stays under 64 MiB. */
+/** Long pictures are bounded to 12000px; longer answers continue as ordered pages. */
 internal object ExportLimits {
     const val WIDTH = 1080
-    const val HEIGHT = 6000
+    // Prefer a single long image for sharing. Extremely long answers still
+    // fall back to sequential pages in the renderer to keep allocations bounded.
+    const val HEIGHT = 12000
     const val MARGIN = 72
     const val FOOTER = 64
     const val GAP = 24

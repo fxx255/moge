@@ -222,14 +222,10 @@ object DiagramRenderer {
                         if (solidHorizontal) canvas.drawLine(x - 6f, y, x + 6f, y, solid)
                         else canvas.drawLine(x, y - 6f, x, y + 6f, solid)
                         val bridgeBox = RectF(x - 5f, y - 5f, x + 5f, y + 5f)
-                        if (dashHorizontal) {
-                            // Horizontal feedback: arch over the vertical wire.
-                            canvas.drawArc(bridgeBox, 180f, 180f, false, bridge)
-                        } else {
-                            // Vertical feedback: arch to the right of the
-                            // horizontal wire.
-                            canvas.drawArc(bridgeBox, 270f, 180f, false, bridge)
-                        }
+                        // Keep crossings rectilinear too: a small square
+                        // bridge reads more like a textbook wire than a curved
+                        // arc, especially on the right side of a narrow phone preview.
+                        canvas.drawRect(bridgeBox, bridge)
                     }
                 }
             }

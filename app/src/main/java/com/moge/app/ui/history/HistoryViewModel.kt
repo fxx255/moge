@@ -155,9 +155,12 @@ class HistoryViewModel @Inject constructor(
         if (ids.isEmpty()) return
         mutate {
             val moved = repository.moveToCategory(ids, categoryId)
+            val saved = notebooks.saveConversations(ids)
+            notebooks.syncConversationCategories(ids)
             _state.update { it.copy(selectedIds = it.selectedIds - ids) }
             persistSelection()
-            "已移动 $moved 个对话"
+            if (saved.isEmpty()) "已移动 $moved 个对话；暂无完整解答可加入题册"
+            else "已移动 $moved 个对话，并同步收藏 ${saved.size} 条"
         }
     }
     private fun mutate(action: suspend () -> String) {
