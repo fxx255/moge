@@ -51,6 +51,7 @@ import org.robolectric.annotation.Config
 class HttpPayloadTest {
 
     private val requests = mutableListOf<JsonObject>()
+    private val requestHeaders = mutableListOf<Map<String, String>>()
 
     private fun client(
         baseUrl: String = "https://api.deepseek.com/v1",
@@ -82,6 +83,7 @@ data: [DONE]
             val buffer = Buffer()
             chain.request().body!!.writeTo(buffer)
             requests += Json.parseToJsonElement(buffer.readUtf8()).jsonObject
+            requestHeaders += chain.request().headers.names().associateWith { chain.request().header(it).orEmpty() }
             val (code, body) = responses[requests.size - 1]
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                 .code(code).message("test")
@@ -373,5 +375,56 @@ data: {"type":"response.completed","response":{"output":[{"type":"message","cont
         val model = client()
         model.chatStreaming(listOf(ChatMessage("user", "q"))) {}
         assertTrue(requests.single()["max_tokens"]!!.jsonPrimitive.int > 0)
+    }
+
+    @Test
+    fun `anthropic messages payload uses native headers content blocks and search tool`() = runBlocking {
+        requests.clear()
+        requestHeaders.clear()
+        val model = client(
+            baseUrl = "https://api.anthropic.com",
+            searchProtocol = AiSearchProtocol.ANTHROPIC,
+            responses = listOf(200 to """{"type":"message","content":[{"type":"text","text":"{\"reply\":\"ok\"}"}],"usage":{"input_tokens":10,"output_tokens":2}}"""),
+        )
+        model.chatStreaming(
+            messages = listOf(ChatMessage("user", "q", listOf("OLD")), ChatMessage("assistant", "a"), ChatMessage("user", "current")),
+            imageBase64s = listOf("CURRENT"),
+            webSearchEnabled = true,
+        ) {}
+        val payload = requests.single()
+        assertEquals("https://api.anthropic.com/v1/messages", anthropicMessagesUrl("https://api.anthropic.com"))
+        assertEquals("https://api.anthropic.com/v1/messages", anthropicMessagesUrl("https://api.anthropic.com/v1/"))
+        assertEquals("test-key", requestHeaders.single()["x-api-key"])
+        assertEquals("2023-06-01", requestHeaders.single()["anthropic-version"])
+        assertEquals("test-model", payload["model"]!!.jsonPrimitive.content)
+        assertEquals("web_search_20250305", payload["tools"]!!.jsonArray.single().jsonObject["type"]!!.jsonPrimitive.content)
+        val messages = payload["messages"]!!.jsonArray
+        val oldContent = messages.first().jsonObject["content"]!!.jsonArray
+        assertEquals("OLD", oldContent.first { it.jsonObject["type"]!!.jsonPrimitive.content == "image" }.jsonObject["source"]!!.jsonObject["data"]!!.jsonPrimitive.content)
+        val currentContent = messages.last().jsonObject["content"]!!.jsonArray
+        assertEquals("CURRENT", currentContent.last().jsonObject["source"]!!.jsonObject["data"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `anthropic streaming emits text deltas and accepts message stop`() = runBlocking {
+        requests.clear()
+        val model = client(
+            baseUrl = "https://api.anthropic.com/v1",
+            searchProtocol = AiSearchProtocol.ANTHROPIC,
+            responses = listOf(200 to (
+                "event: message_start\n" +
+                    "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\n" +
+                    "event: content_block_delta\n" +
+                    "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n" +
+                    "event: message_delta\n" +
+                    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n" +
+                    "event: message_stop\n" +
+                    "data: {\"type\":\"message_stop\"}\n\n"
+                )),
+        )
+        val events = mutableListOf<StreamEvent>()
+        val result = model.chatStreaming(listOf(ChatMessage("user", "q"))) { events += it }
+        assertTrue(events.any { it is StreamEvent.AnswerDelta && it.text == "hello" })
+        assertEquals("hello", result.reply)
     }
 }

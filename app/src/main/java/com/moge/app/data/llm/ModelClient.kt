@@ -26,6 +26,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -60,7 +61,7 @@ sealed interface StreamEvent {
 }
 
 /**
- * App 直连 OpenAI 兼容大模型接口。
+ * App 直连 OpenAI 兼容及 Anthropic Messages 大模型接口。
  *
  * 接口地址、模型名、密钥全部由用户在设置页填写，换任意一家 OpenAI 兼容服务
  * （DeepSeek / 月之暗面 / 智谱 / OpenAI / OpenRouter 等）都不需要改代码。
@@ -148,7 +149,11 @@ class ModelClient @Inject constructor(
             }
         }
         val chatCompletionsSearch = webSearchOn && searchProtocol == AiSearchProtocol.CHAT_COMPLETIONS
-        val payload = buildChatPayload(
+        val anthropic = searchProtocol == AiSearchProtocol.ANTHROPIC
+        val payload = if (anthropic) buildAnthropicMessagesPayload(
+            configured, messages, imageBase64s, prompt, stream = true,
+            webSearchEnabled = webSearchOn, forceWebSearch = forceWebSearch,
+        ) else buildChatPayload(
             configured,
             messages,
             imageBase64s,
@@ -157,12 +162,19 @@ class ModelClient @Inject constructor(
             webSearchEnabled = chatCompletionsSearch,
         )
         val request = Request.Builder()
-            .url(completionsUrl(configured.baseUrl))
-            .header("Authorization", "Bearer ${configured.apiKey}")
+            .url(if (anthropic) anthropicMessagesUrl(configured.baseUrl) else completionsUrl(configured.baseUrl))
+            .apply {
+                if (anthropic) addAnthropicHeaders(configured.apiKey)
+                else header("Authorization", "Bearer ${configured.apiKey}")
+            }
             .post(payload.toString().toRequestBody(mediaType))
             .build()
 
-        val firstOutput = executeStreaming(request, onEvent, onUsage)
+        val firstOutput = if (anthropic) readAnthropicStreaming(request, onUsage, onEvent)
+            else executeStreaming(request, onEvent, onUsage)
+        if (anthropic && webSearchOn && !firstOutput.searched) {
+            searchNote = "已请求 Anthropic 联网搜索，但服务端没有返回搜索记录或来源，本次回答未联网"
+        }
         val firstParsed = ReplyParser.parse(firstOutput.answer.trim(), normalizeMarkdown = false)
         val firstStreamedReply = decodeReplyIncremental(firstOutput.answer)
         val needsAnswer = firstOutput.answer.isBlank() && firstOutput.reasoning.isNotBlank() ||
@@ -216,6 +228,7 @@ class ModelClient @Inject constructor(
             reply = visibleAnswer,
             truncated = output.finishReason == "length",
             rawReasoning = output.reasoning,
+            warnings = parsedAnswer.warnings + output.warnings,
         )
         val parsed = if (searchNote == null) base else base.copy(warnings = base.warnings + searchNote)
         withCitations(parsed, output.citations)
@@ -239,7 +252,7 @@ class ModelClient @Inject constructor(
     }
 
     /**
-     * Fetches model ids from the standard OpenAI-compatible /models endpoint.
+     * Fetches model ids with the selected provider's native headers and endpoint.
      *
      * [apiKey] 可以为空：此时依次回退到 [profileId] 对应配置已保存的密钥、
      * 以及当前生效配置的密钥。这样编辑已有配置时（密钥框出于安全不回显，
@@ -249,6 +262,7 @@ class ModelClient @Inject constructor(
         baseUrl: String,
         apiKey: String = "",
         profileId: String? = null,
+        protocol: AiSearchProtocol? = null,
     ): List<String> = withContext(io) {
         require(baseUrl.isNotBlank()) { "请填写接口地址" }
         val key = resolveFetchKey(
@@ -257,9 +271,11 @@ class ModelClient @Inject constructor(
             activeKey = credentialStore.activeProfileId()?.let { credentialStore.credentialsFor(it)?.apiKey },
         )
         require(key.isNotEmpty()) { "请填写 API 密钥" }
+        val anthropic = (protocol ?: profileId?.let { credentialStore.credentialsFor(it)?.searchProtocol }) ==
+            AiSearchProtocol.ANTHROPIC || isAnthropicEndpoint(baseUrl)
         val request = Request.Builder()
-            .url(modelsUrl(baseUrl))
-            .header("Authorization", "Bearer $key")
+            .url(if (anthropic) anthropicModelsUrl(baseUrl) else modelsUrl(baseUrl))
+            .apply { if (anthropic) addAnthropicHeaders(key) else header("Authorization", "Bearer $key") }
             .get()
             .build()
         val response = try {
@@ -296,7 +312,20 @@ class ModelClient @Inject constructor(
         val model = identity.model
         val baseUrl = identity.baseUrl
         val apiKey = identity.apiKey
-        val payload = buildJsonObject {
+        val payload = if (identity.searchProtocol == AiSearchProtocol.ANTHROPIC) {
+            buildAnthropicMessagesPayload(
+                ConfiguredModel(
+                    baseUrl, model, apiKey, AiSearchProtocol.ANTHROPIC,
+                    identity.reasoningEffort, true,
+                ),
+                listOf(ChatMessage("user", "ping")),
+                emptyList(),
+                PromptSegments("", ""),
+                stream = false,
+                webSearchEnabled = false,
+                maxTokens = 1,
+            )
+        } else buildJsonObject {
             put("model", model)
             put("max_tokens", 1)
             put("messages", buildJsonArray {
@@ -304,8 +333,8 @@ class ModelClient @Inject constructor(
             })
         }
         val request = Request.Builder()
-            .url(completionsUrl(baseUrl))
-            .header("Authorization", "Bearer $apiKey")
+            .url(if (identity.searchProtocol == AiSearchProtocol.ANTHROPIC) anthropicMessagesUrl(baseUrl) else completionsUrl(baseUrl))
+            .apply { if (identity.searchProtocol == AiSearchProtocol.ANTHROPIC) addAnthropicHeaders(apiKey) else header("Authorization", "Bearer $apiKey") }
             .post(payload.toString().toRequestBody(mediaType))
             .build()
         OkHttpCancellation.execute(client, request).use { response ->
@@ -344,13 +373,15 @@ class ModelClient @Inject constructor(
         val configured = resolveSearchTarget(baseUrl, apiKey, model, protocol, profileId)
         val chosen = effectiveSearchProtocol(configured.baseUrl, configured.searchProtocol)
         if (chosen == AiSearchProtocol.OFF) {
-            return@withContext "这套配置的联网协议是「关闭」，不会发起搜索。请改成 Responses 或 Chat Completions 再测。"
+            return@withContext "这套配置的联网协议是「关闭」，不会发起搜索。请选择服务支持的联网协议再测。"
         }
         val primary = probeWebSearch(configured, chosen)
         val other = if (chosen == AiSearchProtocol.RESPONSES) {
             AiSearchProtocol.CHAT_COMPLETIONS
-        } else {
+        } else if (chosen == AiSearchProtocol.CHAT_COMPLETIONS) {
             AiSearchProtocol.RESPONSES
+        } else {
+            AiSearchProtocol.ANTHROPIC
         }
         val text = StringBuilder("模型：").append(configured.model).append('\n')
         if (chosen != configured.searchProtocol) {
@@ -369,7 +400,7 @@ class ModelClient @Inject constructor(
                     "\n\n→ 连官方最小示例都搜不到，说明该模型的服务端搜索当前未生效，请求格式没有问题。"
                 },
             )
-        } else if (!primary.searched) {
+        } else if (!primary.searched && chosen != AiSearchProtocol.ANTHROPIC) {
             text.append("\n\n").append(probeWebSearch(configured, other).render("备选"))
         }
         text.toString()
@@ -431,7 +462,12 @@ class ModelClient @Inject constructor(
         minimal: Boolean = false,
     ): WebSearchProbe {
         val responses = protocol == AiSearchProtocol.RESPONSES
-        val url = if (responses) deepSeekResponsesUrl(configured.baseUrl) else completionsUrl(configured.baseUrl)
+        val anthropic = protocol == AiSearchProtocol.ANTHROPIC
+        val url = when {
+            responses -> deepSeekResponsesUrl(configured.baseUrl)
+            anthropic -> anthropicMessagesUrl(configured.baseUrl)
+            else -> completionsUrl(configured.baseUrl)
+        }
         val prompt = "请联网检索后回答：今天有什么重要的科技新闻？只说一条标题即可。"
         val messages = listOf(ChatMessage("user", prompt))
         val payload = when {
@@ -439,13 +475,17 @@ class ModelClient @Inject constructor(
             responses -> buildDeepSeekResponsesPayload(
                 configured, messages, emptyList(), probePrompt(configured), forceWebSearch = true,
             )
+            anthropic -> buildAnthropicMessagesPayload(
+                configured, messages, emptyList(), probePrompt(configured), stream = false,
+                webSearchEnabled = true, forceWebSearch = true,
+            )
             else -> buildChatPayload(
                 configured, messages, emptyList(), probePrompt(configured), stream = false, webSearchEnabled = true,
             )
         }
         val request = Request.Builder()
             .url(url)
-            .header("Authorization", "Bearer ${configured.apiKey}")
+            .apply { if (anthropic) addAnthropicHeaders(configured.apiKey) else header("Authorization", "Bearer ${configured.apiKey}") }
             .post(payload.toString().toRequestBody(mediaType))
             .build()
         val started = System.currentTimeMillis()
@@ -468,6 +508,17 @@ class ModelClient @Inject constructor(
             return WebSearchProbe(
                 protocol, url, code, elapsed, output.searched,
                 output.citations.distinctBy { it.url }.size, output.text.trim().take(100),
+            )
+        }
+        if (anthropic) {
+            val root = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+            val parsed = root?.let(::parseAnthropicMessage)
+            return WebSearchProbe(
+                protocol, url, code, elapsed,
+                searched = parsed?.searched == true,
+                citations = parsed?.citations?.distinctBy { it.url }?.size ?: 0,
+                preview = parsed?.text.orEmpty().trim().take(100),
+                error = if (parsed == null) "服务端返回了无法解析的响应" else parsed.warnings.firstOrNull(),
             )
         }
         val message = runCatching {
@@ -500,7 +551,12 @@ class ModelClient @Inject constructor(
         val error: String? = null,
     ) {
         fun render(tag: String): String = buildString {
-            val name = if (protocol == AiSearchProtocol.RESPONSES) "Responses" else "Chat Completions"
+            val name = when (protocol) {
+                AiSearchProtocol.RESPONSES -> "Responses"
+                AiSearchProtocol.CHAT_COMPLETIONS -> "Chat Completions"
+                AiSearchProtocol.ANTHROPIC -> "Anthropic Messages"
+                AiSearchProtocol.OFF -> "关闭"
+            }
             append("【$tag · $name】")
             if (error != null) {
                 append(error)
@@ -530,6 +586,46 @@ class ModelClient @Inject constructor(
                 ModelException.Kind.NOT_CONFIGURED,
                 "所选多模态模型配置不存在或缺少密钥，请在设置页重新选择",
             )
+        if (credentials.searchProtocol == AiSearchProtocol.ANTHROPIC) {
+            val configured = ConfiguredModel(
+                credentials.baseUrl,
+                credentials.model,
+                credentials.apiKey,
+                AiSearchProtocol.ANTHROPIC,
+                AiReasoningEffort.LOW,
+                true,
+            )
+            val payload = buildAnthropicMessagesPayload(
+                configured,
+                listOf(ChatMessage("user", userText)),
+                imageBase64s,
+                PromptSegments(systemPrompt, ""),
+                stream = false,
+                webSearchEnabled = false,
+                maxTokens = maxTokens,
+            )
+            val request = Request.Builder()
+                .url(anthropicMessagesUrl(credentials.baseUrl))
+                .addAnthropicHeaders(credentials.apiKey)
+                .post(payload.toString().toRequestBody(mediaType))
+                .build()
+            val response = try {
+                OkHttpCancellation.execute(client, request)
+            } catch (e: IOException) {
+                throw ModelException(ModelException.Kind.NETWORK, "网络错误：${e.message ?: "无法连接 Anthropic 接口"}")
+            }
+            val body = response.use { it.body?.string().orEmpty() }
+            if (!response.isSuccessful) {
+                val kind = if (response.code == 401 || response.code == 403) ModelException.Kind.UNAUTHORIZED else ModelException.Kind.SERVER
+                throw ModelException(kind, "多模态模型调用失败（HTTP ${response.code}）：${body.take(160)}")
+            }
+            val content = parseAnthropicMessage(
+                runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+                    ?: throw ModelException(ModelException.Kind.SERVER, "多模态模型返回了无法解析的结果"),
+            ).text.trim()
+            if (content.isEmpty()) throw ModelException(ModelException.Kind.SERVER, "多模态模型未返回有效内容")
+            return@withContext content
+        }
         val payload = buildJsonObject {
             put("model", credentials.model)
             put("temperature", 0.2)
@@ -744,6 +840,62 @@ class ModelClient @Inject constructor(
         })
     }
 
+    private fun buildAnthropicMessagesPayload(
+        configured: ConfiguredModel,
+        messages: List<ChatMessage>,
+        imageBase64s: List<String>,
+        prompt: PromptSegments,
+        stream: Boolean,
+        webSearchEnabled: Boolean,
+        maxTokens: Int = MAX_OUTPUT_TOKENS,
+        forceWebSearch: Boolean = false,
+    ): JsonObject = buildJsonObject {
+        put("model", configured.model)
+        put("max_tokens", maxTokens)
+        if (prompt.stableSystem.isNotBlank() || prompt.volatileSystem.isNotBlank()) {
+            put("system", listOf(prompt.stableSystem, prompt.volatileSystem).filter(String::isNotBlank).joinToString("\n\n"))
+        }
+        put("stream", stream)
+        if (webSearchEnabled) {
+            put("tools", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", "web_search_20250305")
+                    put("name", "web_search")
+                    put("max_uses", 5)
+                })
+            })
+            if (forceWebSearch) {
+                put("tool_choice", buildJsonObject { put("type", "tool"); put("name", "web_search") })
+            }
+        }
+        put("messages", buildJsonArray {
+            messages.forEachIndexed { index, message ->
+                val isCurrent = index == messages.indexOfLast { it.role == "user" }
+                val images = if (isCurrent && imageBase64s.isNotEmpty()) imageBase64s else message.imageBase64s
+                add(buildJsonObject {
+                    put("role", message.role)
+                    if (images.isEmpty()) {
+                        put("content", message.content)
+                    } else {
+                        put("content", buildJsonArray {
+                            if (message.content.isNotBlank()) add(buildJsonObject { put("type", "text"); put("text", message.content) })
+                            images.forEach { base64 ->
+                                add(buildJsonObject {
+                                    put("type", "image")
+                                    put("source", buildJsonObject {
+                                        put("type", "base64")
+                                        put("media_type", "image/jpeg")
+                                        put("data", base64)
+                                    })
+                                })
+                            }
+                        })
+                    }
+                })
+            }
+        })
+    }
+
     private data class StreamOutput(
         val answer: String,
         val reasoning: String,
@@ -751,6 +903,8 @@ class ModelClient @Inject constructor(
         val citations: List<Citation>,
         /** 本次 HTTP 请求归一化后的 usage；null = 供应商未提供。 */
         val usage: UsageSample? = null,
+        val searched: Boolean = false,
+        val warnings: List<String> = emptyList(),
     )
 
     internal data class Citation(val title: String, val url: String)
@@ -783,7 +937,11 @@ class ModelClient @Inject constructor(
                 content = instruction,
             ),
         )
-        val payload = buildChatPayload(
+        val anthropic = configured.searchProtocol == AiSearchProtocol.ANTHROPIC
+        val payload = if (anthropic) buildAnthropicMessagesPayload(
+            configured, recoveryMessages, emptyList(), prompt, stream = true,
+            webSearchEnabled = false, maxTokens = RECOVERY_OUTPUT_TOKENS,
+        ) else buildChatPayload(
             configured = configured.copy(reasoningEffort = AiReasoningEffort.LOW),
             messages = recoveryMessages,
             imageBase64s = emptyList(),
@@ -793,12 +951,16 @@ class ModelClient @Inject constructor(
             maxOutputTokens = RECOVERY_OUTPUT_TOKENS,
         )
         val request = Request.Builder()
-            .url(completionsUrl(configured.baseUrl))
-            .header("Authorization", "Bearer ${configured.apiKey}")
+            .url(if (anthropic) anthropicMessagesUrl(configured.baseUrl) else completionsUrl(configured.baseUrl))
+            .apply {
+                if (anthropic) addAnthropicHeaders(configured.apiKey)
+                else header("Authorization", "Bearer ${configured.apiKey}")
+            }
             .post(payload.toString().toRequestBody(mediaType))
             .build()
         val recovered = try {
-            executeStreaming(request, onEvent, onUsage)
+            if (anthropic) readAnthropicStreaming(request, onUsage, onEvent)
+            else executeStreaming(request, onEvent, onUsage)
         } catch (error: ModelException) {
             // 只有**明确点名输出预算过大**的 400 才降预算重发一次；
             // 泛化的 invalid_request_error 重发是白花一次计费请求。
@@ -806,17 +968,17 @@ class ModelClient @Inject constructor(
             val body = error.message.orEmpty()
             if (!body.contains("HTTP 400") || !isOutputBudgetRejected(body)) throw error
             val compatible = JsonObject(payload + ("max_tokens" to JsonPrimitive(MAX_OUTPUT_TOKENS)))
-            executeStreaming(
-                request.newBuilder().post(compatible.toString().toRequestBody(mediaType)).build(),
-                onEvent,
-                onUsage,
-            )
+            val retryRequest = request.newBuilder().post(compatible.toString().toRequestBody(mediaType)).build()
+            if (anthropic) readAnthropicStreaming(retryRequest, onUsage, onEvent)
+            else executeStreaming(retryRequest, onEvent, onUsage)
         }
         return recovered.copy(
             reasoning = (previous.reasoning + recovered.reasoning).takeLast(MAX_REASONING_CAPTURE_CHARS),
             citations = previous.citations + recovered.citations,
             // 恢复是**另一次 HTTP 请求**，它有自己的 usage：按本次请求记录，不相加。
             usage = recovered.usage,
+            searched = previous.searched || recovered.searched,
+            warnings = previous.warnings + recovered.warnings,
         )
     }
 
@@ -1009,6 +1171,214 @@ class ModelClient @Inject constructor(
             }
             return content
         }
+    }
+
+    /** Messages SSE requires message_stop; partial usage updates preserve the initial input counts. */
+    private suspend fun readAnthropicStreaming(
+        request: Request,
+        onUsage: (UsageSample?) -> Unit,
+        onEvent: suspend (StreamEvent) -> Unit,
+    ): StreamOutput {
+        var usageFields = JsonObject(emptyMap())
+        var usage: UsageSample? = null
+        fun acceptUsage(update: JsonObject?) {
+            if (update == null) return
+            usageFields = JsonObject(usageFields + update)
+            usage = parseAnthropicUsage(usageFields)
+        }
+        val answer = StringBuilder()
+        val reasoning = StringBuilder()
+        val citations = mutableListOf<Citation>()
+        val warnings = mutableListOf<String>()
+        var searched = false
+        var stopReason: String? = null
+        var sawEvent = false
+        var sawTerminal = false
+        suspend fun acceptContent(block: JsonObject) {
+            val parsed = parseAnthropicMessage(buildJsonObject { put("content", JsonArray(listOf(block))) })
+            if (parsed.text.isNotEmpty()) {
+                answer.append(parsed.text)
+                onEvent(StreamEvent.AnswerDelta(parsed.text))
+            }
+            if (parsed.thinking.isNotEmpty()) {
+                reasoning.appendTail(parsed.thinking, MAX_REASONING_CAPTURE_CHARS)
+                onEvent(StreamEvent.ReasoningDelta(parsed.thinking))
+            }
+            citations += parsed.citations
+            searched = searched || parsed.searched
+            warnings += parsed.warnings
+        }
+        try {
+            val response = try {
+                OkHttpCancellation.execute(client, request)
+            } catch (e: IOException) {
+                throw ModelException(ModelException.Kind.NETWORK, "网络错误：${e.message ?: "无法连接 Anthropic 接口"}")
+            }
+            response.use { resp ->
+                if (!resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    val kind = if (resp.code == 401 || resp.code == 403) ModelException.Kind.UNAUTHORIZED else ModelException.Kind.SERVER
+                    throw ModelException(kind, "Anthropic 返回 HTTP ${resp.code}：${body.take(240).ifEmpty { "无返回内容" }}")
+                }
+                val body = resp.body ?: throw ModelException(ModelException.Kind.INVALID_RESPONSE, "Anthropic 没有返回响应体")
+                val raw = StringBuilder()
+                body.source().readSseEvents(onRawLine = { raw.append(it) }) { sse ->
+                    val data = sse.data
+                    if (data.isBlank()) return@readSseEvents true
+                    val chunk = runCatching { json.parseToJsonElement(data) as? JsonObject }.getOrNull()
+                        ?: return@readSseEvents true
+                    sawEvent = true
+                    val type = (chunk["type"] as? JsonPrimitive)?.contentOrNull ?: sse.name.orEmpty()
+                    when (type) {
+                        "message_start" -> {
+                            val message = chunk["message"] as? JsonObject
+                            acceptUsage(message?.get("usage") as? JsonObject)
+                            (message?.get("content") as? JsonArray).orEmpty().forEach { block ->
+                                (block as? JsonObject)?.let { acceptContent(it) }
+                            }
+                        }
+                        "content_block_delta" -> {
+                            val delta = chunk["delta"] as? JsonObject ?: return@readSseEvents true
+                            when ((delta["type"] as? JsonPrimitive)?.contentOrNull) {
+                                "text_delta" -> (delta["text"] as? JsonPrimitive)?.contentOrNull.orEmpty().takeIf { it.isNotEmpty() }?.let {
+                                    answer.append(it)
+                                    onEvent(StreamEvent.AnswerDelta(it))
+                                }
+                                "thinking_delta" -> (delta["thinking"] as? JsonPrimitive)?.contentOrNull.orEmpty().takeIf { it.isNotEmpty() }?.let {
+                                    reasoning.appendTail(it, MAX_REASONING_CAPTURE_CHARS)
+                                    onEvent(StreamEvent.ReasoningDelta(it))
+                                }
+                                "citations_delta" -> {
+                                    extractAnthropicCitations(delta["citation"] as? JsonObject, citations)
+                                    searched = searched || citations.isNotEmpty()
+                                }
+                            }
+                        }
+                        "content_block_start" -> {
+                            (chunk["content_block"] as? JsonObject)?.let { acceptContent(it) }
+                        }
+                        "message_delta" -> {
+                            stopReason = (chunk["delta"] as? JsonObject)?.get("stop_reason")?.let { (it as? JsonPrimitive)?.contentOrNull }
+                            acceptUsage(chunk["usage"] as? JsonObject)
+                        }
+                        "message_stop" -> {
+                            sawTerminal = true
+                            return@readSseEvents false
+                        }
+                        "error" -> {
+                            val error = (chunk["error"] as? JsonObject)?.get("message")?.let { (it as? JsonPrimitive)?.contentOrNull }
+                                ?: "服务端报告失败"
+                            throw ModelException(ModelException.Kind.SERVER, "Anthropic 流式请求失败：$error")
+                        }
+                    }
+                    true
+                }
+                if (!sawEvent) {
+                    val root = runCatching { json.parseToJsonElement(raw.toString()) as? JsonObject }.getOrNull()
+                        ?: throw ModelException(ModelException.Kind.INVALID_RESPONSE, "Anthropic 返回不是合法 JSON")
+                    val parsed = parseAnthropicMessage(root)
+                    answer.append(parsed.text)
+                    reasoning.appendTail(parsed.thinking, MAX_REASONING_CAPTURE_CHARS)
+                    citations += parsed.citations
+                    searched = parsed.searched
+                    warnings += parsed.warnings
+                    usage = parsed.usage
+                    stopReason = parsed.stopReason
+                    if (parsed.text.isNotEmpty()) onEvent(StreamEvent.AnswerDelta(parsed.text))
+                    if (parsed.thinking.isNotEmpty()) onEvent(StreamEvent.ReasoningDelta(parsed.thinking))
+                    sawTerminal = true
+                }
+                if (!sawTerminal) throw ModelException(ModelException.Kind.NETWORK, "Anthropic 流式响应没有正常结束")
+            }
+        } catch (e: IOException) {
+            throw ModelException(ModelException.Kind.NETWORK, "Anthropic 响应读取中断：${e.message ?: "连接已断开"}")
+        } finally {
+            onUsage(usage)
+        }
+        if (stopReason == "pause_turn" || stopReason == "tool_use") {
+            throw ModelException(ModelException.Kind.NETWORK, "Anthropic 工具调用尚未完成，请继续或重试本轮对话")
+        }
+        return StreamOutput(
+            answer.toString(), reasoning.toString(),
+            if (stopReason == "max_tokens") "length" else stopReason,
+            citations, usage, searched, warnings.distinct(),
+        )
+    }
+
+    private data class AnthropicParsedMessage(
+        val text: String,
+        val thinking: String,
+        val citations: List<Citation>,
+        val usage: UsageSample?,
+        val stopReason: String?,
+        val searched: Boolean,
+        val warnings: List<String>,
+    )
+
+    private fun parseAnthropicMessage(root: JsonObject): AnthropicParsedMessage {
+        val text = StringBuilder()
+        val thinking = StringBuilder()
+        val citations = mutableListOf<Citation>()
+        val warnings = mutableListOf<String>()
+        var searched = false
+        val content = root["content"] as? JsonArray
+        content.orEmpty().forEach { element ->
+            val block = element as? JsonObject ?: return@forEach
+            when ((block["type"] as? JsonPrimitive)?.contentOrNull) {
+                "text" -> text.append((block["text"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                "thinking" -> thinking.append((block["thinking"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                "server_tool_use" -> if ((block["name"] as? JsonPrimitive)?.contentOrNull == "web_search") searched = true
+                "web_search_tool_result" -> {
+                    val result = block["content"]
+                    if (result is JsonArray) searched = true
+                    val error = result as? JsonObject
+                    if ((error?.get("type") as? JsonPrimitive)?.contentOrNull == "web_search_tool_result_error") {
+                        warnings += "Anthropic 搜索失败：${(error["error_code"] as? JsonPrimitive)?.contentOrNull ?: "未知错误"}"
+                    }
+                }
+            }
+            extractAnthropicCitations(block, citations)
+        }
+        return AnthropicParsedMessage(
+            text.toString(),
+            thinking.toString(),
+            citations,
+            (root["usage"] as? JsonObject)?.let(::parseAnthropicUsage),
+            (root["stop_reason"] as? JsonPrimitive)?.contentOrNull,
+            searched || citations.isNotEmpty(),
+            warnings,
+        )
+    }
+
+    private fun extractAnthropicCitations(element: JsonObject?, into: MutableList<Citation>) {
+        val directUrl = (element?.get("url") as? JsonPrimitive)?.contentOrNull.orEmpty()
+        if (directUrl.startsWith("http://") || directUrl.startsWith("https://")) {
+            into += Citation((element?.get("title") as? JsonPrimitive)?.contentOrNull.orEmpty(), directUrl)
+        }
+        (element?.get("citations") as? JsonArray).orEmpty().forEach { item ->
+            extractAnthropicCitations(item as? JsonObject, into)
+        }
+        val results = element?.get("content") as? JsonArray ?: return
+        results.forEach { item ->
+            extractAnthropicCitations(item as? JsonObject, into)
+        }
+    }
+
+    private fun parseAnthropicUsage(usage: JsonObject): UsageSample {
+        // Anthropic input_tokens excludes cache creation and reads; include them in the denominator.
+        val counts = listOf("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+        val input = runCatching {
+            counts.fold(0L) { total, key ->
+                val count = (usage[key] as? JsonPrimitive)?.longOrNull
+                require(count != null && count >= 0 || key != "input_tokens" && key !in usage)
+                Math.addExact(total, count ?: 0)
+            }
+        }.getOrNull()
+        return UsageParser.parseUsageObject(usage, "anthropic").copy(
+            inputTokens = input,
+            cachedInputTokens = (usage["cache_read_input_tokens"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 },
+            cacheFieldsPresent = usage.containsKey("cache_read_input_tokens"),
+        )
     }
 
     // ---------------- DeepSeek 服务端内置联网搜索（OpenAI Responses API） ----------------
@@ -1555,6 +1925,27 @@ internal fun completionsUrl(baseUrl: String): String {
     val trimmed = baseUrl.trim().trimEnd('/')
     return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
 }
+
+/** Normalizes an Anthropic base URL to the Messages API endpoint. */
+internal fun anthropicMessagesUrl(baseUrl: String): String {
+    val trimmed = baseUrl.trim().trimEnd('/')
+    return when {
+        trimmed.endsWith("/v1/messages") -> trimmed
+        trimmed.endsWith("/v1") -> "$trimmed/messages"
+        else -> "$trimmed/v1/messages"
+    }
+}
+
+internal fun anthropicModelsUrl(baseUrl: String): String =
+    anthropicMessagesUrl(baseUrl).removeSuffix("/messages") + "/models"
+
+internal fun isAnthropicEndpoint(baseUrl: String): Boolean =
+    "api.anthropic.com" in baseUrl.lowercase()
+
+private fun Request.Builder.addAnthropicHeaders(apiKey: String): Request.Builder =
+    header("x-api-key", apiKey)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
 
 /** Normalizes a provider URL to its OpenAI-compatible model listing endpoint. */
 internal fun modelsUrl(baseUrl: String): String {

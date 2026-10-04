@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.moge.app.core.IoDispatcher
 import com.moge.app.data.credential.AiCredentialStore
 import com.moge.app.data.credential.AiModelProfile
+import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.NotebookRepository
 import com.moge.app.data.figure.DiagramImageStore
@@ -192,7 +193,7 @@ class SettingsViewModel @Inject constructor(
      * 获取模型列表。[profileId] 让密钥框留空时回退到该配置已存的密钥。
      * 失败时保留上一次的列表，模型名仍可手填。
      */
-    fun fetchModels(baseUrl: String, apiKey: String, profileId: String?) {
+    fun fetchModels(baseUrl: String, apiKey: String, profileId: String?, protocol: AiSearchProtocol? = null) {
         baseUrlError(baseUrl)?.let { error ->
             _editor.update { it.copy(fetchMessage = error) }
             return
@@ -201,7 +202,7 @@ class SettingsViewModel @Inject constructor(
         fetchJob = viewModelScope.launch {
             _editor.update { it.copy(modelsBusy = true, fetchMessage = null) }
             try {
-                val list = modelClient.fetchModels(baseUrl, apiKey, profileId)
+                val list = modelClient.fetchModels(baseUrl, apiKey, profileId, protocol)
                 _editor.update { it.copy(models = list, fetchMessage = "已获取 ${list.size} 个模型") }
             } catch (e: CancellationException) {
                 throw e

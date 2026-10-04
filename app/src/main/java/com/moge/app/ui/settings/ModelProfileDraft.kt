@@ -17,14 +17,19 @@ data class ModelProfileDraft(
     val reasoningEffort: AiReasoningEffort,
 )
 
-/** 常见服务的快捷填入：只给名称和地址，模型名交给「获取模型列表」。 */
-data class ProviderPreset(val name: String, val baseUrl: String)
+/** 常见服务的快捷填入，模型名交给「获取模型列表」。 */
+data class ProviderPreset(
+    val name: String,
+    val baseUrl: String,
+    val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
+)
 
 val PROVIDER_PRESETS = listOf(
     ProviderPreset("DeepSeek", "https://api.deepseek.com"),
     ProviderPreset("通义千问", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     ProviderPreset("Kimi", "https://api.moonshot.cn/v1"),
     ProviderPreset("OpenAI", "https://api.openai.com/v1"),
+    ProviderPreset("Anthropic", "https://api.anthropic.com", AiSearchProtocol.ANTHROPIC),
 )
 
 /** 接口地址能否用：必须是 http(s) 的合法 URL。返回给用户看的错误，合法时返回 null。 */
@@ -61,6 +66,7 @@ fun profileSummary(profile: AiModelProfile): String = buildString {
         when (profile.searchProtocol) {
             AiSearchProtocol.RESPONSES -> " · 联网 Responses"
             AiSearchProtocol.CHAT_COMPLETIONS -> " · 联网 Chat"
+            AiSearchProtocol.ANTHROPIC -> " · 联网 Anthropic"
             AiSearchProtocol.OFF -> " · 不联网"
         },
     )
@@ -76,6 +82,7 @@ fun reasoningLabel(effort: AiReasoningEffort): String = when (effort) {
 fun searchProtocolLabel(protocol: AiSearchProtocol): String = when (protocol) {
     AiSearchProtocol.RESPONSES -> "Responses"
     AiSearchProtocol.CHAT_COMPLETIONS -> "Chat Completions"
+    AiSearchProtocol.ANTHROPIC -> "Anthropic Messages"
     AiSearchProtocol.OFF -> "关闭"
 }
 
