@@ -27,6 +27,9 @@ object DiagramLayout {
         if (spec.profile == DiagramLayoutProfile.IQ_DEMODULATOR && IqDemodulatorLayout.supports(spec)) {
             return IqDemodulatorLayout.layout(spec)
         }
+        if (CommunicationDiagramLayout.supports(spec)) {
+            CommunicationDiagramLayout.layoutOrNull(spec)?.let { return it }
+        }
         val grid = grid(spec)
         val sizes = spec.nodes.associate { it.id to sizeOf(it) }
         val widths = grid.values.map { it.col }.distinct().associateWith { col ->
@@ -248,12 +251,20 @@ object DiagramLayout {
             val to = byId.getValue(edge.to)
             val fromRole = profileRole(from.node)
             val toRole = profileRole(to.node)
-            val departure = if (fromRole == "test_f" && toRole == "sum") DiagramPort.TOP
-            else resolvePort(edge.fromPort, from, to)
+            val departure = when {
+                fromRole == "split" && toRole == "upper_mixer" -> DiagramPort.TOP
+                fromRole == "split" && toRole == "lower_mixer" -> DiagramPort.BOTTOM
+                fromRole == "test_f" && toRole == "sum" -> DiagramPort.TOP
+                toRole == "sum" && fromRole in setOf("upper_filter", "test_c", "lower_filter", "lower_hilbert") -> DiagramPort.RIGHT
+                else -> resolvePort(edge.fromPort, from, to)
+            }
             // In this fixed profile the phase shifter sits *above* the lower
             // mixer.  Its output enters that mixer from the top even when an
             // older model supplied the generic carrier "bottom" hint.
             val arrival = when {
+                fromRole == "split" && toRole in setOf("upper_mixer", "lower_mixer") -> DiagramPort.LEFT
+                toRole == "sum" && fromRole in setOf("upper_filter", "test_c") -> DiagramPort.TOP
+                toRole == "sum" && fromRole in setOf("lower_filter", "lower_hilbert", "test_f") -> DiagramPort.BOTTOM
                 fromRole == "phase_shift" && toRole == "lower_mixer" -> DiagramPort.TOP
                 fromRole == "carrier" && toRole == "phase_shift" -> DiagramPort.TOP
                 toRole == "test_f" && fromRole in setOf("lower_hilbert", "lower_filter") -> DiagramPort.BOTTOM
@@ -262,10 +273,13 @@ object DiagramLayout {
             val start = anchor(from, departure)
             val end = anchor(to, arrival)
             val textbookPoints = when {
+                fromRole == "split" && toRole in setOf("upper_mixer", "lower_mixer") -> listOf(
+                    start, DiagramPoint(start.x, end.y), end,
+                )
                 // Keep the entire upper rail level through C.  The generic
                 // obstacle router can drop immediately after that marker,
                 // leaving an unintended step in the rectangular outline.
-                fromRole == "test_c" && toRole == "sum" -> listOf(
+                fromRole in setOf("upper_filter", "test_c", "lower_filter", "lower_hilbert") && toRole == "sum" -> listOf(
                     start,
                     DiagramPoint(to.centerX, start.y),
                     end,
@@ -439,6 +453,16 @@ object DiagramLayout {
         DiagramNodeShape.MIXER, DiagramNodeShape.SUM ->
             Size(DiagramMetrics.MIXER_DIAMETER, DiagramMetrics.MIXER_DIAMETER)
         DiagramNodeShape.JUNCTION -> Size(12f, 12f)
+        DiagramNodeShape.BUS -> {
+            val main = label(node)
+            Size(maxOf(main.width + 24f, 54f), maxOf(main.height + 24f, 90f))
+        }
+        DiagramNodeShape.SAMPLER -> {
+            val main = label(node)
+            val sub = subLabel(node)
+            Size(maxOf(80f, main.width + 12f, sub.width + 12f),
+                maxOf(main.height, sub.height) * 2f + 44f)
+        }
         else -> {
             val main = label(node)
             val sub = subLabel(node)

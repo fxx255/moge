@@ -66,6 +66,7 @@ object DiagramParser {
             edges = edges,
             direction = parseDirection(obj["direction"]),
             profile = parseProfile(obj["profile"] ?: obj["template"]),
+            repeatLastLane = (obj["repeatLastLane"] as? JsonPrimitive)?.contentOrNull == "true",
         )
     }
 
@@ -100,6 +101,7 @@ object DiagramParser {
             polarity = obj.boundedText("polarity", 1)?.also {
                 require(it == "+" || it == "-" || it == "−") { "polarity 只能是 + 或 -" }
             }?.replace('-', '−'),
+            channel = obj.index("channel", DiagramLimits.MAX_CHANNELS),
         )
     }
 
@@ -111,6 +113,8 @@ object DiagramParser {
             "sum", "adder", "add", "summation", "merge" -> DiagramNodeShape.SUM
             "io", "input", "output", "signal", "text", "label", "plain" -> DiagramNodeShape.IO
             "junction", "point", "connector", "dot", "node" -> DiagramNodeShape.JUNCTION
+            "bus", "serial_parallel", "multiplexer", "demultiplexer" -> DiagramNodeShape.BUS
+            "sampler", "sampling_switch", "switch" -> DiagramNodeShape.SAMPLER
             else -> error("不支持的节点形状：$raw")
         }
     }
@@ -148,6 +152,7 @@ object DiagramParser {
             "iq_demodulator", "iq-demodulator", "iq_demod", "iq-demod",
             "qpsk_demodulator", "16qam_demodulator" -> DiagramLayoutProfile.IQ_DEMODULATOR
             "generic", "auto" -> DiagramLayoutProfile.GENERIC
+            "communication", "parallel_bank", "ofdm", "textbook_chain" -> DiagramLayoutProfile.COMMUNICATION
             else -> DiagramLayoutProfile.GENERIC
         }
     }

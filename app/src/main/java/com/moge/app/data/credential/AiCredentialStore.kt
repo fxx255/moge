@@ -8,7 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.security.KeyStore
 import java.util.UUID
 import javax.crypto.Cipher
@@ -28,7 +28,6 @@ data class AiModelProfile(
     val reasoningEffort: AiReasoningEffort,
     val hasApiKey: Boolean,
     val apiProtocol: AiApiProtocol? = null,
-    val nativePdfEnabled: Boolean = false,
     val searchEnabled: Boolean = true,
 )
 
@@ -38,7 +37,6 @@ data class AiProfileCredentials(
     val apiKey: String,
     val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
     val apiProtocol: AiApiProtocol? = null,
-    val nativePdfEnabled: Boolean = false,
     val searchEnabled: Boolean = true,
 )
 
@@ -58,15 +56,13 @@ data class AiResolvedIdentity(
     val searchProtocol: AiSearchProtocol,
     val reasoningEffort: AiReasoningEffort,
     val apiProtocol: AiApiProtocol? = null,
-    val nativePdfEnabled: Boolean = false,
     val searchEnabled: Boolean = true,
 )
 
 enum class AiApiProtocol {
-    CHAT_COMPLETIONS, RESPONSES, ANTHROPIC_MESSAGES;
+    CHAT_COMPLETIONS, RESPONSES;
     companion object {
         fun fromLegacy(protocol: AiSearchProtocol): AiApiProtocol = when (protocol) {
-            AiSearchProtocol.ANTHROPIC -> ANTHROPIC_MESSAGES
             AiSearchProtocol.RESPONSES -> RESPONSES
             else -> CHAT_COMPLETIONS
         }
@@ -79,8 +75,6 @@ enum class AiSearchProtocol {
     RESPONSES,
     /** OpenAI Chat Completions + web_search 工具（如小米 MiMo）。 */
     CHAT_COMPLETIONS,
-    /** Anthropic Messages API，支持 Claude 的原生消息与 web_search 工具。 */
-    ANTHROPIC,
     /** 关闭联网。 */
     OFF,
 }
@@ -103,7 +97,6 @@ private data class StoredAiModelProfile(
     val reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
     val apiKey: String,
     val apiProtocol: AiApiProtocol? = null,
-    val nativePdfEnabled: Boolean = false,
     val searchEnabled: Boolean = true,
 ) {
     fun summary() = AiModelProfile(
@@ -115,7 +108,7 @@ private data class StoredAiModelProfile(
         searchProtocol,
         reasoningEffort,
         apiKey.isNotBlank(),
-        apiProtocol, nativePdfEnabled, searchEnabled,
+        apiProtocol, searchEnabled,
     )
 }
 
@@ -158,7 +151,6 @@ class AiCredentialStore @Inject constructor(
         searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
         reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
         apiProtocol: AiApiProtocol? = null,
-        nativePdfEnabled: Boolean = false,
         searchEnabled: Boolean = true,
     ): AiModelProfile {
         val cleanName = name.trim()
@@ -182,7 +174,6 @@ class AiCredentialStore @Inject constructor(
             reasoningEffort = reasoningEffort,
             apiKey = resolvedKey,
             apiProtocol = apiProtocol ?: existing?.apiProtocol,
-            nativePdfEnabled = nativePdfEnabled,
             searchEnabled = searchEnabled,
         )
         saveProfiles(
@@ -227,7 +218,7 @@ class AiCredentialStore @Inject constructor(
     @Synchronized
     fun credentialsFor(id: String): AiProfileCredentials? =
         storedProfiles().firstOrNull { it.id == id }?.let {
-            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol, it.apiProtocol, it.nativePdfEnabled, it.searchEnabled)
+            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol, it.apiProtocol, it.searchEnabled)
         }
 
     /** **同一次锁内**解析活动档案的安全身份与凭证；没有可用档案时返回 null。 */
@@ -250,7 +241,6 @@ class AiCredentialStore @Inject constructor(
                     searchProtocol = it.searchProtocol,
                     reasoningEffort = it.reasoningEffort,
                     apiProtocol = it.apiProtocol,
-                    nativePdfEnabled = it.nativePdfEnabled,
                     searchEnabled = it.searchEnabled,
                 )
             }
@@ -263,7 +253,7 @@ class AiCredentialStore @Inject constructor(
 
     private fun storedProfiles(): List<StoredAiModelProfile> {
         val raw = decrypt(KEY_PROFILES) ?: return emptyList()
-        return runCatching { json.decodeFromString<List<StoredAiModelProfile>>(raw) }
+        return runCatching { json.decodeFromJsonElement<List<StoredAiModelProfile>>(migrateRetiredProtocols(Json.parseToJsonElement(raw))) }
             .getOrElse {
                 preferences.edit().remove(KEY_PROFILES).apply()
                 emptyList()
@@ -337,4 +327,16 @@ class AiCredentialStore @Inject constructor(
         const val IV_BYTES = 12
         const val GCM_TAG_BITS = 128
     }
+}
+
+/** Upgrade retired enum values before decoding so one old profile cannot erase every saved key. */
+internal fun migrateRetiredProtocols(value: JsonElement): JsonElement = when (value) {
+    is JsonArray -> JsonArray(value.map(::migrateRetiredProtocols))
+    is JsonObject -> JsonObject(value.filterKeys { it != "nativePdfEnabled" }.mapValues { (key, field) ->
+        if (key in setOf("searchProtocol", "protocol") && (field as? JsonPrimitive)?.contentOrNull == "ANTHROPIC" ||
+            key == "apiProtocol" && (field as? JsonPrimitive)?.contentOrNull == "ANTHROPIC_MESSAGES") {
+            JsonPrimitive("CHAT_COMPLETIONS")
+        } else migrateRetiredProtocols(field)
+    })
+    else -> value
 }

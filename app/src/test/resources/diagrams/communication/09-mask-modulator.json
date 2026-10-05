@@ -1,0 +1,70 @@
+{
+  "title": "MASK 幅度键控调制",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "二进制信息",
+      "shape": "io",
+      "role": "input",
+      "subLabel": "$R_b=1/T_b$"
+    },
+    {
+      "id": "map",
+      "label": "M 进制幅度映射",
+      "shape": "block",
+      "role": "mapper",
+      "subLabel": "$M=2^k$"
+    },
+    {
+      "id": "filter",
+      "label": "脉冲成形滤波器",
+      "shape": "block",
+      "role": "filter",
+      "subLabel": "$g_T(t)$"
+    },
+    {
+      "id": "mix",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "mix"
+    },
+    {
+      "id": "carrier",
+      "label": "$A\\cos\\omega_c t$",
+      "shape": "io",
+      "role": "carrier"
+    },
+    {
+      "id": "out",
+      "label": "$s_{\\mathrm{MASK}}(t)$",
+      "shape": "io",
+      "role": "output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "map"
+    },
+    {
+      "from": "map",
+      "to": "filter",
+      "label": "$\\{a_n\\}$"
+    },
+    {
+      "from": "filter",
+      "to": "mix",
+      "label": "$M\\mathrm{PAM}$"
+    },
+    {
+      "from": "carrier",
+      "to": "mix",
+      "toPort": "bottom"
+    },
+    {
+      "from": "mix",
+      "to": "out"
+    }
+  ]
+}

@@ -1,0 +1,245 @@
+{
+  "title": "正交基函数的合成与系数恢复",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "sum",
+      "label": "$\\sum$",
+      "shape": "bus",
+      "role": "combiner"
+    },
+    {
+      "id": "split",
+      "label": "分路",
+      "shape": "junction",
+      "role": "splitter"
+    },
+    {
+      "id": "in0",
+      "label": "$s_{i1}$",
+      "shape": "io",
+      "role": "branch_0_input"
+    },
+    {
+      "id": "tx0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_tx_mixer"
+    },
+    {
+      "id": "ct0",
+      "label": "$f_1(t)$",
+      "shape": "io",
+      "role": "branch_0_carrier_tx"
+    },
+    {
+      "id": "rx0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_rx_mixer"
+    },
+    {
+      "id": "cr0",
+      "label": "$f_1(t)$",
+      "shape": "io",
+      "role": "branch_0_carrier_rx"
+    },
+    {
+      "id": "int0",
+      "label": "$\\int_0^T(\\cdot)\\,dt$",
+      "shape": "block",
+      "role": "branch_0_integrator"
+    },
+    {
+      "id": "out0",
+      "label": "$s_{i1}$",
+      "shape": "io",
+      "role": "branch_0_output"
+    },
+    {
+      "id": "in1",
+      "label": "$s_{i2}$",
+      "shape": "io",
+      "role": "branch_1_input"
+    },
+    {
+      "id": "tx1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_tx_mixer"
+    },
+    {
+      "id": "ct1",
+      "label": "$f_2(t)$",
+      "shape": "io",
+      "role": "branch_1_carrier_tx"
+    },
+    {
+      "id": "rx1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_rx_mixer"
+    },
+    {
+      "id": "cr1",
+      "label": "$f_2(t)$",
+      "shape": "io",
+      "role": "branch_1_carrier_rx"
+    },
+    {
+      "id": "int1",
+      "label": "$\\int_0^T(\\cdot)\\,dt$",
+      "shape": "block",
+      "role": "branch_1_integrator"
+    },
+    {
+      "id": "out1",
+      "label": "$s_{i2}$",
+      "shape": "io",
+      "role": "branch_1_output"
+    },
+    {
+      "id": "in2",
+      "label": "$s_{iN}$",
+      "shape": "io",
+      "role": "branch_2_input"
+    },
+    {
+      "id": "tx2",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_2_tx_mixer"
+    },
+    {
+      "id": "ct2",
+      "label": "$f_N(t)$",
+      "shape": "io",
+      "role": "branch_2_carrier_tx"
+    },
+    {
+      "id": "rx2",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_2_rx_mixer"
+    },
+    {
+      "id": "cr2",
+      "label": "$f_N(t)$",
+      "shape": "io",
+      "role": "branch_2_carrier_rx"
+    },
+    {
+      "id": "int2",
+      "label": "$\\int_0^T(\\cdot)\\,dt$",
+      "shape": "block",
+      "role": "branch_2_integrator"
+    },
+    {
+      "id": "out2",
+      "label": "$s_{iN}$",
+      "shape": "io",
+      "role": "branch_2_output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "sum",
+      "to": "split",
+      "label": "$s_i(t)$"
+    },
+    {
+      "from": "in0",
+      "to": "tx0"
+    },
+    {
+      "from": "ct0",
+      "to": "tx0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "tx0",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "split",
+      "to": "rx0"
+    },
+    {
+      "from": "cr0",
+      "to": "rx0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "rx0",
+      "to": "int0"
+    },
+    {
+      "from": "int0",
+      "to": "out0"
+    },
+    {
+      "from": "in1",
+      "to": "tx1"
+    },
+    {
+      "from": "ct1",
+      "to": "tx1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "tx1",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "split",
+      "to": "rx1"
+    },
+    {
+      "from": "cr1",
+      "to": "rx1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "rx1",
+      "to": "int1"
+    },
+    {
+      "from": "int1",
+      "to": "out1"
+    },
+    {
+      "from": "in2",
+      "to": "tx2"
+    },
+    {
+      "from": "ct2",
+      "to": "tx2",
+      "toPort": "bottom"
+    },
+    {
+      "from": "tx2",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "split",
+      "to": "rx2"
+    },
+    {
+      "from": "cr2",
+      "to": "rx2",
+      "toPort": "bottom"
+    },
+    {
+      "from": "rx2",
+      "to": "int2"
+    },
+    {
+      "from": "int2",
+      "to": "out2"
+    }
+  ],
+  "repeatLastLane": true
+}

@@ -8,6 +8,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import com.moge.app.ui.figure.DiagramRenderer
+import android.graphics.Bitmap
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
@@ -174,6 +178,57 @@ class DiagramLayoutAcceptanceTest {
         val maxLabelWidth = spec.edges.maxOf { DiagramText.layout(it.label.orEmpty(), DiagramTextRole.EDGE_LABEL, 140f).width }
         val maxRouteX = result.edges.flatMap { it.points }.maxOf { it.x }
         assertTrue("canvas must leave room for edge labels", result.width > maxRouteX + maxLabelWidth / 2f)
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `dual branch without probe nodes keeps C rail level and both sides rectangular`() {
+        fun n(id: String, role: String, shape: DiagramNodeShape = DiagramNodeShape.BLOCK) =
+            DiagramNode(id, id, shape, role = role)
+        val spec = DiagramSpec("SSB-AM", listOf(
+            n("input", "input", DiagramNodeShape.IO),
+            n("split", "split", DiagramNodeShape.JUNCTION),
+            n("mi", "upper_mixer", DiagramNodeShape.MIXER),
+            n("mq", "lower_mixer", DiagramNodeShape.MIXER),
+            n("fi", "upper_filter"), n("fq", "lower_filter"), n("hilbert", "lower_hilbert"),
+            n("sum", "sum", DiagramNodeShape.SUM),
+            n("carrier", "carrier"), n("phase", "phase_shift"),
+            n("output", "output", DiagramNodeShape.IO),
+        ), listOf(
+            DiagramEdge("input", "split"),
+            DiagramEdge("split", "mi"), DiagramEdge("split", "mq"),
+            DiagramEdge("mi", "fi"), DiagramEdge("mq", "fq"), DiagramEdge("fq", "hilbert"),
+            // Reproduce the screenshot: C is an edge label, not a separate probe node.
+            DiagramEdge("fi", "sum", label = "C", toPort = DiagramPort.LEFT),
+            DiagramEdge("hilbert", "sum", label = "F"),
+            DiagramEdge("carrier", "mi", toPort = DiagramPort.BOTTOM),
+            DiagramEdge("carrier", "phase"), DiagramEdge("phase", "mq", toPort = DiagramPort.BOTTOM),
+            DiagramEdge("sum", "output"),
+        ), profile = DiagramLayoutProfile.TEXTBOOK_DUAL_BRANCH)
+        for (nodes in listOf(spec.nodes, spec.nodes.reversed())) {
+            val layout = DiagramLayout.layout(spec.copy(nodes = nodes))
+            val boxes = layout.nodes.associateBy { it.node.id }
+            val upper = layout.edges.single { it.edge.from == "fi" }
+            val lower = layout.edges.single { it.edge.from == "hilbert" }
+            assertEquals(DiagramPort.TOP, upper.endPort)
+            assertEquals(DiagramPort.BOTTOM, lower.endPort)
+            assertEquals(3, upper.points.size)
+            assertEquals(boxes.getValue("fi").centerY, upper.points[1].y, .1f)
+            assertEquals(boxes.getValue("mi").centerY, upper.points[1].y, .1f)
+            assertEquals(boxes.getValue("sum").centerX, upper.points[1].x, .1f)
+            assertEquals(upper.points[1].x, lower.points[1].x, .1f)
+            for (mixer in listOf("mi", "mq")) {
+                val feed = layout.edges.single { it.edge.from == "split" && it.edge.to == mixer }
+                assertEquals(boxes.getValue("split").centerX, feed.points[1].x, .1f)
+                assertEquals(boxes.getValue(mixer).centerY, feed.points[1].y, .1f)
+            }
+            assertTrue(layout.edges.all { route -> route.points.zipWithNext().all { (a, b) -> a.x == b.x || a.y == b.y } })
+        }
+        if (System.getenv("MOGE_EXPORT_UI_SAMPLES") == "1") {
+            val bitmap = DiagramRenderer.render(spec, dark = true)
+            File("build/ui-preview").mkdirs()
+            File("build/ui-preview/ssb-rectangular.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
     }
 
     @Test

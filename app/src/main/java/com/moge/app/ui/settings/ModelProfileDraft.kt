@@ -17,7 +17,6 @@ data class ModelProfileDraft(
     val searchProtocol: AiSearchProtocol,
     val reasoningEffort: AiReasoningEffort,
     val apiProtocol: AiApiProtocol? = null,
-    val nativePdfEnabled: Boolean = false,
     val searchEnabled: Boolean = true,
 )
 
@@ -33,7 +32,6 @@ val PROVIDER_PRESETS = listOf(
     ProviderPreset("通义千问", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     ProviderPreset("Kimi", "https://api.moonshot.cn/v1"),
     ProviderPreset("OpenAI", "https://api.openai.com/v1"),
-    ProviderPreset("Anthropic", "https://api.anthropic.com", AiSearchProtocol.ANTHROPIC),
 )
 
 /** 接口地址能否用：必须是 http(s) 的合法 URL。返回给用户看的错误，合法时返回 null。 */
@@ -70,7 +68,6 @@ fun profileSummary(profile: AiModelProfile): String = buildString {
     append(" · ").append(when (api) {
         AiApiProtocol.RESPONSES -> "Responses"
         AiApiProtocol.CHAT_COMPLETIONS -> "Chat Completions"
-        AiApiProtocol.ANTHROPIC_MESSAGES -> "Anthropic Messages"
     })
     append(if (profile.searchEnabled && profile.searchProtocol != AiSearchProtocol.OFF) " · 允许联网" else " · 不联网")
     append(" · ").append(reasoningLabel(profile.reasoningEffort)).append("思考")
@@ -85,7 +82,6 @@ fun reasoningLabel(effort: AiReasoningEffort): String = when (effort) {
 fun searchProtocolLabel(protocol: AiSearchProtocol): String = when (protocol) {
     AiSearchProtocol.RESPONSES -> "Responses"
     AiSearchProtocol.CHAT_COMPLETIONS -> "Chat Completions"
-    AiSearchProtocol.ANTHROPIC -> "Anthropic Messages"
     AiSearchProtocol.OFF -> "关闭"
 }
 

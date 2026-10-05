@@ -1,0 +1,103 @@
+{
+  "title": "OFDM 的 FFT 接收处理",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$a(t)$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "pre",
+      "label": "A/D",
+      "shape": "block",
+      "role": "pre"
+    },
+    {
+      "id": "sp",
+      "label": "串\n并\n变\n换",
+      "shape": "bus",
+      "role": "serial_to_parallel"
+    },
+    {
+      "id": "fft",
+      "label": "FFT",
+      "shape": "block",
+      "role": "transform"
+    },
+    {
+      "id": "ps",
+      "label": "并\n串\n变\n换",
+      "shape": "bus",
+      "role": "parallel_to_serial"
+    },
+    {
+      "id": "post",
+      "label": "星座解映射",
+      "shape": "block",
+      "role": "post"
+    },
+    {
+      "id": "out",
+      "label": "$R_b$",
+      "shape": "io",
+      "role": "output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "pre"
+    },
+    {
+      "from": "pre",
+      "to": "sp"
+    },
+    {
+      "from": "sp",
+      "to": "fft",
+      "label": "$a_{0}$",
+      "channel": 0
+    },
+    {
+      "from": "fft",
+      "to": "ps",
+      "label": "$A_{0}$",
+      "channel": 0
+    },
+    {
+      "from": "sp",
+      "to": "fft",
+      "label": "$a_{1}$",
+      "channel": 1
+    },
+    {
+      "from": "fft",
+      "to": "ps",
+      "label": "$A_{1}$",
+      "channel": 1
+    },
+    {
+      "from": "sp",
+      "to": "fft",
+      "label": "$a_{N-1}$",
+      "channel": 2
+    },
+    {
+      "from": "fft",
+      "to": "ps",
+      "label": "$A_{N-1}$",
+      "channel": 2
+    },
+    {
+      "from": "ps",
+      "to": "post"
+    },
+    {
+      "from": "post",
+      "to": "out"
+    }
+  ],
+  "repeatLastLane": true
+}

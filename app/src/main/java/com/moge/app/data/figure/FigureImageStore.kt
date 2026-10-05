@@ -54,12 +54,14 @@ abstract class FigureImageStore<T>(
             runCatching { sidecar.writeText(encoded) }
                 .onFailure { Log.w(TAG, "$prefix sidecar write failed: ${describe(spec)}", it) }
         }
-        return drawTo(spec, dark, pngFile(key, dark))
+        return drawTo(spec, dark, pngFile(key, dark))?.also {
+            runCatching { versionFile(key, dark).writeText(renderVersion) }
+        }
     }
 
     /**
      * 把消息里存的路径解析成**当前主题**下可用的 PNG：
-     * 文件还在且主题一致就原样返回；否则凭台账渲染对应变体。认不出或台账缺失时返回 null。
+     * 主题和渲染版本均匹配才复用 PNG；否则凭台账重画，历史消息路径保持有效。
      */
     @Synchronized
     fun resolve(storedPath: String, dark: Boolean): String? {
@@ -70,15 +72,22 @@ abstract class FigureImageStore<T>(
             return storedPath.takeIf { isUsable(File(it)) }
         }
         val target = pngFile(key, dark)
-        if (isUsable(target)) return target.absolutePath
+        if (isUsable(target) && runCatching { versionFile(key, dark).readText() }.getOrNull() == renderVersion) {
+            return target.absolutePath
+        }
         val sidecar = File(dir(), "spec_$key.json")
         if (!sidecar.isFile) {
             return storedPath.takeIf { isUsable(File(it)) }
         }
-        val spec = runCatching { json.decodeFromString(serializer, sidecar.readText()) }
+        val encoded = runCatching { sidecar.readText() }.getOrNull()
+            ?: return storedPath.takeIf { isUsable(File(it)) }
+        val stale = key != sha256("$renderVersion:$encoded")
+        val spec = runCatching { json.decodeFromString(serializer, encoded) }
             .onFailure { Log.w(TAG, "$prefix sidecar decode failed: ${sidecar.name}", it) }
             .getOrNull() ?: return storedPath.takeIf { isUsable(File(it)) }
-        return drawTo(spec, dark, target)
+        return drawTo(spec, dark, target, forceRefresh = stale)?.also {
+            runCatching { versionFile(key, dark).writeText(renderVersion) }
+        } ?: storedPath.takeIf { isUsable(File(it)) }
     }
 
     /** 是否是本 store 生成的文件路径。 */
@@ -109,6 +118,7 @@ abstract class FigureImageStore<T>(
         var freed = 0L
         dir().listFiles()?.filter { it.isFile && it.lastModified() < cutoffMs }?.forEach { file ->
             val key = keyOf(file.name) ?: Regex("^spec_([0-9a-f]{64})\\.json$").find(file.name)?.groupValues?.get(1)
+                ?: Regex("^render_(?:light|dark)_([0-9a-f]{64})\\.version$").find(file.name)?.groupValues?.get(1)
             val referenced = if (key != null) key in keys else file.name in referencedNames
             if (!referenced) {
                 val size = file.length()
@@ -123,8 +133,8 @@ abstract class FigureImageStore<T>(
         return drawTo(spec, dark, file)
     }
 
-    private fun drawTo(spec: T, dark: Boolean, file: File): String? {
-        if (isUsable(file)) return file.absolutePath
+    private fun drawTo(spec: T, dark: Boolean, file: File, forceRefresh: Boolean = false): String? {
+        if (!forceRefresh && isUsable(file)) return file.absolutePath
         return runCatching {
             val bitmap = draw(spec, dark)
             // 先写临时文件再改名：进程在写一半时被杀，不会留下半截 PNG 被当成缓存命中
@@ -142,12 +152,16 @@ abstract class FigureImageStore<T>(
             file.absolutePath
         }.onFailure { error ->
             Log.w(TAG, "$prefix render failed: ${describe(spec)}", error)
-            runCatching { if (file.isFile) file.delete() }
+            runCatching { File(file.parentFile, file.name + ".tmp").delete() }
         }.getOrNull()
     }
 
     private fun pngFile(key: String, dark: Boolean): File =
         File(dir(), "${prefix}_${if (dark) "dark" else "light"}_$key.png")
+
+    // Keep old message paths stable, but redraw each theme once after a renderer upgrade.
+    private fun versionFile(key: String, dark: Boolean): File =
+        File(dir(), "render_${if (dark) "dark" else "light"}_$key.version")
 
     private fun keyOf(fileName: String): String? {
         val match = Regex("^${Regex.escape(prefix)}_(?:light|dark)_([0-9a-f]{64})\\.png$").find(fileName)

@@ -1,0 +1,141 @@
+{
+  "title": "双路匹配滤波接收机",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$s_i(t)$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "noise",
+      "label": "$n_w(t)$",
+      "shape": "io",
+      "role": "noise"
+    },
+    {
+      "id": "add",
+      "label": "加噪",
+      "shape": "sum",
+      "role": "add"
+    },
+    {
+      "id": "split",
+      "label": "分路",
+      "shape": "junction",
+      "role": "splitter"
+    },
+    {
+      "id": "sum",
+      "label": "相减",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "decision",
+      "label": "判决",
+      "shape": "block",
+      "role": "decision"
+    },
+    {
+      "id": "threshold",
+      "label": "$V_T$",
+      "shape": "io",
+      "role": "threshold"
+    },
+    {
+      "id": "out",
+      "label": "$\\hat a$",
+      "shape": "io",
+      "role": "output"
+    },
+    {
+      "id": "f0",
+      "label": "匹配滤波器 1",
+      "shape": "block",
+      "role": "branch_0_filter",
+      "subLabel": "$h_1(t)$"
+    },
+    {
+      "id": "s0",
+      "label": "抽样",
+      "shape": "sampler",
+      "role": "branch_0_sampler",
+      "subLabel": "$t=t_0$"
+    },
+    {
+      "id": "f1",
+      "label": "匹配滤波器 2",
+      "shape": "block",
+      "role": "branch_1_filter",
+      "subLabel": "$h_2(t)$"
+    },
+    {
+      "id": "s1",
+      "label": "抽样",
+      "shape": "sampler",
+      "role": "branch_1_sampler",
+      "subLabel": "$t=t_0$"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "add"
+    },
+    {
+      "from": "noise",
+      "to": "add",
+      "toPort": "bottom",
+      "polarity": "+"
+    },
+    {
+      "from": "add",
+      "to": "split",
+      "label": "$r(t)$"
+    },
+    {
+      "from": "split",
+      "to": "f0"
+    },
+    {
+      "from": "f0",
+      "to": "s0"
+    },
+    {
+      "from": "s0",
+      "to": "sum",
+      "label": "$y_1$",
+      "polarity": "+"
+    },
+    {
+      "from": "split",
+      "to": "f1"
+    },
+    {
+      "from": "f1",
+      "to": "s1"
+    },
+    {
+      "from": "s1",
+      "to": "sum",
+      "label": "$y_2$",
+      "polarity": "-"
+    },
+    {
+      "from": "sum",
+      "to": "decision",
+      "label": "$y$"
+    },
+    {
+      "from": "threshold",
+      "to": "decision",
+      "toPort": "bottom"
+    },
+    {
+      "from": "decision",
+      "to": "out"
+    }
+  ]
+}

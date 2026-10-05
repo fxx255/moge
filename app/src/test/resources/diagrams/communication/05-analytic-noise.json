@@ -1,0 +1,158 @@
+{
+  "title": "带通噪声的复包络分解",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$n_w(t)$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "bpf",
+      "label": "BPF",
+      "shape": "block",
+      "role": "branch_0_filter"
+    },
+    {
+      "id": "split",
+      "label": "分支",
+      "shape": "junction",
+      "role": "branch_0_split"
+    },
+    {
+      "id": "hilbert",
+      "label": "希尔伯特变换",
+      "shape": "block",
+      "role": "branch_0_hilbert"
+    },
+    {
+      "id": "j",
+      "label": "$\\mathrm{j}$",
+      "shape": "io",
+      "role": "constant"
+    },
+    {
+      "id": "mj",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_mixer"
+    },
+    {
+      "id": "sum",
+      "label": "复信号",
+      "shape": "sum",
+      "role": "branch_0_sum"
+    },
+    {
+      "id": "mix",
+      "label": "下变频",
+      "shape": "mixer",
+      "role": "branch_0_downconvert"
+    },
+    {
+      "id": "exp",
+      "label": "$e^{-\\mathrm{j}2\\pi f_c t}$",
+      "shape": "io",
+      "role": "carrier"
+    },
+    {
+      "id": "splitout",
+      "label": "分路",
+      "shape": "junction",
+      "role": "splitter"
+    },
+    {
+      "id": "real",
+      "label": "取实部",
+      "shape": "block",
+      "role": "branch_0_real"
+    },
+    {
+      "id": "imag",
+      "label": "取虚部",
+      "shape": "block",
+      "role": "branch_1_imag"
+    },
+    {
+      "id": "out0",
+      "label": "$n_c(t)$",
+      "shape": "io",
+      "role": "branch_0_output"
+    },
+    {
+      "id": "out1",
+      "label": "$n_s(t)$",
+      "shape": "io",
+      "role": "branch_1_output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "bpf"
+    },
+    {
+      "from": "bpf",
+      "to": "split",
+      "label": "$n(t)$"
+    },
+    {
+      "from": "split",
+      "to": "hilbert"
+    },
+    {
+      "from": "hilbert",
+      "to": "mj",
+      "label": "$\\hat n(t)$"
+    },
+    {
+      "from": "j",
+      "to": "mj",
+      "toPort": "top"
+    },
+    {
+      "from": "mj",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "split",
+      "to": "sum",
+      "fromPort": "bottom",
+      "toPort": "bottom",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "mix",
+      "label": "$z(t)$"
+    },
+    {
+      "from": "exp",
+      "to": "mix",
+      "toPort": "top"
+    },
+    {
+      "from": "mix",
+      "to": "splitout",
+      "label": "$n_L(t)$"
+    },
+    {
+      "from": "splitout",
+      "to": "real"
+    },
+    {
+      "from": "splitout",
+      "to": "imag"
+    },
+    {
+      "from": "real",
+      "to": "out0"
+    },
+    {
+      "from": "imag",
+      "to": "out1"
+    }
+  ]
+}

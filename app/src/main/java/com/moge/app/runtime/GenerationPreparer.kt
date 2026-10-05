@@ -162,7 +162,6 @@ class GenerationPreparer @Inject constructor(
             endpointIdentity = endpointIdentityOf(baseUrl),
             protocol = protocolOf(identity?.searchProtocol),
             apiProtocol = identity?.apiProtocol?.name.orEmpty(),
-            nativePdfEnabled = identity?.nativePdfEnabled ?: false,
             documentReadRequired = submission.documentPaths.isNotEmpty(),
             documentPaths = (conversationDao.getMessages(conversationId).filter { it.role == "user" }
                 .flatMap { RequestRepository.decodePathList(it.documentPaths) } + submission.documentPaths).distinct(),

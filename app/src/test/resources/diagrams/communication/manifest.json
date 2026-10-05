@@ -1,0 +1,116 @@
+[
+  {
+    "slug": "01-coherent-sampling",
+    "title": "相干检测与抽样",
+    "references": [
+      1
+    ]
+  },
+  {
+    "slug": "02-coherent-probes",
+    "title": "带通噪声的相干解调",
+    "references": [
+      2,
+      4
+    ]
+  },
+  {
+    "slug": "03-dual-matched",
+    "title": "双路匹配滤波接收机",
+    "references": [
+      3
+    ]
+  },
+  {
+    "slug": "04-pulse-transmission",
+    "title": "基带脉冲传输系统",
+    "references": [
+      5
+    ]
+  },
+  {
+    "slug": "05-analytic-noise",
+    "title": "带通噪声的复包络分解",
+    "references": [
+      6
+    ]
+  },
+  {
+    "slug": "06-correlator",
+    "title": "相关接收机",
+    "references": [
+      7
+    ]
+  },
+  {
+    "slug": "07-8psk-modulator",
+    "title": "8PSK 正交调制",
+    "references": [
+      8
+    ]
+  },
+  {
+    "slug": "08-orthogonal-basis",
+    "title": "正交基函数的合成与系数恢复",
+    "references": [
+      9
+    ]
+  },
+  {
+    "slug": "09-mask-modulator",
+    "title": "MASK 幅度键控调制",
+    "references": [
+      10
+    ]
+  },
+  {
+    "slug": "10-ofdm-carrier-bank",
+    "title": "多载波 OFDM 调制",
+    "references": [
+      11
+    ]
+  },
+  {
+    "slug": "11-ofdm-ifft-transmitter",
+    "title": "OFDM 的 IFFT 发送处理",
+    "references": [
+      12
+    ]
+  },
+  {
+    "slug": "12-ofdm-fft-receiver",
+    "title": "OFDM 的 FFT 接收处理",
+    "references": [
+      12
+    ]
+  },
+  {
+    "slug": "13-ofdm-complex-iq",
+    "title": "OFDM 复包络与正交调制",
+    "references": [
+      13,
+      14
+    ]
+  },
+  {
+    "slug": "14-parallel-channels",
+    "title": "分路编码、并行信道与合路",
+    "references": [
+      15
+    ]
+  },
+  {
+    "slug": "15-pcm-tdm-system",
+    "title": "PCM 编码与时分复用传输",
+    "references": [
+      16
+    ]
+  },
+  {
+    "slug": "16-integrate-sample",
+    "title": "积分、抽样与判决接收机",
+    "references": [
+      17
+    ]
+  }
+]

@@ -7,20 +7,19 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.document.*
+import com.moge.app.data.prefs.Appearance
+import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.ui.theme.MogeTheme
+import com.moge.app.ui.theme.usesChalk
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -30,7 +29,14 @@ class DocumentPreviewActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val path = intent.getStringExtra("path") ?: return finish()
         val locator = intent.getStringExtra("locator").orEmpty()
-        setContent { MogeTheme { DocumentPreview(path, locator, onClose = ::finish) } }
+        val settings = SettingsRepository(applicationContext)
+        setContent {
+            DocumentPreviewTheme(settings.appearance, onSystemBars = { chalk ->
+                val style = if (chalk) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }) { DocumentPreview(path, locator, onClose = ::finish) }
+        }
     }
 
     companion object {
@@ -49,79 +55,88 @@ class DocumentPreviewActivity : ComponentActivity() {
     }
 }
 
+/** A separate Activity must use the same saved appearance as the main window. */
+@Composable
+internal fun DocumentPreviewTheme(
+    appearance: Flow<Appearance>,
+    onSystemBars: (Boolean) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val selected by appearance.collectAsStateWithLifecycle(initialValue = Appearance.SYSTEM)
+    val chalk = usesChalk(selected, isSystemInDarkTheme())
+    DisposableEffect(chalk) {
+        onSystemBars(chalk)
+        onDispose { }
+    }
+    MogeTheme(appearance = selected, content = content)
+}
+
 @Composable
 private fun DocumentPreview(path: String, initialLocator: String, onClose: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val store = remember(context) { DocumentStore(context) }
-    var attachment by remember { mutableStateOf<DocumentAttachment?>(null) }
-    var index by remember { mutableStateOf<DocumentIndex?>(null) }
-    var selected by remember { mutableIntStateOf(0) }
-    var locator by remember { mutableStateOf(initialLocator) }
-    var text by remember { mutableStateOf("") }
-    var image by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(true) }
-    LaunchedEffect(path) {
+    var attachment by remember(path) { mutableStateOf<DocumentAttachment?>(null) }
+    var index by remember(path) { mutableStateOf<DocumentIndex?>(null) }
+    var selected by androidx.compose.runtime.saveable.rememberSaveable(path) { mutableIntStateOf(0) }
+    var locator by androidx.compose.runtime.saveable.rememberSaveable(path) { mutableStateOf(initialLocator) }
+    var text by remember(path) { mutableStateOf("") }
+    var image by remember(path) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var loadedLocator by remember(path) { mutableStateOf<String?>(null) }
+    var error by remember(path) { mutableStateOf<String?>(null) }
+    var indexing by remember(path) { mutableStateOf(true) }
+    var reading by remember(path) { mutableStateOf(false) }
+    var retry by remember(path) { mutableIntStateOf(0) }
+    LaunchedEffect(path, retry) {
+        indexing = true; error = null
         try {
-            val result = withContext(Dispatchers.IO) { store.attachment(path) to DocumentReader.index(context, store.ownedFile(path)) }
-            attachment = result.first; index = result.second
-            selected = result.second.sections.indexOfFirst { it.id == initialLocator }.coerceAtLeast(0)
-            if (locator.isBlank()) locator = result.second.sections.firstOrNull()?.id.orEmpty()
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message }
-        finally { busy = false }
+            attachment = withContext(Dispatchers.IO) { store.attachment(path) }
+            val result = withContext(Dispatchers.IO) { DocumentReader.index(context, store.ownedFile(path)) }
+            index = result
+            val sectionLocator = result.tables.firstOrNull { it.id == locator }?.source ?: locator
+            selected = result.sections.indexOfFirst { it.id == sectionLocator }.takeIf { it >= 0 }
+                ?: selected.coerceIn(0, result.sections.lastIndex.coerceAtLeast(0))
+            if (locator.isBlank()) locator = result.sections.firstOrNull()?.id.orEmpty()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            error = e.message ?: "文件暂时无法读取"
+        } finally { indexing = false }
     }
-    LaunchedEffect(attachment, locator) {
+    LaunchedEffect(attachment, index, locator, retry) {
         val doc = attachment ?: return@LaunchedEffect
-        if (locator.isBlank()) return@LaunchedEffect
-        busy = true; error = null
+        if (index == null || locator.isBlank()) return@LaunchedEffect
+        reading = true; error = null; text = ""; image = null
         try {
             val result = withContext(Dispatchers.IO) {
                 val file = store.ownedFile(doc.path)
-                if (file.extension == "pdf" || locator in index?.images.orEmpty()) {
+                if (file.extension.equals("pdf", true) || locator in index?.images.orEmpty()) {
                     val encoded = DocumentReader.image(context, file, locator).substringAfter(',')
                     val bytes = Base64.decode(encoded, Base64.DEFAULT)
-                    "" to BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    "" to (BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("页面图像无法读取"))
                 } else DocumentReader.read(context, file, locator).text to null
             }
-            text = result.first; image = result.second
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; error = e.message }
-        finally { busy = false }
+            text = result.first; image = result.second; loadedLocator = locator
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            error = e.message ?: "此内容暂时无法读取"
+        } finally { reading = false }
     }
-    Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                TextButton(onClick = onClose) { Text("返回") }
-                Text(attachment?.name ?: "文档", Modifier.weight(1f).padding(12.dp))
-                TextButton(onClick = {
-                    attachment?.let { document ->
-                        val uri = FileProvider.getUriForFile(context, context.packageName + ".files", store.ownedFile(document.path))
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, document.mime)
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }.onFailure { error = "没有可打开此格式的应用" }
-                    }
-                }) { Text("打开原件") }
-            }
-            index?.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            val sections = index?.sections.orEmpty()
-            if (sections.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(enabled = selected > 0, onClick = { selected--; locator = sections[selected].id }) { Text("上一项") }
-                    OutlinedTextField(value = (selected + 1).toString(), onValueChange = {
-                        val value = it.toIntOrNull()?.minus(1)
-                        if (value != null && value in sections.indices) { selected = value; locator = sections[value].id }
-                    }, label = { Text("位置 / ${sections.size}") }, singleLine = true, modifier = Modifier.weight(1f))
-                    TextButton(enabled = selected < sections.lastIndex, onClick = { selected++; locator = sections[selected].id }) { Text("下一项") }
-                }
-                Text(index?.tables?.firstOrNull { it.id == locator }?.let { it.title + "（" + it.source + "）" } ?: sections[selected].title)
-            }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                image?.let { Image(it.asImageBitmap(), "文档页面", Modifier.fillMaxWidth()) }
-                if (text.isNotEmpty()) SelectionContainer { Text(text) }
-                index?.images.orEmpty().forEach { path ->
-                    TextButton(onClick = { locator = path }) { Text("查看图片：" + path.substringAfterLast('/')) }
-                }
-            }
-        }
-    }
+    DocumentPreviewScreen(
+        state = DocumentPreviewUiState(attachment, index, selected, locator, text, image,
+            busy = indexing || reading || (error == null && locator.isNotBlank() && loadedLocator != locator), error = error),
+        onClose = onClose,
+        onOpenOriginal = {
+            attachment?.let { document -> runCatching {
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".files", store.ownedFile(document.path))
+                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, document.mime)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            }.onFailure {
+                android.widget.Toast.makeText(context, "没有可打开此格式的应用", android.widget.Toast.LENGTH_SHORT).show()
+            } }
+        },
+        onSection = { position ->
+            index?.sections?.getOrNull(position)?.let { selected = position; locator = it.id }
+        },
+        onLocator = { locator = it },
+        onRetry = { retry++ },
+    )
 }

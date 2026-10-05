@@ -1,0 +1,202 @@
+{
+  "title": "OFDM 复包络与正交调制",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$R_b$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "map",
+      "label": "星座映射",
+      "shape": "block",
+      "role": "map"
+    },
+    {
+      "id": "sp",
+      "label": "串\n并\n变\n换",
+      "shape": "bus",
+      "role": "serial_to_parallel"
+    },
+    {
+      "id": "sum",
+      "label": "复包络合成",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "ri",
+      "label": "取实部和虚部",
+      "shape": "block",
+      "role": "real_imag"
+    },
+    {
+      "id": "iqsum",
+      "label": "正交合成",
+      "shape": "sum",
+      "role": "iqsum"
+    },
+    {
+      "id": "out",
+      "label": "$s(t)$",
+      "shape": "io",
+      "role": "output"
+    },
+    {
+      "id": "m0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_basis_mixer"
+    },
+    {
+      "id": "c0",
+      "label": "$e^{\\mathrm{j}2\\pi 0\\Delta f t}$",
+      "shape": "io",
+      "role": "branch_0_carrier"
+    },
+    {
+      "id": "m1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_basis_mixer"
+    },
+    {
+      "id": "c1",
+      "label": "$e^{\\mathrm{j}2\\pi 1\\Delta f t}$",
+      "shape": "io",
+      "role": "branch_1_carrier"
+    },
+    {
+      "id": "m2",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_2_basis_mixer"
+    },
+    {
+      "id": "c2",
+      "label": "$e^{\\mathrm{j}2\\pi (N-1)\\Delta f t}$",
+      "shape": "io",
+      "role": "branch_2_carrier"
+    },
+    {
+      "id": "iq0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_iq_mixer"
+    },
+    {
+      "id": "ic0",
+      "label": "$\\cos(2\\pi f_c t)$",
+      "shape": "io",
+      "role": "branch_0_carrier_iq"
+    },
+    {
+      "id": "iq1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_iq_mixer"
+    },
+    {
+      "id": "ic1",
+      "label": "$-\\sin(2\\pi f_c t)$",
+      "shape": "io",
+      "role": "branch_1_carrier_iq"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "map"
+    },
+    {
+      "from": "map",
+      "to": "sp"
+    },
+    {
+      "from": "sp",
+      "to": "m0",
+      "label": "$A_{0}$"
+    },
+    {
+      "from": "c0",
+      "to": "m0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m0",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "sp",
+      "to": "m1",
+      "label": "$A_{1}$"
+    },
+    {
+      "from": "c1",
+      "to": "m1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m1",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "sp",
+      "to": "m2",
+      "label": "$A_{N-1}$"
+    },
+    {
+      "from": "c2",
+      "to": "m2",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m2",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "ri"
+    },
+    {
+      "from": "ri",
+      "to": "iq0",
+      "label": "$I(t)$"
+    },
+    {
+      "from": "ic0",
+      "to": "iq0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "iq0",
+      "to": "iqsum",
+      "polarity": "+"
+    },
+    {
+      "from": "ri",
+      "to": "iq1",
+      "label": "$Q(t)$"
+    },
+    {
+      "from": "ic1",
+      "to": "iq1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "iq1",
+      "to": "iqsum",
+      "polarity": "+"
+    },
+    {
+      "from": "iqsum",
+      "to": "out"
+    }
+  ],
+  "repeatLastLane": true
+}

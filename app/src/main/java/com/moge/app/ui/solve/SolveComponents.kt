@@ -32,9 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
@@ -59,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -456,11 +454,11 @@ internal fun FollowUpBar(
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
-            Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(28.dp))
-                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 28.dp),
+            Modifier.fillMaxWidth().testTag("composer-capsule").shadow(8.dp, RoundedCornerShape(32.dp))
+                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 4.dp, end = 6.dp),
+                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ComposerTextField(
@@ -470,17 +468,13 @@ internal fun FollowUpBar(
                     placeholder = if (state.conversationId == null) "输入问题" else "继续对话",
                     onPasteImages = onPasteImages,
                 )
-                if (!state.generating) {
-                    IconButton(onClick = onTakePhoto, enabled = state.canAddPhoto) {
-                        Icon(Icons.Outlined.PhotoCamera, contentDescription = "拍照")
-                    }
-                    IconButton(onClick = onPickPhotos, enabled = state.canAddPhoto) {
-                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = "从相册选图")
-                    }
-                    IconButton(onClick = onPickDocument, enabled = !state.submitting) {
-                        Icon(Icons.Outlined.AttachFile, contentDescription = "上传文档")
-                    }
-                }
+                ComposerAttachmentMenu(
+                    enabled = !state.generating && !state.submitting,
+                    photosEnabled = state.canAddPhoto,
+                    onTakePhoto = onTakePhoto,
+                    onPickPhotos = onPickPhotos,
+                    onPickDocument = onPickDocument,
+                )
                 if (state.generating) {
                     FilledIconButton(onClick = onStop,
                         colors = IconButtonDefaults.filledIconButtonColors(

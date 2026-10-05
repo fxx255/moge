@@ -2,6 +2,8 @@ package com.moge.app.data.llm
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import com.moge.app.data.credential.migrateRetiredProtocols
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
  * 一次提问的本机快照：模型/端点身份、推理与联网设置、解题模式、原问题、原历史和照片路线。
@@ -52,7 +54,6 @@ data class RequestSnapshot(
     val documentPaths: List<String> = emptyList(),
     val documentReadRequired: Boolean = false,
     val apiProtocol: String = "",
-    val nativePdfEnabled: Boolean = false,
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean
@@ -79,7 +80,6 @@ data class RequestSnapshot(
         reasoningEffort = reasoningEffort,
         effectiveWebSearchEnabled = effectiveWebSearchEnabled,
         apiProtocol = apiProtocol,
-        nativePdfEnabled = nativePdfEnabled,
         visionEnabled = primaryVisionEnabled,
     )
 
@@ -116,7 +116,6 @@ data class RequestPolicy(
     val reasoningEffort: String = "",
     val effectiveWebSearchEnabled: Boolean = false,
     val apiProtocol: String = "",
-    val nativePdfEnabled: Boolean = false,
     val visionEnabled: Boolean? = null,
 )
 
@@ -132,7 +131,7 @@ object SnapshotCodec {
 
     fun decode(raw: String): RequestSnapshot? =
         if (raw.isBlank()) null
-        else runCatching { json.decodeFromString(RequestSnapshot.serializer(), raw) }.getOrNull()
+        else runCatching { json.decodeFromJsonElement(RequestSnapshot.serializer(), migrateRetiredProtocols(Json.parseToJsonElement(raw))) }.getOrNull()
 }
 
 /**

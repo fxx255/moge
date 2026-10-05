@@ -115,7 +115,7 @@ class IqDemodulatorLayoutTest {
 
     @Test fun `export compact I Q preview layouts when requested`() {
         if (System.getenv("DIAGRAM_EXPORT_SAMPLES") != "1") return
-        val directory = File("diagram-samples/iq").apply { mkdirs() }
+        val directory = File("build/diagram-samples/iq").apply { mkdirs() }
         listOf(false to "qpsk.layout", true to "qam16.layout").forEach { (qam, filename) ->
             val result = DiagramLayout.layout(receiver(qam))
             val lines = buildList {

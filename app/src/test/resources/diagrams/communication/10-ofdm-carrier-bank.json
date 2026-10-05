@@ -1,0 +1,155 @@
+{
+  "title": "多载波 OFDM 调制",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$R_b$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "sp",
+      "label": "串\n并\n变\n换",
+      "shape": "bus",
+      "role": "serial_to_parallel"
+    },
+    {
+      "id": "sum",
+      "label": "合成",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "out",
+      "label": "$s(t)$",
+      "shape": "io",
+      "role": "output"
+    },
+    {
+      "id": "f0",
+      "label": "$g(t)$",
+      "shape": "block",
+      "role": "branch_0_filter"
+    },
+    {
+      "id": "m0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_mixer"
+    },
+    {
+      "id": "c0",
+      "label": "$\\cos 2\\pi f_{0}t$",
+      "shape": "io",
+      "role": "branch_0_carrier"
+    },
+    {
+      "id": "f1",
+      "label": "$g(t)$",
+      "shape": "block",
+      "role": "branch_1_filter"
+    },
+    {
+      "id": "m1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_mixer"
+    },
+    {
+      "id": "c1",
+      "label": "$\\cos 2\\pi f_{1}t$",
+      "shape": "io",
+      "role": "branch_1_carrier"
+    },
+    {
+      "id": "f2",
+      "label": "$g(t)$",
+      "shape": "block",
+      "role": "branch_2_filter"
+    },
+    {
+      "id": "m2",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_2_mixer"
+    },
+    {
+      "id": "c2",
+      "label": "$\\cos 2\\pi f_{N-1}t$",
+      "shape": "io",
+      "role": "branch_2_carrier"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "sp"
+    },
+    {
+      "from": "sp",
+      "to": "f0",
+      "label": "$A_{0}$"
+    },
+    {
+      "from": "f0",
+      "to": "m0"
+    },
+    {
+      "from": "c0",
+      "to": "m0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m0",
+      "to": "sum",
+      "label": "$s_{0}(t)$",
+      "polarity": "+"
+    },
+    {
+      "from": "sp",
+      "to": "f1",
+      "label": "$A_{1}$"
+    },
+    {
+      "from": "f1",
+      "to": "m1"
+    },
+    {
+      "from": "c1",
+      "to": "m1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m1",
+      "to": "sum",
+      "label": "$s_{1}(t)$",
+      "polarity": "+"
+    },
+    {
+      "from": "sp",
+      "to": "f2",
+      "label": "$A_{N-1}$"
+    },
+    {
+      "from": "f2",
+      "to": "m2"
+    },
+    {
+      "from": "c2",
+      "to": "m2",
+      "toPort": "bottom"
+    },
+    {
+      "from": "m2",
+      "to": "sum",
+      "label": "$s_{N-1}(t)$",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "out"
+    }
+  ],
+  "repeatLastLane": true
+}

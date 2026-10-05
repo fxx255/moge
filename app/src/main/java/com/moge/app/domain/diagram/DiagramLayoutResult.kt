@@ -36,7 +36,11 @@ data class DiagramLayoutResult(
     val edges: List<EdgeRoute>,
     /** row → 该行的节点 id，便于测试断言「主链在 0 行、支路在下」。 */
     val rows: Map<Int, List<String>>,
+    val annotations: List<DiagramAnnotation> = emptyList(),
 )
+
+/** Centered, measured annotation outside the signal nodes (e.g. bank ellipses). */
+data class DiagramAnnotation(val text: String, val centerX: Float, val centerY: Float)
 
 /** 绘制尺寸常量。 */
 object DiagramMetrics {

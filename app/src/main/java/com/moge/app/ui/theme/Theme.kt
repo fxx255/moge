@@ -13,13 +13,13 @@ import com.moge.app.data.prefs.Appearance
 
 val LocalPaperColors = staticCompositionLocalOf { PaperExtras }
 
-// 纸张感：小圆角（6dp）为主，只有胶囊按钮走全圆角
+// Slightly softer controls retain the paper theme's restrained geometry.
 internal val MogeShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(6.dp),
-    medium = RoundedCornerShape(6.dp),
-    large = RoundedCornerShape(10.dp),
-    extraLarge = RoundedCornerShape(16.dp),
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(20.dp),
 )
 
 /** 按「外观」设置和系统深浅色决定是否用黑板主题。 */

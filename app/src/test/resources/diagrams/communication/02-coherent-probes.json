@@ -1,0 +1,107 @@
+{
+  "title": "带通噪声的相干解调",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "input",
+      "label": "$s(t)$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "noise",
+      "label": "加性白高斯噪声",
+      "shape": "io",
+      "role": "noise"
+    },
+    {
+      "id": "sum",
+      "label": "求和",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "bpf",
+      "label": "BPF",
+      "shape": "block",
+      "role": "bpf"
+    },
+    {
+      "id": "a",
+      "label": "A",
+      "shape": "junction",
+      "role": "probe_a"
+    },
+    {
+      "id": "mix",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "mix"
+    },
+    {
+      "id": "carrier",
+      "label": "$2\\cos(2\\pi f_c t)$",
+      "shape": "io",
+      "role": "carrier"
+    },
+    {
+      "id": "lpf",
+      "label": "LPF",
+      "shape": "block",
+      "role": "lpf"
+    },
+    {
+      "id": "b",
+      "label": "B",
+      "shape": "junction",
+      "role": "probe_b"
+    },
+    {
+      "id": "out",
+      "label": "$y(t)$",
+      "shape": "io",
+      "role": "output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "input",
+      "to": "sum"
+    },
+    {
+      "from": "noise",
+      "to": "sum",
+      "toPort": "bottom",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "bpf"
+    },
+    {
+      "from": "bpf",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "mix"
+    },
+    {
+      "from": "carrier",
+      "to": "mix",
+      "toPort": "top"
+    },
+    {
+      "from": "mix",
+      "to": "lpf"
+    },
+    {
+      "from": "lpf",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "out"
+    }
+  ]
+}

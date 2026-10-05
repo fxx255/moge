@@ -1,0 +1,114 @@
+{
+  "title": "分路编码、并行信道与合路",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "3 Mbit/s",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "split",
+      "label": "分\n路",
+      "shape": "bus",
+      "role": "serial_to_parallel"
+    },
+    {
+      "id": "merge",
+      "label": "合\n路",
+      "shape": "bus",
+      "role": "parallel_to_serial"
+    },
+    {
+      "id": "out",
+      "label": "3 Mbit/s",
+      "shape": "io",
+      "role": "output"
+    },
+    {
+      "id": "enc0",
+      "label": "理想编码",
+      "shape": "block",
+      "role": "branch_0_encoder"
+    },
+    {
+      "id": "ch0",
+      "label": "信道 1",
+      "shape": "block",
+      "role": "branch_0_channel",
+      "subLabel": "$B_1=2\\,\\mathrm{MHz}$"
+    },
+    {
+      "id": "dec0",
+      "label": "译码",
+      "shape": "block",
+      "role": "branch_0_decoder"
+    },
+    {
+      "id": "enc1",
+      "label": "理想编码",
+      "shape": "block",
+      "role": "branch_1_encoder"
+    },
+    {
+      "id": "ch1",
+      "label": "信道 2",
+      "shape": "block",
+      "role": "branch_1_channel",
+      "subLabel": "$B_2=1\\,\\mathrm{MHz}$"
+    },
+    {
+      "id": "dec1",
+      "label": "译码",
+      "shape": "block",
+      "role": "branch_1_decoder"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "split"
+    },
+    {
+      "from": "split",
+      "to": "enc0",
+      "label": "$R_1$"
+    },
+    {
+      "from": "enc0",
+      "to": "ch0"
+    },
+    {
+      "from": "ch0",
+      "to": "dec0",
+      "label": "$P_1/N_1$"
+    },
+    {
+      "from": "dec0",
+      "to": "merge"
+    },
+    {
+      "from": "split",
+      "to": "enc1",
+      "label": "$R_2$"
+    },
+    {
+      "from": "enc1",
+      "to": "ch1"
+    },
+    {
+      "from": "ch1",
+      "to": "dec1",
+      "label": "$P_2/N_2$"
+    },
+    {
+      "from": "dec1",
+      "to": "merge"
+    },
+    {
+      "from": "merge",
+      "to": "out"
+    }
+  ]
+}

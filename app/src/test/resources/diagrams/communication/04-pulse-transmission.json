@@ -1,0 +1,109 @@
+{
+  "title": "基带脉冲传输系统",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "$\\{a_n\\}$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "tx",
+      "label": "发送滤波器",
+      "shape": "block",
+      "role": "tx_filter",
+      "subLabel": "$g_T(t)$"
+    },
+    {
+      "id": "a",
+      "label": "A",
+      "shape": "junction",
+      "role": "probe_a"
+    },
+    {
+      "id": "sum",
+      "label": "加噪",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "noise",
+      "label": "加性白高斯噪声",
+      "shape": "io",
+      "role": "noise"
+    },
+    {
+      "id": "rx",
+      "label": "接收滤波器",
+      "shape": "block",
+      "role": "rx_filter",
+      "subLabel": "$g_R(t)$"
+    },
+    {
+      "id": "b",
+      "label": "B",
+      "shape": "junction",
+      "role": "probe_b"
+    },
+    {
+      "id": "sample",
+      "label": "抽样",
+      "shape": "sampler",
+      "role": "sampler",
+      "subLabel": "$t=kT$"
+    },
+    {
+      "id": "c",
+      "label": "C",
+      "shape": "junction",
+      "role": "probe_c"
+    },
+    {
+      "id": "out",
+      "label": "$y_k$",
+      "shape": "io",
+      "role": "output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "tx"
+    },
+    {
+      "from": "tx",
+      "to": "a"
+    },
+    {
+      "from": "a",
+      "to": "sum"
+    },
+    {
+      "from": "sum",
+      "to": "rx"
+    },
+    {
+      "from": "rx",
+      "to": "b"
+    },
+    {
+      "from": "b",
+      "to": "sample"
+    },
+    {
+      "from": "sample",
+      "to": "c"
+    },
+    {
+      "from": "c",
+      "to": "out"
+    },
+    {
+      "from": "noise",
+      "to": "sum",
+      "toPort": "bottom",
+      "polarity": "+"
+    }
+  ]
+}

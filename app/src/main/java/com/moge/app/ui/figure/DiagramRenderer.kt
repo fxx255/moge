@@ -40,6 +40,11 @@ object DiagramRenderer {
         layout.edges.forEach { drawEdge(canvas, it, palette) }
         drawFeedbackCrossingGaps(canvas, layout.edges, palette)
         layout.nodes.forEach { drawNode(canvas, it, layout.edges, palette) }
+        layout.annotations.forEach { annotation ->
+            val text = DiagramText.layout(annotation.text, DiagramTextRole.LABEL, 100f)
+            drawText(canvas, text, annotation.centerX - text.width / 2f,
+                annotation.centerY - text.height / 2f, DiagramTextRole.LABEL, palette = palette)
+        }
         // Draw arrowheads after node fills/strokes.  Otherwise the node body
         // hides the head at a top/bottom port, making the direction look
         // missing or reversed even though the route itself is correct.
@@ -59,6 +64,12 @@ object DiagramRenderer {
     /** Reserve marker/sign space before choosing edge-label locations. */
     private fun annotationOccupancy(layout: DiagramLayoutResult): MutableList<RectF> {
         val occupied = mutableListOf<RectF>()
+        layout.annotations.forEach { annotation ->
+            val text = DiagramText.layout(annotation.text, DiagramTextRole.LABEL, 100f)
+            occupied += RectF(annotation.centerX - text.width / 2f - 4f,
+                annotation.centerY - text.height / 2f - 4f, annotation.centerX + text.width / 2f + 4f,
+                annotation.centerY + text.height / 2f + 4f)
+        }
         layout.nodes.filter { it.node.renderShape() == DiagramNodeShape.JUNCTION }.forEach { box ->
             markerLabelRect(box)?.let { occupied += it }
         }
@@ -77,6 +88,7 @@ object DiagramRenderer {
         val role = box.node.role.orEmpty().trim().lowercase()
         val id = box.node.id.trim().lowercase()
         val label = box.node.label.trim().lowercase()
+        if (role.contains("probe") && !role.startsWith("test_")) return MarkerSide.ABOVE
         return when {
             role == "test_a" || id == "test_a" || id == "a" || label == "a" -> MarkerSide.RIGHT
             role == "test_d" || id == "test_d" || id == "d" || label == "d" -> MarkerSide.BELOW
@@ -139,8 +151,23 @@ object DiagramRenderer {
                         centered = true, palette = palette)
                 }
             }
+            DiagramNodeShape.SAMPLER -> {
+                val left = box.x + 13f
+                val right = box.x + box.width - 13f
+                canvas.drawLine(box.x, box.centerY, left - 4f, box.centerY, stroke)
+                canvas.drawLine(right + 4f, box.centerY, box.x + box.width, box.centerY, stroke)
+                canvas.drawCircle(left, box.centerY, 4f, stroke)
+                canvas.drawCircle(right, box.centerY, 4f, stroke)
+                canvas.drawLine(left + 3f, box.centerY - 2f, right - 5f, box.centerY - 19f, stroke)
+                val main = DiagramLayout.label(box.node)
+                val sub = DiagramLayout.subLabel(box.node)
+                drawText(canvas, main, box.centerX - main.width / 2f, box.y,
+                    DiagramTextRole.LABEL, centered = true, palette = palette)
+                drawText(canvas, sub, box.centerX - sub.width / 2f, box.centerY + 14f,
+                    DiagramTextRole.SUB_LABEL, centered = true, palette = palette)
+            }
             else -> {
-                if (box.node.renderShape() == DiagramNodeShape.BLOCK) {
+                if (box.node.renderShape() in setOf(DiagramNodeShape.BLOCK, DiagramNodeShape.BUS)) {
                     canvas.drawRoundRect(rect, 4f, 4f, fill)
                     canvas.drawRoundRect(rect, 4f, 4f, stroke)
                 }
@@ -261,7 +288,7 @@ object DiagramRenderer {
         val passiveProbe = role in setOf("test_b", "test_c", "test_d", "test_e", "test_f", "test_g") ||
             id in setOf("test_b", "test_c", "test_d", "test_e", "test_f", "test_g") ||
             (target.renderShape() == DiagramNodeShape.JUNCTION && label in setOf("b", "c", "d", "e", "f", "g"))
-        return !passiveProbe
+        return !passiveProbe && target.renderShape() != DiagramNodeShape.JUNCTION
     }
 
     private fun normalizedLabel(value: String): String = value.trim().lowercase()
@@ -311,7 +338,7 @@ object DiagramRenderer {
         val midY = (a.y + b.y) / 2f
         val candidates = when {
             // A point label on the split is printed beside the junction.
-            key == "a" -> {
+            key == "a" && nodes.any { it.node.id == route.edge.to && it.node.renderShape() == DiagramNodeShape.JUNCTION } -> {
                 val target = nodes.firstOrNull { it.node.id == route.edge.to }
                 if (target == null) emptyList()
                 else listOf(RectF(target.x + target.width + 12f,

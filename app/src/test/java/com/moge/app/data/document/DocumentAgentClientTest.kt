@@ -7,6 +7,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.llm.ChatMessage
 import com.moge.app.runtime.PosixAtomicFileShadow
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.*
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import okhttp3.*
@@ -55,7 +58,7 @@ class DocumentAgentClientTest {
         val final = """{"choices":[{"message":{"role":"assistant","content":"{\"reply\":\"nonce-evidence-9284\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}"""
         val result = DocumentAgentClient(context, store).run(
             client(call, final), "https://gateway.example/v1", "test", "test-key",
-            AiApiProtocol.CHAT_COMPLETIONS, false, true,
+            AiApiProtocol.CHAT_COMPLETIONS, true,
             listOf(ChatMessage("user", "这份文档写了什么？", documentPaths = listOf(doc.path))),
             emptyList(), "return JSON", false, false, {}, {},
         )
@@ -69,52 +72,71 @@ class DocumentAgentClientTest {
         assertTrue(File(doc.path).isFile)
     }
 
-    @Test fun anthropicReceivesOriginalPdfDocumentBlockWhileSearchIsOff() = runBlocking {
-        val doc = document("pdf")
-        val result = DocumentAgentClient(context, store).run(
-            client("""{"content":[{"type":"text","text":"{\"reply\":\"PDF analyzed\"}"}],"stop_reason":"end_turn"}"""),
-            "https://gateway.example/api/v1/messages", "test", "test-key",
-            AiApiProtocol.ANTHROPIC_MESSAGES, true, true,
-            listOf(ChatMessage("user", "检查图表", documentPaths = listOf(doc.path))),
-            emptyList(), "return JSON", false, false, {}, {},
-        )
-        assertEquals("/api/v1/messages", requests.single().url.encodedPath)
-        val blocks = payloads.single()["messages"]!!.jsonArray.single().jsonObject["content"]!!.jsonArray
-        val document = blocks.last().jsonObject
-        assertEquals("document", document["type"]!!.jsonPrimitive.content)
-        assertEquals("讲义.pdf", document["title"]!!.jsonPrimitive.content)
-        assertEquals("application/pdf", document["source"]!!.jsonObject["media_type"]!!.jsonPrimitive.content)
-        assertTrue(result.reply.contains("PDF analyzed"))
-        assertTrue(payloads.single()["tools"]!!.jsonArray.none { it.jsonObject["name"]?.jsonPrimitive?.content == "web_search" })
-    }
-
-    @Test fun responsesUseInputFileAndDoNotFallbackToChatWithSearchOff() = runBlocking {
-        val doc = document("pdf")
-        DocumentAgentClient(context, store).run(
-            client("""{"incomplete_details":null,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"{\"reply\":\"analyzed\"}"}]}]}"""),
-            "https://gateway.example/v1/responses", "test", "test-key",
-            AiApiProtocol.RESPONSES, true, true,
-            listOf(ChatMessage("user", "分析", documentPaths = listOf(doc.path))),
-            emptyList(), "return JSON", false, false, {}, {},
-        )
-        assertEquals("/v1/responses", requests.single().url.encodedPath)
-        val file = payloads.single()["input"]!!.jsonArray.single().jsonObject["content"]!!.jsonArray.last().jsonObject
-        assertEquals("input_file", file["type"]!!.jsonPrimitive.content)
-        assertEquals("讲义.pdf", file["filename"]!!.jsonPrimitive.content)
-        assertFalse(payloads.single()["tools"]!!.jsonArray.any { it.jsonObject["type"]?.jsonPrimitive?.content == "web_search" })
-    }
-
     @Test fun ordinaryFollowupMayAnswerWithoutRereadingHistoryButNewAttachmentsRequireEvidence() = runBlocking {
         val doc = document()
         val final = """{"choices":[{"message":{"role":"assistant","content":"{\"reply\":\"不客气\"}"}}]}"""
         val agent = DocumentAgentClient(context, store)
         val followup = agent.run(client(final), "https://gateway.example/v1", "test", "test-key",
-            AiApiProtocol.CHAT_COMPLETIONS, false, false, listOf(ChatMessage("user", "谢谢", documentPaths = listOf(doc.path))),
+            AiApiProtocol.CHAT_COMPLETIONS, false, listOf(ChatMessage("user", "谢谢", documentPaths = listOf(doc.path))),
             emptyList(), "return JSON", false, false, {}, {}, requireRead = false)
         assertEquals("不客气", followup.reply)
         val fresh = runCatching { agent.run(client(final), "https://gateway.example/v1", "test", "test-key",
-            AiApiProtocol.CHAT_COMPLETIONS, false, false, listOf(ChatMessage("user", "分析附件", documentPaths = listOf(doc.path))),
+            AiApiProtocol.CHAT_COMPLETIONS, false, listOf(ChatMessage("user", "分析附件", documentPaths = listOf(doc.path))),
             emptyList(), "return JSON", false, false, {}, {}, requireRead = true) }
         assertTrue(fresh.exceptionOrNull()?.message.orEmpty().contains("没有读取附件"))
+    }
+
+    @Test fun bothProtocolsReadPdfPagesThroughToolsWithoutSendingNativeFileBlocks() = runBlocking {
+        PDFBoxResourceLoader.init(context)
+        val source = File(context.cacheDir, "evidence.pdf")
+        PDDocument().use { pdf ->
+            val page = PDPage(); pdf.addPage(page)
+            PDPageContentStream(pdf, page).use { content ->
+                content.beginText(); content.setFont(PDType1Font.HELVETICA, 12f)
+                content.newLineAtOffset(40f, 700f); content.showText("pdf-evidence-9284"); content.endText()
+            }
+            pdf.save(source)
+        }
+        val doc = store.attachment(store.import(Uri.fromFile(source)))
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear(); payloads.clear()
+            val arguments = """{"document_id":"${doc.id}","locator":"page:1"}"""
+            val call = if (protocol == AiApiProtocol.RESPONSES) buildJsonObject {
+                put("output", buildJsonArray { add(buildJsonObject {
+                    put("type", "function_call"); put("name", "read_document"); put("call_id", "read-page")
+                    put("arguments", arguments)
+                }) })
+            } else buildJsonObject {
+                put("choices", buildJsonArray { add(buildJsonObject { put("message", buildJsonObject {
+                    put("role", "assistant"); put("content", JsonNull)
+                    put("tool_calls", buildJsonArray { add(buildJsonObject {
+                        put("id", "read-page"); put("type", "function")
+                        put("function", buildJsonObject { put("name", "read_document"); put("arguments", arguments) })
+                    }) })
+                }) }) })
+            }
+            val finalText = """{"reply":"已核对页面证据"}"""
+            val final = if (protocol == AiApiProtocol.RESPONSES) buildJsonObject {
+                put("output", buildJsonArray { add(buildJsonObject {
+                    put("type", "message"); put("role", "assistant")
+                    put("content", buildJsonArray { add(buildJsonObject { put("type", "output_text"); put("text", finalText) }) })
+                }) })
+            } else buildJsonObject {
+                put("choices", buildJsonArray { add(buildJsonObject { put("message", buildJsonObject {
+                    put("role", "assistant"); put("content", finalText)
+                }) }) })
+            }
+            val result = DocumentAgentClient(context, store).run(client(call.toString(), final.toString()),
+                "https://gateway.example/v1", "test", "test-key", protocol, true,
+                listOf(ChatMessage("user", "分析PDF", documentPaths = listOf(doc.path))),
+                emptyList(), "return JSON", false, false, {}, {})
+            assertEquals(2, requests.size)
+            assertFalse(payloads.first().toString().contains("file_data"))
+            assertFalse(payloads.first().toString().contains("input_file"))
+            assertFalse(payloads.first().toString().contains("pdf-evidence-9284"))
+            assertTrue(payloads.last().toString().contains("pdf-evidence-9284"))
+            assertTrue(result.reply.contains("page:1"))
+            assertTrue(File(doc.path).exists())
+        }
     }
 }

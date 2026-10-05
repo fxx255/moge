@@ -1,0 +1,112 @@
+{
+  "title": "相干检测与抽样",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "input",
+      "label": "$s(t)$",
+      "shape": "io",
+      "role": "input"
+    },
+    {
+      "id": "noise",
+      "label": "$n_w(t)$",
+      "shape": "io",
+      "role": "noise"
+    },
+    {
+      "id": "sum",
+      "label": "求和",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "bpf",
+      "label": "带通滤波器",
+      "shape": "block",
+      "role": "filter"
+    },
+    {
+      "id": "mixer",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "mixer"
+    },
+    {
+      "id": "carrier",
+      "label": "$2\\cos(2\\pi f_c t)$",
+      "shape": "io",
+      "role": "carrier"
+    },
+    {
+      "id": "filter",
+      "label": "低通滤波器",
+      "shape": "block",
+      "role": "filter",
+      "subLabel": "$h(t)$"
+    },
+    {
+      "id": "sample",
+      "label": "抽样",
+      "shape": "sampler",
+      "role": "sampler",
+      "subLabel": "$t=T_b$"
+    },
+    {
+      "id": "decision",
+      "label": "判决",
+      "shape": "block",
+      "role": "decision"
+    },
+    {
+      "id": "output",
+      "label": "$\\hat a$",
+      "shape": "io",
+      "role": "output"
+    }
+  ],
+  "edges": [
+    {
+      "from": "input",
+      "to": "sum"
+    },
+    {
+      "from": "noise",
+      "to": "sum",
+      "toPort": "bottom",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "bpf",
+      "label": "$r(t)$"
+    },
+    {
+      "from": "bpf",
+      "to": "mixer"
+    },
+    {
+      "from": "carrier",
+      "to": "mixer",
+      "toPort": "top"
+    },
+    {
+      "from": "mixer",
+      "to": "filter",
+      "label": "$y(t)$"
+    },
+    {
+      "from": "filter",
+      "to": "sample"
+    },
+    {
+      "from": "sample",
+      "to": "decision",
+      "label": "$y$"
+    },
+    {
+      "from": "decision",
+      "to": "output"
+    }
+  ]
+}

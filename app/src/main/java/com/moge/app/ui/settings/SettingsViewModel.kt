@@ -259,7 +259,6 @@ class SettingsViewModel @Inject constructor(
                         searchProtocol = draft.searchProtocol,
                         reasoningEffort = draft.reasoningEffort,
                         apiProtocol = draft.apiProtocol,
-                        nativePdfEnabled = draft.nativePdfEnabled,
                         searchEnabled = draft.searchEnabled,
                     )
                 }

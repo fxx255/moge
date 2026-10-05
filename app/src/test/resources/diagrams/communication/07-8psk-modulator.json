@@ -1,0 +1,145 @@
+{
+  "title": "8PSK 正交调制",
+  "profile": "communication",
+  "nodes": [
+    {
+      "id": "in",
+      "label": "二进制序列",
+      "shape": "io",
+      "role": "input",
+      "subLabel": "$R_b=1/T_b$"
+    },
+    {
+      "id": "sp",
+      "label": "串\n并\n变\n换",
+      "shape": "bus",
+      "role": "serial_to_parallel"
+    },
+    {
+      "id": "map",
+      "label": "符号映射",
+      "shape": "block",
+      "role": "parallel_transform",
+      "subLabel": "三个比特 → I/Q 电平"
+    },
+    {
+      "id": "sum",
+      "label": "求和",
+      "shape": "sum",
+      "role": "sum"
+    },
+    {
+      "id": "out",
+      "label": "8PSK 信号",
+      "shape": "io",
+      "role": "output"
+    },
+    {
+      "id": "f0",
+      "label": "成形滤波器",
+      "shape": "block",
+      "role": "branch_0_filter",
+      "subLabel": "$g_T(t)$"
+    },
+    {
+      "id": "mix0",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_0_mixer"
+    },
+    {
+      "id": "c0",
+      "label": "$\\cos\\omega_c t$",
+      "shape": "io",
+      "role": "branch_0_carrier"
+    },
+    {
+      "id": "f1",
+      "label": "成形滤波器",
+      "shape": "block",
+      "role": "branch_1_filter",
+      "subLabel": "$g_T(t)$"
+    },
+    {
+      "id": "mix1",
+      "label": "乘法器",
+      "shape": "mixer",
+      "role": "branch_1_mixer"
+    },
+    {
+      "id": "c1",
+      "label": "$-\\sin\\omega_c t$",
+      "shape": "io",
+      "role": "branch_1_carrier"
+    }
+  ],
+  "edges": [
+    {
+      "from": "in",
+      "to": "sp"
+    },
+    {
+      "from": "sp",
+      "to": "map",
+      "label": "$b_{1,n}$",
+      "channel": 0
+    },
+    {
+      "from": "sp",
+      "to": "map",
+      "label": "$b_{2,n}$",
+      "channel": 1
+    },
+    {
+      "from": "sp",
+      "to": "map",
+      "label": "$b_{3,n}$",
+      "channel": 2
+    },
+    {
+      "from": "map",
+      "to": "f0",
+      "label": "$a_{c,n}$"
+    },
+    {
+      "from": "f0",
+      "to": "mix0",
+      "label": "$I(t)$"
+    },
+    {
+      "from": "c0",
+      "to": "mix0",
+      "toPort": "bottom"
+    },
+    {
+      "from": "mix0",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "map",
+      "to": "f1",
+      "label": "$a_{s,n}$"
+    },
+    {
+      "from": "f1",
+      "to": "mix1",
+      "label": "$Q(t)$"
+    },
+    {
+      "from": "c1",
+      "to": "mix1",
+      "toPort": "bottom"
+    },
+    {
+      "from": "mix1",
+      "to": "sum",
+      "polarity": "+"
+    },
+    {
+      "from": "sum",
+      "to": "out",
+      "label": "$s(t)$"
+    }
+  ]
+}

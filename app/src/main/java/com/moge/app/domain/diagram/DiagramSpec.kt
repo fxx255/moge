@@ -30,6 +30,12 @@ enum class DiagramNodeShape {
 
     /** 分支 / 交点。 */
     JUNCTION,
+
+    /** Tall serial/parallel or multiplexing block with separate signal ports. */
+    BUS,
+
+    /** Open sampling switch; label above, sampling instant below. */
+    SAMPLER,
 }
 
 /** 连线两侧挂接的端口（不需要模型给绝对坐标）。 */
@@ -66,6 +72,7 @@ data class DiagramNode(
  * textbook profile instead of treating the multiplier as a rectangular block.
  */
 internal fun DiagramNode.renderShape(): DiagramNodeShape {
+    if (shape == DiagramNodeShape.BUS || shape == DiagramNodeShape.SAMPLER) return shape
     if (shape == DiagramNodeShape.MIXER || shape == DiagramNodeShape.SUM) return shape
     val roleKey = role.orEmpty().trim().lowercase()
         .replace('-', '_').replace(' ', '_')
@@ -97,6 +104,8 @@ data class DiagramEdge(
     val dashed: Boolean = false,
     /** 合流节点的输入符号，例如求和器上方为 +、下方为 −。 */
     val polarity: String? = null,
+    /** Signal lane in a parallel bundle (not a pixel coordinate). */
+    val channel: Int? = null,
 )
 
 @Serializable
@@ -108,6 +117,8 @@ data class DiagramSpec(
     val direction: DiagramDirection = DiagramDirection.LR,
     /** Deterministic local arrangement; omitted in old specs. */
     val profile: DiagramLayoutProfile = DiagramLayoutProfile.GENERIC,
+    /** The last drawn lane represents the end of a larger parallel bank. */
+    val repeatLastLane: Boolean = false,
 )
 
 @Serializable
@@ -124,6 +135,8 @@ enum class DiagramLayoutProfile {
     TEXTBOOK_DUAL_BRANCH,
     /** Coherent I/Q receiver: parallel signal lanes with shared recovery/control paths. */
     IQ_DEMODULATOR,
+    /** Topology-driven chains, parallel banks and serial/parallel communication systems. */
+    COMMUNICATION,
 }
 
 /** 规模上限。超出的图拒收，而不是画成一团看不清的东西。 */
@@ -138,4 +151,5 @@ object DiagramLimits {
     const val MAX_ID_CHARS = 24
     const val MAX_ROWS = 4
     const val MAX_COLUMNS = 16
+    const val MAX_CHANNELS = 4
 }
