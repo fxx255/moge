@@ -316,11 +316,32 @@ interface RequestDao {
         userMessage: MessageEntity,
         answer: MessageEntity,
     ) {
-        insertMessage(userMessage)
-        insertMessage(answer)
+        require(userMessage.conversationId == request.conversationId && answer.conversationId == request.conversationId &&
+            userMessage.role == "user" && answer.role == "assistant" && request.userMessageId == userMessage.id &&
+            request.answerMessageId == answer.id && answer.replyToMessageId == userMessage.id) { "问题、回答与请求归属不一致" }
+        val parentId = if (userMessage.parentMessageId == ConversationBranches.AUTO_PARENT)
+            ConversationBranches.visible(branchMessages(request.conversationId), branchSelections(request.conversationId)).lastOrNull()?.id
+            else userMessage.parentMessageId
+        if (parentId != null) {
+            val parent = requireNotNull(getMessage(parentId)) { "分支起点已不存在" }
+            require(parent.conversationId == request.conversationId) { "分支起点不属于当前对话" }
+            require(parent.role == "assistant") { "新问题必须接在回答之后" }
+        }
+        insertMessage(userMessage.copy(parentMessageId = parentId))
+        insertMessage(answer.copy(parentMessageId = userMessage.id))
         insertRequest(request)
+        selectBranch(BranchSelectionEntity(request.conversationId, ConversationBranches.key(parentId), userMessage.id))
         touchConversation(request.conversationId, Instant.now())
     }
+
+    @Query("SELECT * FROM message WHERE conversation_id=:conversationId ORDER BY created_at,rowid")
+    suspend fun branchMessages(conversationId: String): List<MessageEntity>
+
+    @Query("SELECT * FROM branch_selection WHERE conversation_id=:conversationId")
+    suspend fun branchSelections(conversationId: String): List<BranchSelectionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun selectBranch(selection: BranchSelectionEntity)
 
     /**
      * 原子收尾：把最终正文写进**固定的**回答位置、标记请求完成。

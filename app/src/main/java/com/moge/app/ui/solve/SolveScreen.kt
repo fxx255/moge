@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
@@ -146,13 +147,16 @@ fun SolveScreen(
                 },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
-                onPasteImages = vm::pasteImages)
+                onPasteImages = vm::pasteImages, onCancelEditing = vm::cancelEditing)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,
                 onOpenImages = { paths, index -> viewer = paths to index },
                 onShare = { chooseQuestion(it, false) }, onSave = { chooseQuestion(it, true) },
                 onResume = vm::resume,
+                onEdit = vm::editQuestion, onSwitchVersion = vm::switchVersion,
+                readBranchViewport = { key -> observedId?.let { readViewport(it + "__path__" + key) } },
+                saveBranchViewport = { key, viewport -> observedId?.let { saveViewport(it + "__path__" + key, viewport) } },
                 conversationId = observedId, initialViewport = initialViewport,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
                 contentPadding = padding)
@@ -229,20 +233,37 @@ internal fun SolveList(
     saveViewport: (ConversationViewport) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     onResume: (String) -> Unit = {},
+    onEdit: (String) -> Unit = {},
+    onSwitchVersion: (String) -> Unit = {},
+    readBranchViewport: (String) -> ConversationViewport? = { null },
+    saveBranchViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
 ) {
     val listState = rememberLazyListState()
     var restored by remember(conversationId) { mutableStateOf(false) }
     var questionIds by remember(conversationId) { mutableStateOf<List<String>?>(null) }
     val currentItems by rememberUpdatedState(state.items)
     val save by rememberUpdatedState(saveViewport)
+    val branchKey = state.items.filterIsInstance<SolveItem.Question>().lastOrNull()?.id.orEmpty()
+    val currentBranchKey by rememberUpdatedState(branchKey)
+    val saveBranch by rememberUpdatedState(saveBranchViewport)
+    var pendingVersion by remember(conversationId) { mutableStateOf<String?>(null) }
+    var pendingOffset by remember(conversationId) { mutableStateOf(0) }
+    var pendingAnchor by remember(conversationId) { mutableStateOf<String?>(null) }
     val ids = state.items.map { it.id }
-    LaunchedEffect(conversationId, ids) {
+    LaunchedEffect(conversationId, ids, contentPadding) {
         if (ids.isEmpty()) return@LaunchedEffect
         val questions = state.items.filterIsInstance<SolveItem.Question>().map { it.id }
         if (!restored) {
+            // Allow the floating header/composer to report their sizes before restoring a short list.
+            withFrameNanos { }
             val anchor = initialViewport
             listState.scrollToItem(anchor?.indexIn(ids) ?: ids.lastIndex, anchor?.offset ?: 0)
             restored = true
+        } else if (pendingVersion != null && pendingVersion in ids) {
+            val anchor = readBranchViewport(branchKey)
+            val commonIndex = ids.indexOf(pendingAnchor).takeIf { it >= 0 }
+            listState.scrollToItem(anchor?.indexIn(ids) ?: commonIndex ?: ids.indexOf(pendingVersion), anchor?.offset ?: pendingOffset)
+            pendingVersion = null
         } else if (questionIds != null && questions.any { it !in questionIds.orEmpty() }) {
             // Only a new question moves the viewport; reopening/history loading/answer refresh do not.
             listState.animateScrollToItem(ids.lastIndex)
@@ -250,12 +271,19 @@ internal fun SolveList(
         questionIds = questions
     }
     fun recordViewport() {
-        if (!restored) return
+        if (!restored || pendingVersion != null) return
         val index = listState.firstVisibleItemIndex
-        currentItems.getOrNull(index)?.let { save(ConversationViewport(it.id, index, listState.firstVisibleItemScrollOffset)) }
+        currentItems.getOrNull(index)?.let {
+            val viewport = ConversationViewport(it.id, index, listState.firstVisibleItemScrollOffset)
+            save(viewport)
+            saveBranch(currentBranchKey, viewport)
+        }
     }
     LaunchedEffect(listState, conversationId, restored) {
-        if (restored) snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+        if (restored) snapshotFlow {
+            (listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset) to
+                (currentItems.getOrNull(listState.firstVisibleItemIndex)?.id to pendingVersion)
+        }
             .collect { recordViewport() }
     }
     DisposableEffect(listState, conversationId) {
@@ -273,7 +301,15 @@ internal fun SolveList(
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(state.items, key = { it.id }) { item ->
             when (item) {
-                is SolveItem.Question -> if (item.isFirst) QuestionCard(item, onOpenImages) else FollowUpNote(item, onOpenImages)
+                is SolveItem.Question -> if (item.isFirst) QuestionCard(item, onOpenImages) else FollowUpNote(item, onOpenImages = onOpenImages,
+                    onEdit = onEdit, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos && state.editingQuestionId == null,
+                    onSwitchVersion = { target ->
+                        recordViewport()
+                        pendingVersion = target
+                        pendingAnchor = currentItems.getOrNull(listState.firstVisibleItemIndex)?.id
+                        pendingOffset = listState.firstVisibleItemScrollOffset
+                        onSwitchVersion(target)
+                    })
                 is SolveItem.Answer -> AnswerSheet(item, onRetry, onRegenerate,
                     actionsEnabled = !state.generating && !state.busyElsewhere && !state.submitting,
                     onOpenImages = onOpenImages, answerFirst = state.answerFirst,

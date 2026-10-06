@@ -15,6 +15,7 @@ import com.moge.app.data.db.MogeDatabase
 import com.moge.app.data.db.ConversationEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.llm.ChatMessage
+import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.domain.FailureKind
 import com.moge.app.domain.RequestStatus
 import io.mockk.coEvery
@@ -59,6 +60,7 @@ class SubmitPathTest {
     private lateinit var modelClient: ModelClient
     private lateinit var preparer: GenerationPreparer
     private lateinit var manager: GenerationManager
+    private lateinit var guard: FakeGuard
     private lateinit var aiCredentialStore: com.moge.app.data.credential.AiCredentialStore
 
     /** 真实身份对象：真实 preparer 需要（relaxed mock 的空字符串会让快照校验拒绝）。 */
@@ -91,7 +93,11 @@ class SubmitPathTest {
 
     private class FakeGuard : GenerationGuard {
         private val held = mutableSetOf<String>()
-        override fun acquire(requestId: String, conversationId: String?) = "$requestId#1".also { held += it }
+        val acquisitions = AtomicInteger()
+        override fun acquire(requestId: String, conversationId: String?) = "$requestId#1".also {
+            acquisitions.incrementAndGet()
+            held += it
+        }
         override fun release(token: String) { held -= token }
         override fun activeCount() = held.size
     }
@@ -117,13 +123,14 @@ class SubmitPathTest {
             },
             credentialStore = aiCredentialStore,
         )
+        guard = FakeGuard()
         manager = GenerationManager(
             modelClient = modelClient,
             requestRepository = requestRepository,
             conversationDao = db.conversationDao(),
             credentialStore = mockk(relaxed = true),
             diagnostics = GenerationDiagnostics(),
-            guard = FakeGuard(),
+            guard = guard,
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(requestRepository, NoopRenderer()),
             preparer = preparer,
@@ -139,6 +146,35 @@ class SubmitPathTest {
     }
 
     /** 桩：记录实际 messages，并返回一个可解析的回复。 */
+    @Test fun branchHistoryAndRetryUseOnlyTheirOwnAncestorTextImagesAndDocuments() = runBlocking {
+        suspend fun turn(q: String, parent: String?, pic: String, document: String): com.moge.app.data.db.RequestEntity {
+            val request = requestRepository.createRequest("c1", q, "a-$q", "at-$q", q, listOf(pic), "",
+                documentPaths = listOf(document), parentMessageId = parent)
+            assertTrue(requestRepository.complete(request.requestId, request.attemptId, request.answerMessageId, "answer " + q))
+            return request
+        }
+        turn("shared", null, "/shared.jpg", "/shared.txt")
+        turn("old", "a-shared", "/old.jpg", "/old.txt")
+        val oldTail = turn("old-tail", "a-old", "/tail.jpg", "/tail.txt")
+        turn("new", "a-shared", "/new.jpg", "/new.txt")
+        val snapshot = preparer.captureInitialSnapshot(
+            GenerationManager.Submission("c1", "next", emptyList()), "c1", "next-q", "next-a")
+        assertEquals(listOf("shared", "a-shared", "new", "a-new"), snapshot.originalHistory.map { it.id })
+        assertEquals(listOf("/shared.jpg", "/new.jpg"), snapshot.originalHistory.flatMap { it.imagePaths })
+        assertEquals(listOf("/shared.txt", "/new.txt"), snapshot.documentPaths)
+        val retry = manager.captureRetrySnapshot(oldTail)
+        assertEquals(listOf("shared", "a-shared", "old", "a-old"), retry.originalHistory.map { it.id })
+        assertFalse(retry.originalHistory.any { it.text.contains("new") })
+        assertEquals(setOf("/shared.txt", "/old.txt", "/tail.txt"), retry.documentPaths.toSet())
+        stubCapturing()
+        val request = manager.submit(GenerationManager.Submission("c1", "next", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(request.requestId))
+        val sent = capturedMessages.single()
+        assertFalse(sent.any { it.content.contains("old") })
+        assertTrue(sent.any { it.content.contains("new") })
+        assertEquals(setOf("/shared.txt", "/new.txt"), sent.flatMap { it.documentPaths }.toSet())
+    }
+
     private fun stubCapturing(reply: String = "回答", visionEnabled: Boolean = false) {
         coEvery { modelClient.isVisionEnabled() } returns visionEnabled
         coEvery {
@@ -709,45 +745,57 @@ class SubmitPathTest {
         Unit
     }
 
-    /**
-     * **配置不完整的看图题必须明确失败，不能静默降级成纯文本**（silent-degrade-fix）。
-     *
-     * 有附件、主模型不能看图、也没有识别档案：旧行为是路由判成 none 后把
-     * 空问题/占位文案发给纯文本模型。现在必须落「配置失效」终态，
-     * 且主模型一次网络请求都不发出。
-     */
+    /** 无看图路线时在落盘、保活之前拒绝，带文字和纯照片题都不能被当成纯文本发送。 */
     @Test
-    fun `photo submission without vision and without recognizer fails with config invalid`() = runBlocking {
-        coEvery { modelClient.isVisionEnabled() } returns false
-        // 主模型无视觉 + 无识别档案 → captureInitialSnapshot 只能记 none 路由。
-        every { aiCredentialStore.questionVisionProfileId() } returns null
-        var mainModelCalled = false
-        coEvery {
-            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
-        } coAnswers {
-            mainModelCalled = true
-            ReplyParser.parse("""{"reply":"不该发生"}""", normalizeMarkdown = false)
+    fun `photo submission without vision or recognizer is rejected before records and protection`() = runBlocking {
+        stubCapturing()
+        for (text in listOf("看图", "")) {
+            val error = runCatching {
+                manager.submit(GenerationManager.Submission("c1", text, listOf("/definitely/not/here.png")))
+            }.exceptionOrNull()
+            assertTrue(error is ModelException)
+            assertEquals(ModelException.Kind.CONFIG_INVALID, (error as ModelException).kind)
+            assertTrue(error.message.orEmpty().contains("识题模型"))
+            assertFalse(manager.isRunning())
         }
-        val request = manager.submit(
-            GenerationManager.Submission(
-                conversationId = "c1",
-                userText = "看图",
-                attachmentPaths = listOf("/definitely/not/here.png"),
-            ),
-        )
-        val status = awaitTerminal(request.requestId)
-        assertEquals(RequestStatus.INTERRUPTED.name, status)
-        val stored = requestRepository.get(request.requestId)!!
-        assertEquals(
-            "配置不完整的看图题必须落「配置失效」而不是可重试的附件丢失",
-            FailureKind.CONFIG_INVALID.name,
-            stored.failureKind,
-        )
-        assertTrue(
-            "失败信息必须引导用户配置看图模型",
-            stored.failureMessage.contains("看图") || stored.failureMessage.contains("识别"),
-        )
-        assertFalse("绝不能把看图题当纯文本发出去", mainModelCalled)
+        assertTrue(requestRepository.forConversation("c1").isEmpty())
+        assertTrue(db.conversationDao().getMessages("c1").isEmpty())
+        assertEquals(0, guard.acquisitions.get())
+        assertTrue(capturedMessages.isEmpty())
+
+        // 拦截后仍可正常提交下一道文字题，不能遗留活动任务占位。
+        val request = manager.submit(GenerationManager.Submission("c1", "纯文字题", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(request.requestId))
+        assertEquals("纯文字题", capturedMessages.single().last().content)
+        assertEquals(1, guard.acquisitions.get())
+    }
+
+    @Test
+    fun `legacy image requests without a vision route retry without starting protection`() = runBlocking {
+        stubCapturing()
+        manager.recoverOnStartup()
+        for (prepared in listOf(false, true)) {
+            val submission = GenerationManager.Submission("c1", "旧图片题", listOf("/definitely/not/here.png"))
+            val snapshot = preparer.captureInitialSnapshot(submission, "c1", "u-$prepared", "a-$prepared")
+                .copy(prepared = prepared, continuationText = "已经保存的步骤")
+            val record = requestRepository.createRequest(
+                "c1", "u-$prepared", "a-$prepared", "old-$prepared", submission.userText,
+                submission.attachmentPaths, SnapshotCodec.encode(snapshot),
+            )
+            requestRepository.interrupt(record.requestId, record.attemptId, "已经保存的步骤",
+                FailureKind.CONFIG_INVALID, "缺少看图配置")
+            val retry = requestRepository.beginRetry(record.requestId, "retry-$prepared", null, null)!!
+            manager.submitRetry(retry.requestId, retry.attemptId)
+
+            assertEquals(RequestStatus.INTERRUPTED.name, awaitTerminal(retry.requestId))
+            val stored = requestRepository.get(retry.requestId)!!
+            assertEquals(FailureKind.CONFIG_INVALID.name, stored.failureKind)
+            assertTrue(stored.failureMessage.contains("识题模型"))
+            assertEquals("已经保存的步骤", stored.partialText)
+        }
+        assertEquals(0, guard.acquisitions.get())
+        assertEquals(0, guard.activeCount())
+        assertTrue(capturedMessages.isEmpty())
     }
 
     /**

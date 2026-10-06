@@ -22,7 +22,8 @@ object DiagramRenderer {
 
     fun render(spec: DiagramSpec, widthPx: Int = 4096, heightPx: Int = 4096,
                dark: Boolean = false): Bitmap =
-        renderLayout(DiagramLayout.layout(spec), widthPx, heightPx, dark)
+        if (spec.profile.isCoding()) CodingDiagramRenderer.render(spec, widthPx, heightPx, dark)
+        else renderLayout(DiagramLayout.layout(spec), widthPx, heightPx, dark)
 
     fun renderLayout(layout: DiagramLayoutResult, widthPx: Int, heightPx: Int,
                      dark: Boolean = false): Bitmap {

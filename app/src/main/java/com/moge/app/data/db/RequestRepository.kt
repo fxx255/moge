@@ -47,6 +47,7 @@ class RequestRepository @Inject constructor(
         status: RequestStatus = RequestStatus.PREPARING,
         documentPaths: List<String> = emptyList(),
         contextDocumentPaths: List<String> = documentPaths,
+        parentMessageId: String? = ConversationBranches.AUTO_PARENT,
     ): RequestEntity = withContext(io) {
         // user / answer 两条消息必须严格先后：Instant 落库成 epochMillis，
         // 各自独立 Instant.now() 在同一毫秒内会得到相同 created_at。
@@ -61,6 +62,7 @@ class RequestRepository @Inject constructor(
             documentPaths = encodeList(documentPaths),
             displayContent = userDisplayContent,
             createdAt = now,
+            parentMessageId = parentMessageId,
         )
         val answer = MessageEntity(
             id = answerMessageId,

@@ -18,9 +18,9 @@ class DiagramImageStore @Inject constructor(
     prefix = "diagram",
     serializer = DiagramSpec.serializer(),
     // 布局几何、字体或标签位置变化时递增，否则旧 PNG 会盖住新模板
-    renderVersion = "d3",
+    renderVersion = "d6",
 ) {
     override fun draw(spec: DiagramSpec, dark: Boolean): Bitmap = DiagramRenderer.render(spec, dark = dark)
 
-    override fun describe(spec: DiagramSpec): String = "title=${spec.title} nodes=${spec.nodes.size}"
+    override fun describe(spec: DiagramSpec): String = "title=${spec.title} profile=${spec.profile} nodes=${spec.nodes.size}"
 }

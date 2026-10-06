@@ -40,6 +40,7 @@ internal fun ComposerTextField(
     placeholder: String,
     onPasteImages: (List<Uri>) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val binding = remember { ComposerTextBinding(value) }
     val onChange by rememberUpdatedState(onValueChange)
@@ -53,6 +54,7 @@ internal fun ComposerTextField(
     }
     BasicTextField(
         state = binding.field,
+        enabled = enabled,
         modifier = modifier.heightIn(min = TextFieldDefaults.MinHeight).contentReceiver(receiver),
         interactionSource = interaction,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
@@ -62,7 +64,7 @@ internal fun ComposerTextField(
             TextFieldDefaults.DecorationBox(
                 value = binding.field.text.toString(),
                 innerTextField = innerTextField,
-                enabled = true,
+                enabled = enabled,
                 singleLine = false,
                 visualTransformation = VisualTransformation.None,
                 interactionSource = interaction,

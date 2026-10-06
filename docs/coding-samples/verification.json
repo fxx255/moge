@@ -1,0 +1,112 @@
+{
+  "renderVersion": "d6",
+  "referenceFigures": [
+    "9.5.2",
+    "9.5.3",
+    "9.5.4"
+  ],
+  "specifications": 12,
+  "themeImages": 24,
+  "tests": 86,
+  "failures": 0,
+  "errors": 0,
+  "suites": [
+    {
+      "name": "com.moge.app.data.figure.FigureImageStoreVersionTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:39:50.331Z"
+    },
+    {
+      "name": "com.moge.app.data.llm.FigureAnchorOffsetTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:39:57.269Z"
+    },
+    {
+      "name": "com.moge.app.data.llm.FigureHistoryTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:39:57.322Z"
+    },
+    {
+      "name": "com.moge.app.data.llm.HttpPayloadTest",
+      "tests": "13",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:39:57.405Z"
+    },
+    {
+      "name": "com.moge.app.domain.coding.CodingSpecTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:06.748Z"
+    },
+    {
+      "name": "com.moge.app.domain.diagram.CodingDiagramAcceptanceTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:06.990Z"
+    },
+    {
+      "name": "com.moge.app.domain.diagram.CommunicationDiagramAcceptanceTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:28.528Z"
+    },
+    {
+      "name": "com.moge.app.domain.diagram.DiagramLayoutAcceptanceTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:32.720Z"
+    },
+    {
+      "name": "com.moge.app.domain.diagram.DiagramParserTest",
+      "tests": "18",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:33.462Z"
+    },
+    {
+      "name": "com.moge.app.domain.diagram.IqDemodulatorLayoutTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:33.489Z"
+    },
+    {
+      "name": "com.moge.app.ui.figure.CodingReferenceTemplateTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-06T12:40:33.720Z"
+    }
+  ],
+  "lint": {
+    "Error": 0,
+    "Fatal": 0,
+    "Warning": 48
+  },
+  "build": "testDebugUnitTest, lintDebug, assembleDebug: BUILD SUCCESSFUL",
+  "apk": "release-output/Moge-coding-reference-debug.apk",
+  "apkSha256": "e93103663351c1d121ec64dd65aa957c1e96a5129d539fe0ae191c9a02b30475",
+  "signature": "v2 verified"
+}

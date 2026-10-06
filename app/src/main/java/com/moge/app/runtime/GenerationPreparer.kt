@@ -6,6 +6,7 @@ import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.db.ConversationDao
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
+import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.ChatMessage
 import com.moge.app.data.llm.HISTORY_MAX_CHARS
 import com.moge.app.data.llm.HISTORY_MAX_MESSAGES
@@ -36,8 +37,8 @@ private const val HISTORY_IMAGE_LIMIT = 2
  * 照片转写是网络调用，可能跑好几秒；放在 ViewModel 里会被切页/旋转/锁屏一并取消，
  * 记录卡在 PREPARING。整段准备归应用级管理器，与页面生命周期无关。
  *
- * 「模型不能看图」「附件读不出来」等可预期终态以 [Prepared.failure] 返回，
- * 由管理器落成带原因、可重试的记录，而不是抛出去让记录悬空。
+ * 配置错误用 [ModelException] 交给提交入口提示；附件失败以 [Prepared.failure] 返回。
+ * 已创建的请求由管理器统一落成带原因的终态。
  */
 @Singleton
 class GenerationPreparer @Inject constructor(
@@ -75,23 +76,9 @@ class GenerationPreparer @Inject constructor(
         owner: RequestEntity,
         initial: RequestSnapshot,
     ): Prepared {
-        if (initial.model.isBlank() && initial.primaryProfileId.isBlank()) {
-            // 提交时就没有可用档案：落「配置失效」，引导去设置页，而不是笼统的「恢复信息不完整」。
-            throw ModelException(
-                ModelException.Kind.NOT_CONFIGURED,
-                "还没有可用的模型：请在设置页添加接口地址、模型名与 API 密钥",
-            )
-        }
+        validateConfiguration(initial, submission.attachmentPaths.isNotEmpty())
         if (!initial.isComplete) {
             return failure(owner, "本轮恢复信息不完整，无法安全准备；请重新发送这道题")
-        }
-        // 有附件却既不能看图、也没有识题模型 ⇒ 明确失败（配置失效），
-        // 绝不静默降级成纯文本提问让模型凭一句「看图」瞎编。
-        if (submission.attachmentPaths.isNotEmpty() && initial.photoRoute == RequestSnapshot.PHOTO_ROUTE_NONE) {
-            throw ModelException(
-                ModelException.Kind.CONFIG_INVALID,
-                "当前主模型不能看图，也没有配置题目识别模型；请在设置里选择一个能看图的模型，或配置题目识别模型后重新发送",
-            )
         }
         val photo = when (initial.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_NONE -> PhotoOutcome(emptyList(), submission.userText)
@@ -131,6 +118,25 @@ class GenerationPreparer @Inject constructor(
         )
     }
 
+    /** 本地配置检查：必须先于前台保活启动和输入草稿消费。 */
+    internal fun validateConfiguration(initial: RequestSnapshot, hasAttachments: Boolean) {
+        if (initial.model.isBlank() && initial.primaryProfileId.isBlank()) {
+            // 提交时就没有可用档案：引导去设置页，不报成「恢复信息不完整」。
+            throw ModelException(
+                ModelException.Kind.NOT_CONFIGURED,
+                "还没有可用的模型：请在设置页添加接口地址、模型名与 API 密钥",
+            )
+        }
+        // 有附件却既不能看图、也没有识题模型 ⇒ 明确失败（配置失效），
+        // 绝不静默降级成纯文本提问让模型凭一句「看图」瞎编。
+        if (hasAttachments && initial.photoRoute == RequestSnapshot.PHOTO_ROUTE_NONE) {
+            throw ModelException(
+                ModelException.Kind.CONFIG_INVALID,
+                "当前模型不支持图片，请在设置中切换到支持看图的模型，或配置识题模型后重新发送",
+            )
+        }
+    }
+
     /**
      * **网络之前**钉下的初始快照：原问题、原历史（有界）、照片路线、主/识题档案身份、
      * 推理与联网设置、解题模式、续写上限。随 `createRequest` 一起落库，
@@ -146,11 +152,17 @@ class GenerationPreparer @Inject constructor(
         val identity = credentialStore.resolveActiveIdentity()
         val baseUrl = identity?.baseUrl.orEmpty()
         // 历史在此刻钉下：之后用户删消息都不能改变这轮的上下文。
-        val bounded = boundedHistory(conversationId, userMessageId, answerMessageId)
+        val allMessages = conversationDao.getMessages(conversationId)
+        val sourceHistory = if (allMessages.any { it.id == userMessageId })
+            ConversationBranches.before(allMessages, userMessageId)
+        else if (submission.parentMessageId == ConversationBranches.AUTO_PARENT)
+            ConversationBranches.visible(allMessages, conversationDao.getBranchSelections(conversationId))
+        else ConversationBranches.ancestors(allMessages, submission.parentMessageId)
+        val bounded = boundedHistory(sourceHistory, userMessageId, answerMessageId)
         val visionDirect = identity?.visionEnabled ?: false
         val recognizer = if (visionDirect) null else credentialStore.questionVisionProfileId()
             ?.let { credentialStore.resolveIdentityFor(it) }
-        // 「有附件但两条路都不通」由 hasImages=true + photoRoute=none 携带，prepare 据此明确失败。
+        // 「有图片但两条路都不通」由 hasImages=true + photoRoute=none 携带，提交前据此拦截。
         val route = when {
             submission.attachmentPaths.isEmpty() -> RequestSnapshot.PHOTO_ROUTE_NONE
             visionDirect -> RequestSnapshot.PHOTO_ROUTE_DIRECT
@@ -163,7 +175,7 @@ class GenerationPreparer @Inject constructor(
             protocol = protocolOf(identity?.searchProtocol),
             apiProtocol = identity?.apiProtocol?.name.orEmpty(),
             documentReadRequired = submission.documentPaths.isNotEmpty(),
-            documentPaths = (conversationDao.getMessages(conversationId).filter { it.role == "user" }
+            documentPaths = (sourceHistory.filter { it.role == "user" }
                 .flatMap { RequestRepository.decodePathList(it.documentPaths) } + submission.documentPaths).distinct(),
             reasoningEffort = (identity?.reasoningEffort ?: AiReasoningEffort.LOW).name,
             solveMode = submission.solveMode.name,
@@ -197,6 +209,7 @@ class GenerationPreparer @Inject constructor(
             !snapshot.isComplete -> return failure(owner, "这一轮的恢复信息不完整，无法安全重发。请重新发送这道题。")
         }
         val attachments = RequestRepository.decodePathList(owner.attachmentPaths)
+        validateConfiguration(snapshot, attachments.isNotEmpty())
         if (snapshot.prepared) return preparedRetryFromSnapshot(snapshot, owner, attachments)
         val submission = GenerationManager.Submission(
             conversationId = owner.conversationId,
@@ -336,12 +349,12 @@ class GenerationPreparer @Inject constructor(
      * 条数与总字符双限，超长时从最早的消息开始丢（至少保留最近一条）。
      */
     private suspend fun boundedHistory(
-        conversationId: String,
+        source: List<com.moge.app.data.db.MessageEntity>,
         userMessageId: String,
         answerMessageId: String,
     ): List<SnapshotHistoryMessage> {
         val merged = mutableListOf<SnapshotHistoryMessage>()
-        conversationDao.getMessages(conversationId)
+        source
             .filterNot { it.id == userMessageId || it.id == answerMessageId }
             .filterNot { it.role == "assistant" && it.content.isBlank() }
             .forEach { message ->

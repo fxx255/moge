@@ -5,12 +5,63 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Embedded
 import androidx.room.Transaction
+import androidx.room.Relation
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 
 /** 独立历史与消息的读写（生成流程的写入走 [RequestDao]，带 attempt 围栏）。 */
 @Dao
 interface ConversationDao {
+    @Transaction
+    @Query("SELECT * FROM conversation WHERE id=:conversationId")
+    fun observeTree(conversationId: String): Flow<ConversationTree?>
+
+    @Transaction
+    suspend fun visibleMessages(conversationId: String): List<MessageEntity> {
+        val messages = getMessages(conversationId)
+        val selections = getBranchSelections(conversationId)
+        val path = ConversationBranches.visible(messages, selections)
+        if (messages.any { it.parentMessageId != null }) {
+            path.forEach { child ->
+                val parentKey = ConversationBranches.key(child.parentMessageId)
+                if (selections.none { it.parentKey == parentKey && it.selectedChildId == child.id })
+                    putBranchSelection(BranchSelectionEntity(conversationId, parentKey, child.id))
+            }
+        }
+        return path
+    }
+    @Query("SELECT * FROM branch_selection WHERE conversation_id=:conversationId")
+    suspend fun getBranchSelections(conversationId: String): List<BranchSelectionEntity>
+
+    @Query("SELECT * FROM branch_selection WHERE conversation_id=:conversationId")
+    fun observeBranchSelections(conversationId: String): Flow<List<BranchSelectionEntity>>
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun putBranchSelection(selection: BranchSelectionEntity)
+
+    @Transaction
+    suspend fun selectBranch(conversationId: String, questionId: String) {
+        val question = requireNotNull(getMessage(questionId)) { "这个版本已不存在" }
+        require(question.conversationId == conversationId && question.role == "user") { "不能切换到其他对话" }
+        putBranchSelection(BranchSelectionEntity(conversationId, ConversationBranches.key(question.parentMessageId), question.id))
+    }
+
+    @Transaction
+    suspend fun revealBranch(conversationId: String, messageId: String) {
+        val messages = getMessages(conversationId)
+        ConversationBranches.ancestors(messages, messageId).forEach { message ->
+            putBranchSelection(BranchSelectionEntity(conversationId, ConversationBranches.key(message.parentMessageId), message.id))
+        }
+    }
+
+    @Query("""
+        SELECT m.id FROM message m WHERE m.conversation_id=:conversationId AND
+        (m.content LIKE :pattern ESCAPE '\' OR m.display_content LIKE :pattern ESCAPE '\'
+        OR m.transcript LIKE :pattern ESCAPE '\' OR m.final_answer LIKE :pattern ESCAPE '\'
+        OR EXISTS (SELECT 1 FROM request r WHERE r.answer_message_id=m.id AND r.partial_text LIKE :pattern ESCAPE '\'))
+        ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1
+    """)
+    suspend fun searchMessage(conversationId: String, pattern: String): String?
     @Query("SELECT document_paths FROM message UNION ALL SELECT document_paths FROM request")
     suspend fun allDocumentPathJson(): List<String>
 
@@ -126,9 +177,15 @@ interface ConversationDao {
           AND (trim(COALESCE(a.display_content, a.content)) != '' OR trim(a.final_answer) != '')
           AND NOT EXISTS (SELECT 1 FROM request r WHERE r.answer_message_id = a.id
               AND (r.status != 'COMPLETED' OR r.conversation_id != a.conversation_id OR r.user_message_id != q.id))
-        ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1
+        ORDER BY a.created_at DESC, a.rowid DESC
     """)
-    suspend fun latestCompletedAnswer(conversationId: String): MessageEntity?
+    suspend fun completedAnswers(conversationId: String): List<MessageEntity>
+
+    @Transaction
+    suspend fun latestCompletedAnswer(conversationId: String): MessageEntity? {
+        val visible = visibleMessages(conversationId).mapTo(HashSet()) { it.id }
+        return completedAnswers(conversationId).firstOrNull { it.id in visible }
+    }
 
     /** Recover a completed answer locally without replacing its original provider text. */
     @Query("""
@@ -186,6 +243,13 @@ interface ConversationDao {
     @Query("SELECT id FROM conversation")
     suspend fun allConversationIds(): List<String>
 }
+
+/** A transaction snapshot prevents combining new messages with old branch selections. */
+data class ConversationTree(
+    @Embedded val conversation: ConversationEntity,
+    @Relation(parentColumn = "id", entityColumn = "conversation_id") val messages: List<MessageEntity>,
+    @Relation(parentColumn = "id", entityColumn = "conversation_id") val selections: List<BranchSelectionEntity>,
+)
 
 /** 历史卡片投影；自定义分类在会话上持久化，收藏快照仍然独立。 */
 data class HistoryEntry(

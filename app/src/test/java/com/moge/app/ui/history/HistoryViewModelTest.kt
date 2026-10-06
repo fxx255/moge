@@ -40,6 +40,17 @@ class HistoryViewModelTest {
     @After fun teardown() { Dispatchers.resetMain() }
     private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks)
 
+    @Test fun openingSearchResultRevealsItsHiddenMessageBeforeNavigation() {
+        val model = vm()
+        model.setQuery("旧版本")
+        coEvery { repository.revealSearchMatch("a", "旧版本") } returns "old-question"
+        var opened: Pair<String, String?>? = null
+        model.openConversation("a") { id, message -> opened = id to message }
+        assertEquals("a" to "old-question", opened)
+        assertFalse(model.state.value.busy)
+        coVerify(exactly = 1) { repository.revealSearchMatch("a", "旧版本") }
+    }
+
     @Test fun `search restores and clears hidden selections`() {
         val handle = SavedStateHandle(mapOf("historyQuery" to "函数"))
         val model = vm(handle)
@@ -99,8 +110,8 @@ class HistoryViewModelTest {
         model.selectAll()
         coEvery { repository.deleteIdle(setOf("a")) } returns setOf("a")
         model.deleteSelected()
-        coVerify(exactly = 1) { drafts.clear("a") }
-        coVerify(exactly = 0) { drafts.clear("b") }
+        coVerify(exactly = 1) { drafts.clearConversation("a") }
+        coVerify(exactly = 0) { drafts.clearConversation("b") }
         assertEquals(setOf("b"), model.state.value.selectedIds)
         assertTrue(model.state.value.message!!.contains("生成中的对话已保留"))
         assertFalse(model.state.value.busy)
@@ -112,7 +123,7 @@ class HistoryViewModelTest {
         coEvery { repository.deleteIdle(setOf("a", "b")) } returns setOf("a")
         model.deleteSelected()
         assertEquals(setOf("b"), model.state.value.selectedIds)
-        coVerify(exactly = 0) { drafts.clear("b") }
+        coVerify(exactly = 0) { drafts.clearConversation("b") }
     }
 
     @Test fun `pin uses repository and clears selection`() {

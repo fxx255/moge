@@ -66,7 +66,7 @@
 
 ## 验证
 
-更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。16 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
+更新模块已纳入正式工程的 Gradle/KSP、单元测试、debug/release 构建与 Lint。历史验证结果见 [修改报告](revision-progress-report.md)。18 项 Python 发布工具测试已通过；正式发布工作流执行完整测试、Lint 和签名构建，结果见仓库 Actions。连续两次正式版覆盖安装仍需真机验收。
 
 发布工具可单独运行：`python -m unittest discover -s scripts/release -p 'test_*.py'`。更新模块可单独运行 `testDebugUnitTest --tests 'com.moge.app.data.update.*'`；发布前应运行完整测试、release 构建与 Lint。
 

@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -40,14 +41,15 @@ import com.moge.app.ui.markdown.renderMarkdownIfChanged
 
 /** Both first questions and follow-ups use the same native math path. */
 @Composable
-internal fun UserQuestionText(source: String, color: Color = MaterialTheme.colorScheme.onSurface) {
+internal fun UserQuestionText(source: String, color: Color = MaterialTheme.colorScheme.onSurface, onClick: (() -> Unit)? = null) {
+    val click = if (onClick != null) Modifier.clickable(onClickLabel = "修改输入", onClick = onClick) else Modifier
     val math = remember(source) { userMathSource(source) }
     if (math == null) {
-        Text(source, style = MaterialTheme.typography.bodyLarge, color = color)
+        Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
     } else {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (math.incomplete) Text(source, style = MaterialTheme.typography.bodyLarge, color = color)
-            else UserMathBody(math, color)
+            if (math.incomplete) Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
+            else UserMathBody(math, color, onClick)
             val context = LocalContext.current
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 IconButton(onClick = {
@@ -67,7 +69,7 @@ internal fun UserQuestionText(source: String, color: Color = MaterialTheme.color
  * enough width instead of clipping equations to the input/card width.
  */
 @Composable
-private fun UserMathBody(math: UserMathSource, color: Color) {
+private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Unit)?) {
     val textColor = color.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val context = LocalContext.current
@@ -101,6 +103,8 @@ private fun UserMathBody(math: UserMathSource, color: Color) {
                         // Selection belongs to the editable source. The explicit copy action
                         // above copies it verbatim, rather than Markwon's normalized span text.
                         it.contentDescription = math.renderSource
+                        it.setOnClickListener(if (onClick != null) android.view.View.OnClickListener { onClick() } else null)
+                        it.isClickable = onClick != null
                         renderMarkdownIfChanged(it, math.renderSource, renderWidthPx, textColor, linkColor)
                     },
                 )

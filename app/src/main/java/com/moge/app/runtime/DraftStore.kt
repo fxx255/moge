@@ -109,6 +109,17 @@ open class DraftStore @Inject constructor(
             }
         }
 
+    /** Removing history also removes its edit and branch draft slots; shared files stay intact. */
+    suspend fun clearConversation(conversationId: String) = withContext(Dispatchers.IO) {
+        val safeId = conversationId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val prefix = "draft_" + safeId + "__"
+        val diskKeys = dir().listFiles().orEmpty().filter { it.name.startsWith(prefix) }.map {
+            it.name.removePrefix("draft_").substringBefore(".txt")
+        }
+        val keys = states.keys.filter { it.startsWith(conversationId + "__") } + diskKeys + conversationId
+        keys.distinct().forEach { clear(it) }
+    }
+
     /**
      * **条件清理**：只有**最新 pending**（未落盘的最新意图；没有 pending 时看落盘内容）
      * 的文字与附件都仍等于"发送时留下的基准"才清掉 —— 清理本身也是一次

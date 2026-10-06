@@ -18,8 +18,8 @@ import javax.inject.Singleton
 
 @Database(
     entities = [ConversationEntity::class, MessageEntity::class, RequestEntity::class,
-        NotebookCategoryEntity::class, NotebookEntryEntity::class],
-    version = 4,
+        NotebookCategoryEntity::class, NotebookEntryEntity::class, BranchSelectionEntity::class],
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(InstantConverters::class)
@@ -29,6 +29,30 @@ abstract class MogeDatabase : RoomDatabase() {
     abstract fun notebookDao(): NotebookDao
 
     companion object {
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE message ADD COLUMN parent_message_id TEXT REFERENCES message(id) ON DELETE SET NULL")
+                db.execSQL("CREATE INDEX index_message_parent_message_id ON message(parent_message_id)")
+                db.query("SELECT id,conversation_id FROM message ORDER BY conversation_id,created_at,rowid").use { cursor ->
+                    var lastConversation: String? = null
+                    var previous: String? = null
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getString(0)
+                        val conversation = cursor.getString(1)
+                        if (conversation != lastConversation) previous = null
+                        if (previous != null) db.execSQL("UPDATE message SET parent_message_id=? WHERE id=?", arrayOf(previous, id))
+                        previous = id
+                        lastConversation = conversation
+                    }
+                }
+                db.execSQL("""CREATE TABLE branch_selection (
+                    conversation_id TEXT NOT NULL, parent_key TEXT NOT NULL, selected_child_id TEXT NOT NULL,
+                    PRIMARY KEY(conversation_id,parent_key),
+                    FOREIGN KEY(conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+                    FOREIGN KEY(selected_child_id) REFERENCES message(id) ON DELETE CASCADE)""")
+                db.execSQL("CREATE INDEX index_branch_selection_selected_child_id ON branch_selection(selected_child_id)")
+            }
+        }
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 listOf("message", "request", "notebook_entry").forEach { table ->
@@ -67,7 +91,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MogeDatabase =
         Room.databaseBuilder(context, MogeDatabase::class.java, "moge.db")
-            .addMigrations(MogeDatabase.MIGRATION_2_3, MogeDatabase.MIGRATION_3_4)
+            .addMigrations(MogeDatabase.MIGRATION_2_3, MogeDatabase.MIGRATION_3_4, MogeDatabase.MIGRATION_4_5)
             .build()
 
     @Provides

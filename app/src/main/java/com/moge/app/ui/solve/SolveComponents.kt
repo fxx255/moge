@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Refresh
@@ -158,18 +160,38 @@ private fun Transcript(text: String) {
 
 /** 追问：右对齐的黄色便利贴。 */
 @Composable
-internal fun FollowUpNote(item: SolveItem.Question, onOpenImages: (List<String>, Int) -> Unit) {
+internal fun FollowUpNote(item: SolveItem.Question,
+    onEdit: (String) -> Unit = {}, onSwitchVersion: (String) -> Unit = {}, enabled: Boolean = true,
+    onOpenImages: (List<String>, Int) -> Unit) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Column(horizontalAlignment = Alignment.End) {
         Column(
             Modifier
                 .widthIn(max = 300.dp)
-                .background(MogeTheme.paper.stickyNote, RoundedCornerShape(4.dp))
+                .background(MogeTheme.paper.stickyNote, RoundedCornerShape(10.dp))
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "修改输入") { onEdit(item.id) }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             QuestionPhotos(item.photoPaths, onOpenImages)
             com.moge.app.ui.document.DocumentCards(item.documentPaths)
-            UserQuestionText(item.text, color = MogeTheme.paper.onStickyNote)
+            UserQuestionText(item.text, color = MogeTheme.paper.onStickyNote,
+                onClick = if (enabled) ({ onEdit(item.id) }) else null)
+        }
+        if (item.versionIds.size > 1) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("question-versions")) {
+                IconButton(onClick = { onSwitchVersion(item.versionIds[item.versionIndex - 1]) },
+                    enabled = enabled && item.versionIndex > 0) {
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一个输入版本")
+                }
+                Text("${item.versionIndex + 1} / ${item.versionIds.size}",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = { onSwitchVersion(item.versionIds[item.versionIndex + 1]) },
+                    enabled = enabled && item.versionIndex < item.versionIds.lastIndex) {
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一个输入版本")
+                }
+            }
+        }
         }
     }
 }
@@ -445,12 +467,22 @@ internal fun FollowUpBar(
     onPickDocument: () -> Unit = {},
     onRemoveDocument: (String) -> Unit = {},
     onPasteImages: (List<android.net.Uri>) -> Unit = {},
+    onCancelEditing: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        if (state.editingQuestionId != null) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("修改输入 · 发送后保留原版本", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).liveRegion())
+                IconButton(onClick = onCancelEditing, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos) {
+                    Icon(Icons.Outlined.Close, "取消修改")
+                }
+            }
+        }
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
         com.moge.app.ui.document.PendingDocumentChips(state.documentPaths, onRemoveDocument)
         if (state.importingPhotos) {
-            Text("正在添加图片…", style = MaterialTheme.typography.bodySmall,
+            Text("正在添加附件…", style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
@@ -465,11 +497,12 @@ internal fun FollowUpBar(
                     value = state.input,
                     onValueChange = onInputChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = if (state.conversationId == null) "输入问题" else "继续对话",
+                    placeholder = if (state.editingQuestionId != null) "修改这次输入" else if (state.conversationId == null) "输入问题" else "继续对话",
+                    enabled = !state.switchingBranch,
                     onPasteImages = onPasteImages,
                 )
                 ComposerAttachmentMenu(
-                    enabled = !state.generating && !state.submitting,
+                    enabled = !state.generating && !state.submitting && !state.switchingBranch,
                     photosEnabled = state.canAddPhoto,
                     onTakePhoto = onTakePhoto,
                     onPickPhotos = onPickPhotos,
@@ -490,7 +523,7 @@ internal fun FollowUpBar(
             }
         }
         if (state.busyElsewhere) {
-            Text("另一段对话正在生成，结束后才能发送", style = MaterialTheme.typography.bodySmall,
+            Text("另一个版本或对话正在生成，结束后才能发送", style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 16.dp, top = 4.dp).liveRegion())
         }
     }

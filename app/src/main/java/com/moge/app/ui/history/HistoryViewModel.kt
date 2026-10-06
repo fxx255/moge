@@ -124,6 +124,18 @@ class HistoryViewModel @Inject constructor(
         persistSelection()
     }
 
+    fun openConversation(id: String, onOpen: (String, String?) -> Unit) {
+        if (state.value.busy) return
+        val query = state.value.query
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            try { onOpen(id, repository.revealSearchMatch(id, query)) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _state.update { it.copy(message = e.message ?: "对话没能打开，请重试") } }
+            finally { _state.update { it.copy(busy = false) } }
+        }
+    }
+
     fun setCategory(id: String?, uncategorized: Boolean) {
         if (state.value.busy) return
         _state.update { it.copy(categoryId = id, uncategorizedOnly = uncategorized, selectedIds = emptySet()) }
@@ -285,7 +297,7 @@ class HistoryViewModel @Inject constructor(
                     val deleted = repository.deleteIdle(selected - setOfNotNull(protected))
                     var draftFailed = false
                     deleted.forEach { id ->
-                        try { drafts.clear(id) } catch (_: Exception) { draftFailed = true }
+                        try { drafts.clearConversation(id) } catch (_: Exception) { draftFailed = true }
                     }
                     val kept = selected - deleted
                     val message = when {

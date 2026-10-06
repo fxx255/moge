@@ -1,6 +1,7 @@
 package com.moge.app.domain.diagram
 
 import kotlinx.serialization.Serializable
+import com.moge.app.domain.coding.CodingSpec
 
 /**
  * 结构化框图 spec：由模型给出的**拓扑**（节点 / 连线），客户端负责布局与绘制。
@@ -111,14 +112,15 @@ data class DiagramEdge(
 @Serializable
 data class DiagramSpec(
     val title: String,
-    val nodes: List<DiagramNode>,
-    val edges: List<DiagramEdge>,
+    val nodes: List<DiagramNode> = emptyList(),
+    val edges: List<DiagramEdge> = emptyList(),
     /** 期望流向：row/column 缺失用于主推断。 */
     val direction: DiagramDirection = DiagramDirection.LR,
     /** Deterministic local arrangement; omitted in old specs. */
     val profile: DiagramLayoutProfile = DiagramLayoutProfile.GENERIC,
     /** The last drawn lane represents the end of a larger parallel bank. */
     val repeatLastLane: Boolean = false,
+    val coding: CodingSpec? = null,
 )
 
 @Serializable
@@ -137,7 +139,16 @@ enum class DiagramLayoutProfile {
     IQ_DEMODULATOR,
     /** Topology-driven chains, parallel banks and serial/parallel communication systems. */
     COMMUNICATION,
+    CONVOLUTIONAL_ENCODER,
+    CYCLIC_ENCODER,
+    CONVOLUTIONAL_STATE_GRAPH,
 }
+
+fun DiagramLayoutProfile.isCoding(): Boolean = this in setOf(
+    DiagramLayoutProfile.CONVOLUTIONAL_ENCODER,
+    DiagramLayoutProfile.CYCLIC_ENCODER,
+    DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH,
+)
 
 /** 规模上限。超出的图拒收，而不是画成一团看不清的东西。 */
 object DiagramLimits {

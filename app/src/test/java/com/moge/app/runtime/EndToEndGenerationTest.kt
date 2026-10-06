@@ -15,6 +15,7 @@ import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.llm.GenerationDiagnostics
 import com.moge.app.data.llm.ModelClient
+import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.MonotonicClock
 import com.moge.app.data.parse.ReplyFigure
 import com.moge.app.data.prefs.SettingsRepository
@@ -152,6 +153,37 @@ class EndToEndGenerationTest {
             delay(25)
         }
         error("请求 $requestId 没有在超时内落终态")
+    }
+
+    @Test
+    fun `unsupported photo sends no HTTP request and can be resent after enabling vision`() = runBlocking {
+        val photo = java.io.File.createTempFile("vision-config", ".png")
+        try {
+            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            val submission = GenerationManager.Submission("c1", "解答图中的题目", listOf(photo.absolutePath))
+            val error = runCatching { manager.submit(submission) }.exceptionOrNull()
+            assertTrue(error is ModelException)
+            assertEquals(ModelException.Kind.CONFIG_INVALID, (error as ModelException).kind)
+            assertEquals(0, server.requestCount)
+            assertTrue(repository.forConversation("c1").isEmpty())
+            assertTrue(db.conversationDao().getMessages("c1").isEmpty())
+            assertFalse(manager.isRunning())
+
+            val visionIdentity = credentials.resolveActiveIdentity()!!.copy(visionEnabled = true)
+            every { credentials.resolveActiveIdentity() } returns visionIdentity
+            every { credentials.resolveIdentityFor("p1") } returns visionIdentity
+            server.enqueue(sse("{\"reply\":\"看图回答成功\"}", "stop"))
+            val record = manager.submit(submission)
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+            assertEquals(1, server.requestCount)
+            val body = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            val parts = body["messages"]!!.jsonArray.last().jsonObject["content"]!!.jsonArray
+            assertEquals(submission.userText, parts.first().jsonObject["text"]!!.jsonPrimitive.content)
+            assertEquals("image_url", parts[1].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("看图回答成功", db.requestDao().getMessage(record.answerMessageId)!!.content)
+        } finally { photo.delete() }
     }
 
     @Test

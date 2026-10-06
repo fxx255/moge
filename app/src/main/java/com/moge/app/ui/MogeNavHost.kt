@@ -162,6 +162,7 @@ fun MogeNavHost(
         }
         composable(Routes.HISTORY) {
             HistoryScreen(onBack = back, onOpenConversation = openConversation,
+                onLocateMessage = { id, message -> navigation.saveViewport(id, com.moge.app.ui.solve.ConversationViewport(message, 0, 0)) },
                 onOpenNotebook = openNotebook, onNewConversation = { newPage(-1) })
         }
         composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(

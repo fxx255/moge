@@ -2,12 +2,14 @@ package com.moge.app.ui.solve
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.MogeDatabase
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
+import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
@@ -26,7 +28,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -37,7 +41,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -65,7 +69,9 @@ import java.util.UUID
 @Config(application = android.app.Application::class, shadows = [PosixAtomicFileShadow::class])
 class SolveViewModelTest {
 
-    private val dispatcher = UnconfinedTestDispatcher()
+    // Keep Main continuations serialized, as on a device; IO may only enqueue them.
+    private val dispatcher = StandardTestDispatcher()
+    private val models = ViewModelStore()
     private lateinit var db: MogeDatabase
     private lateinit var requests: RequestRepository
     private lateinit var conversations: ConversationRepository
@@ -100,6 +106,7 @@ class SolveViewModelTest {
                     attachmentPaths = submission.attachmentPaths,
                     snapshotJson = "",
                     documentPaths = submission.documentPaths,
+                    parentMessageId = submission.parentMessageId,
                 )
             }
             coEvery { captureRetrySnapshot(any(), any(), any(), any()) } returns RequestSnapshot(model = "m")
@@ -109,6 +116,8 @@ class SolveViewModelTest {
     @After
     fun tearDown() {
         collectors.cancel()
+        models.clear()
+        dispatcher.scheduler.runCurrent()
         db.close()
         Dispatchers.resetMain()
     }
@@ -123,8 +132,10 @@ class SolveViewModelTest {
         val handle = SavedStateHandle(args)
         lastHandle = handle
         return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true)).also { model ->
+            models.put(UUID.randomUUID().toString(), model)
             // stateIn(WhileSubscribed) 需要订阅者才会合成状态：模拟页面一直在看。
             collectors.launch { model.uiState.collect { } }
+            dispatcher.scheduler.runCurrent()
         }
     }
 
@@ -142,7 +153,11 @@ class SolveViewModelTest {
      */
     private fun SolveViewModel.awaitState(predicate: (SolveUiState) -> Boolean): SolveUiState = runBlocking {
         withTimeout(5_000) {
-            while (!predicate(uiState.value)) delay(10)
+            do {
+                dispatcher.scheduler.runCurrent()
+                if (predicate(uiState.value)) break
+                delay(10)
+            } while (true)
         }
         uiState.value
     }
@@ -177,7 +192,7 @@ class SolveViewModelTest {
         val vm = vm()
         vm.onInputChange("  求 x^2 的导数  ")
         vm.send()
-        val state = vm.awaitState { it.items.size == 2 }
+        val state = vm.awaitState { it.items.size == 2 && !it.submitting }
 
         val id = state.conversationId!!
         val conversation = runBlocking { db.conversationDao().getConversation(id) }!!
@@ -206,6 +221,75 @@ class SolveViewModelTest {
     }
 
     @Test
+    fun `missing vision configuration keeps text and photo draft and removes the empty conversation`() = runBlocking {
+        val message = "当前模型不支持图片，请配置识题模型后重新发送"
+        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+            ModelException(ModelException.Kind.CONFIG_INVALID, message)
+        val path = photo()
+        val vm = vm(capture = CaptureBatch(listOf(path), SolveMode.DETAILED, note = "只做第二问"))
+        vm.awaitState { it.photos == listOf(path) && it.input == "只做第二问" }
+        vm.send()
+        val state = vm.awaitState { it.notice != null && !it.submitting }
+
+        assertEquals(message, state.notice)
+        assertNull(state.conversationId)
+        assertTrue(db.conversationDao().observeConversations().first().isEmpty())
+        assertEquals("只做第二问", state.input)
+        assertEquals(listOf(path), state.photos)
+        assertTrue(state.canSend)
+        val draft = drafts.load(null)!!
+        assertEquals("只做第二问", draft.text)
+        assertEquals(listOf(path), draft.photoPaths)
+        assertTrue(File(path).isFile)
+    }
+
+    @Test
+    fun `photo only submission with missing vision configuration keeps its photo and send action`() = runBlocking {
+        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+            ModelException(ModelException.Kind.CONFIG_INVALID, "请配置识题模型")
+        val path = photo()
+        val vm = vm(capture = CaptureBatch(listOf(path), SolveMode.DETAILED))
+        vm.awaitState { it.photos == listOf(path) && it.canSend }
+        vm.send()
+        val state = vm.awaitState { it.notice != null && !it.submitting }
+
+        assertEquals("", state.input)
+        assertEquals(listOf(path), state.photos)
+        assertTrue(state.canSend)
+        assertNull(state.conversationId)
+        assertTrue(db.conversationDao().observeConversations().first().isEmpty())
+        assertEquals(listOf(path), drafts.load(null)!!.photoPaths)
+        assertTrue(File(path).isFile)
+    }
+
+    @Test
+    fun `missing vision configuration on follow up preserves existing history and draft`() = runBlocking {
+        val existing = conversations.createConversation("原题", SolveMode.DETAILED)
+        val record = interruptedRequest(existing.id)
+        val messagesBefore = conversations.messages(existing.id)
+        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+            ModelException(ModelException.Kind.CONFIG_INVALID, "请配置识题模型")
+        val path = photo()
+        val vm = vm(existing.id)
+        vm.addPhotos(listOf(path))
+        vm.onInputChange("补充这张图")
+        vm.send()
+        val state = vm.awaitState { it.notice != null && !it.submitting }
+
+        assertEquals("请配置识题模型", state.notice)
+        assertEquals(existing.id, state.conversationId)
+        assertEquals(messagesBefore, conversations.messages(existing.id))
+        assertEquals(listOf(record), requests.forConversation(existing.id))
+        assertEquals("补充这张图", state.input)
+        assertEquals(listOf(path), state.photos)
+        assertTrue(state.canSend)
+        val draft = drafts.load(existing.id)!!
+        assertEquals("补充这张图", draft.text)
+        assertEquals(listOf(path), draft.photoPaths)
+        assertTrue(File(path).isFile)
+    }
+
+    @Test
     fun `send is refused while another conversation is generating`() {
         active.value = ActiveState(requestId = "r", attemptId = "a", conversationId = "other", phase = RequestStatus.RUNNING)
         val vm = vm()
@@ -224,7 +308,7 @@ class SolveViewModelTest {
         val vm = vm(existing.id)
         vm.onInputChange("为什么")
         vm.send()
-        vm.awaitState { it.items.size == 2 }
+        vm.awaitState { it.items.size == 2 && !it.submitting }
         coVerify { manager.submit(match { it.conversationId == existing.id }, any(), any(), any(), any()) }
         assertNull(drafts.load(existing.id))
     }
@@ -262,6 +346,7 @@ class SolveViewModelTest {
         val existing = conversations.createConversation("题", SolveMode.DETAILED)
         active.value = ActiveState(requestId = "r1", attemptId = "att-9", conversationId = existing.id, phase = RequestStatus.RUNNING)
         vm(existing.id).stop()
+        dispatcher.scheduler.runCurrent()
         coVerify { manager.cancel("r1", "att-9") }
     }
 
@@ -507,8 +592,9 @@ class SolveViewModelTest {
 
     @Test
     fun `missing photo blocks the send before any conversation is created`() {
-        val vm = vm()
-        vm.addPhotos(listOf("/data/nowhere/gone.jpg"))
+        // Use the capture handoff, which waits for draft restoration before adding photos.
+        val vm = vm(capture = CaptureBatch(listOf("/data/nowhere/gone.jpg"), SolveMode.DETAILED))
+        vm.awaitState { it.photos.isNotEmpty() }
         vm.send()
         val state = vm.awaitState { it.notice != null && !it.submitting }
 
@@ -607,7 +693,7 @@ class SolveViewModelTest {
         assertTrue(state.canSend)
     }
 
-    @Test fun `sending waits for pasted image imports to finish`() {
+    @Test fun `sending waits for pasted image imports to finish`() = runBlocking {
         val entered = java.util.concurrent.CountDownLatch(1)
         val release = java.util.concurrent.CountDownLatch(1)
         val image = ClipboardImageFixture(ApplicationProvider.getApplicationContext(), onOpen = {
@@ -618,7 +704,12 @@ class SolveViewModelTest {
         vm.onInputChange("问题")
         vm.pasteImages(listOf(image.uri))
         try {
-            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            withTimeout(5_000) {
+                while (entered.count != 0L) {
+                    dispatcher.scheduler.runCurrent()
+                    delay(10)
+                }
+            }
             val importing = vm.awaitState { it.importingPhotos }
             assertFalse(importing.canSend)
             assertFalse(importing.canAddPhoto)
@@ -638,5 +729,135 @@ class SolveViewModelTest {
         assertEquals(batch, Routes.decodeCapture(Routes.encodeCapture(batch)))
         assertNull(Routes.decodeCapture("not json"))
         assertNull("没有照片不算拍题", Routes.decodeCapture(Routes.encodeCapture(batch.copy(photoPaths = emptyList()))))
+    }
+
+    private suspend fun branchTurn(id: String, q: String, parent: String? = com.moge.app.data.db.ConversationBranches.AUTO_PARENT,
+                                   pics: List<String> = emptyList()): RequestEntity {
+        val record = requests.createRequest(id, q, "answer-$q", "attempt-$q", q, pics, "", parentMessageId = parent)
+        assertTrue(requests.complete(record.requestId, record.attemptId, record.answerMessageId, "回答 $q"))
+        return record
+    }
+
+    @Test fun typingBeforeBranchDraftRecoveryFinishesPersistsToTheSelectedBranch() = runBlocking {
+        val id = conversations.createConversation("提前输入", SolveMode.DETAILED).id
+        branchTurn(id, "首问", null)
+        branchTurn(id, "旧")
+        branchTurn(id, "新", "answer-首问")
+        val original = conversations
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        conversations = spyk(original)
+        coEvery { conversations.messages(id) } coAnswers {
+            entered.complete(Unit)
+            release.await()
+            original.messages(id)
+        }
+        val model = vm(id)
+        entered.await()
+        model.onInputChange("恢复之前输入的新草稿")
+        release.complete(Unit)
+        withTimeout(5_000) {
+            do {
+                dispatcher.scheduler.runCurrent()
+                if (drafts.load(id + "__path__answer-新")?.text == "恢复之前输入的新草稿") break
+                delay(10)
+            } while (true)
+        }
+        model.awaitState { it.input == "恢复之前输入的新草稿" && it.editingQuestionId == null }
+        assertEquals("恢复之前输入的新草稿", model.uiState.value.input)
+        assertNull(model.uiState.value.editingQuestionId)
+    }
+
+    @Test fun editingMiddleQuestionPreservesOldDescendantsAndEachBranchDraft() = runBlocking {
+        val id = conversations.createConversation("分支", SolveMode.DETAILED).id
+        branchTurn(id, "最初问题", null)
+        branchTurn(id, "旧追问")
+        branchTurn(id, "旧后续")
+        val before = conversations.messages(id)
+        val model = vm(id)
+        model.awaitState { it.items.size == 6 }
+        model.onInputChange("旧分支待发草稿")
+        model.editQuestion("旧追问")
+        model.awaitState { it.editingQuestionId == "旧追问" && !it.switchingBranch }
+        assertEquals("旧追问", model.uiState.value.input)
+        assertFalse(model.uiState.value.canSend)
+        model.onInputChange("修改后的追问")
+        model.send()
+        model.send()
+        val state = model.awaitState { it.items.size == 4 && it.editingQuestionId == null && !it.submitting }
+        assertEquals(listOf("最初问题", "修改后的追问"), state.items.filterIsInstance<SolveItem.Question>().map { it.text })
+        val new = state.items.filterIsInstance<SolveItem.Question>().last()
+        assertEquals(listOf("旧追问", new.id), new.versionIds)
+        assertEquals(1, new.versionIndex)
+        assertEquals(before, conversations.messages(id).filter { it.id in before.map { message -> message.id } })
+        coVerify(exactly = 1) { manager.submit(match { it.userText == "修改后的追问" && it.parentMessageId == "answer-最初问题" }, any(), any(), any(), any()) }
+        model.onInputChange("新分支草稿")
+        model.switchVersion("旧追问")
+        model.awaitState { it.items.size == 6 && it.input == "旧分支待发草稿" && !it.switchingBranch }
+        model.switchVersion(new.id)
+        model.awaitState { it.items.size == 4 && it.input == "新分支草稿" && !it.switchingBranch }
+        val restarted = vm(id)
+        restarted.awaitState { it.items.size == 4 && it.input == "新分支草稿" }
+        coVerify(exactly = 1) { manager.submit(any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun cancelAndRestartKeepEditDraftSeparateFromOrdinaryDraftAndSharedPhoto() = runBlocking {
+        val id = conversations.createConversation("编辑", SolveMode.DETAILED).id
+        branchTurn(id, "首问", null)
+        val shared = photo()
+        branchTurn(id, "追问", pics = listOf(shared))
+        drafts.save(id, "普通草稿", emptyList())
+        val model = vm(id)
+        model.awaitState { it.input == "普通草稿" && it.items.size == 4 }
+        model.editQuestion("追问")
+        model.awaitState { it.photos == listOf(shared) && it.editingQuestionId != null && !it.switchingBranch }
+        model.onInputChange("尚未发送的修改")
+        model.removePhoto(shared)
+        assertTrue(File(shared).isFile)
+        val restarted = vm(id)
+        restarted.awaitState { it.editingQuestionId == "追问" && it.input == "尚未发送的修改" && it.photos.isEmpty() }
+        restarted.cancelEditing()
+        restarted.awaitState { it.editingQuestionId == null && it.input == "普通草稿" && !it.switchingBranch }
+        assertTrue(File(shared).isFile)
+        assertEquals(4, conversations.messages(id).size)
+    }
+
+    @Test fun rejectedImageEditKeepsOriginalBranchAndEditedContent() = runBlocking {
+        val id = conversations.createConversation("编辑失败", SolveMode.DETAILED).id
+        branchTurn(id, "首问", null)
+        branchTurn(id, "追问")
+        val model = vm(id)
+        model.awaitState { it.items.size == 4 }
+        model.editQuestion("追问")
+        model.awaitState { it.editingQuestionId != null && !it.switchingBranch }
+        model.addPhotos(listOf(photo()))
+        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws ModelException(ModelException.Kind.NOT_CONFIGURED, "没有识题模型")
+        model.send()
+        val state = model.awaitState { !it.submitting && it.notice == "没有识题模型" }
+        assertEquals("追问", state.editingQuestionId)
+        assertEquals("追问", state.input)
+        assertEquals(1, state.photos.size)
+        assertEquals(4, conversations.messages(id).size)
+    }
+
+    @Test fun hiddenBranchGenerationCanBeBrowsedWithoutStartingAnotherRequest() = runBlocking {
+        val id = conversations.createConversation("后台分支", SolveMode.DETAILED).id
+        branchTurn(id, "首问", null)
+        branchTurn(id, "旧")
+        val newer = branchTurn(id, "新", "answer-首问")
+        val model = vm(id)
+        model.awaitState { it.items.size == 4 && (it.items[2] as SolveItem.Question).id == "新" }
+        active.value = ActiveState(requestId = newer.requestId, attemptId = newer.attemptId, conversationId = id,
+            answerMessageId = newer.answerMessageId, phase = RequestStatus.RUNNING, partialText = "新分支正在生成")
+        model.awaitState { it.generating }
+        model.switchVersion("旧")
+        model.awaitState { !it.generating && it.busyElsewhere && !it.switchingBranch && (it.items[2] as SolveItem.Question).id == "旧" }
+        model.onInputChange("暂不能发")
+        assertFalse(model.uiState.value.canSend)
+        model.send()
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        model.switchVersion("新")
+        model.awaitState { it.generating && (it.items.last() as SolveItem.Answer).text == "新分支正在生成" }
+        Unit
     }
 }

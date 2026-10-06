@@ -22,6 +22,8 @@ sealed interface SolveItem {
         val transcript: String,
         val isFirst: Boolean,
         val documentPaths: List<String> = emptyList(),
+        val versionIds: List<String> = emptyList(),
+        val versionIndex: Int = 0,
     ) : SolveItem
 
     data class Answer(
@@ -80,6 +82,7 @@ internal fun buildSolveItems(
     messages: List<MessageEntity>,
     requests: List<RequestEntity>,
     active: GenerationManager.ActiveState,
+    allMessages: List<MessageEntity> = messages,
 ): List<SolveItem> {
     if (conversationId == null) return emptyList()
     val requestByAnswer = requests.associateBy { it.answerMessageId }
@@ -95,6 +98,8 @@ internal fun buildSolveItems(
                 transcript = message.transcript,
                 isFirst = !seenQuestion,
                 documentPaths = RequestRepository.decodePathList(message.documentPaths),
+                versionIds = com.moge.app.data.db.ConversationBranches.versions(allMessages, message).map { it.id },
+                versionIndex = com.moge.app.data.db.ConversationBranches.versions(allMessages, message).indexOfFirst { it.id == message.id },
             ).also { seenQuestion = true }
         } else {
             answerItem(

@@ -5,6 +5,7 @@ import com.moge.app.data.credential.AiCredentialStore
 import com.moge.app.data.db.ConversationDao
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
+import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.CONTINUATION_ECHO_CHARS
 import com.moge.app.data.llm.CONTINUE_INSTRUCTION
 import com.moge.app.data.llm.ChatMessage
@@ -187,6 +188,7 @@ class GenerationManager @Inject constructor(
         val solveMode: SolveMode = SolveMode.DETAILED,
         val forceWebSearch: Boolean = false,
         val documentPaths: List<String> = emptyList(),
+        val parentMessageId: String? = ConversationBranches.AUTO_PARENT,
     )
 
     /** 对外广播的生成事件。全部是纯数据，页面据此更新自己的 UI。 */
@@ -654,6 +656,7 @@ class GenerationManager @Inject constructor(
      *
      * @return 落盘的请求记录（调用方据此在界面上定位用户消息与回答气泡）。
      * @throws AlreadyRunningException 已有任务在跑。
+     * @throws ModelException 模型配置不支持本轮输入；调用方须保留草稿并提示配置。
      */
     suspend fun submit(
         submission: Submission,
@@ -667,14 +670,21 @@ class GenerationManager @Inject constructor(
         return mutex.withLock {
             // 2) 锁内单飞判定：owner 存在即有人还在跑（不看 phase）。
             if (hasOwner()) throw AlreadyRunningException()
+            val pinnedSubmission = if (submission.parentMessageId == ConversationBranches.AUTO_PARENT) {
+                val path = ConversationBranches.visible(conversationDao.getMessages(submission.conversationId),
+                    conversationDao.getBranchSelections(submission.conversationId))
+                submission.copy(parentMessageId = path.lastOrNull()?.id)
+            } else submission
             // 2.5) **网络之前**钉下初始快照：原问题、原历史、照片路由、档案 id 与设置。
             // 它随请求记录在同一个事务里落库，准备阶段被打断也有东西可重试。
             val initialSnapshot = preparer.captureInitialSnapshot(
-                submission = submission,
+                submission = pinnedSubmission,
                 conversationId = submission.conversationId,
                 userMessageId = userMessageId,
                 answerMessageId = answerMessageId,
             )
+            // 无可用看图路线时直接拒绝，不能先启动保活再立即失败、停服务。
+            preparer.validateConfiguration(initialSnapshot, submission.attachmentPaths.isNotEmpty())
             // 3) 锁内落盘：用户消息 + 回答占位 + PREPARING 请求记录 + 初始快照（一个事务）。
             val record = try {
                 requestRepository.createRequest(
@@ -688,6 +698,7 @@ class GenerationManager @Inject constructor(
                     userDisplayContent = submission.userDisplayContent,
                     documentPaths = submission.documentPaths,
                     contextDocumentPaths = initialSnapshot.documentPaths,
+                    parentMessageId = pinnedSubmission.parentMessageId,
                 )
             } catch (creationError: Throwable) {
                 // 落盘失败 ⇒ 输入草稿由调用方保留，本轮不开始、不发网络。
@@ -711,7 +722,7 @@ class GenerationManager @Inject constructor(
                 answerMessageId = record.answerMessageId,
             )
             launchTurn(owner, record.conversationId, record.answerMessageId) { owned ->
-                runSubmission(record, submission, initialSnapshot, owned)
+                runSubmission(record, pinnedSubmission, initialSnapshot, owned)
             }
             record
         }
@@ -726,8 +737,10 @@ class GenerationManager @Inject constructor(
     ) {
         // 保护令牌覆盖**准备阶段**：照片转写也是网络调用，
         // 没有前台保护时进程被冻结会让整轮卡死。
-        val token = guard.acquire(record.requestId, record.conversationId)
+        var token: String? = null
         try {
+            preparer.validateConfiguration(initialSnapshot, submission.attachmentPaths.isNotEmpty())
+            token = guard.acquire(record.requestId, record.conversationId)
             val prepared = preparer.prepare(submission, record, initialSnapshot)
             if (prepared.failure != null) {
                 settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, "")
@@ -767,7 +780,7 @@ class GenerationManager @Inject constructor(
         } finally {
             // 令牌**只释放一次**：runGeneration 在 guardToken 非空时不释放，
             // 由这里统一释放（它覆盖准备 + 生成两段）。
-            guard.release(token)
+            token?.let(guard::release)
         }
     }
 
@@ -823,6 +836,7 @@ class GenerationManager @Inject constructor(
                 documentPaths = RequestRepository.decodePathList(record.documentPaths),
                 solveMode = solveMode ?: SolveMode.fromName(previous?.solveMode) ?: SolveMode.DETAILED,
                 forceWebSearch = forceWebSearch ?: previous?.forceWebSearch ?: false,
+                parentMessageId = conversationDao.getMessage(record.userMessageId)?.parentMessageId,
             ),
             conversationId = record.conversationId,
             userMessageId = record.userMessageId,
@@ -833,8 +847,12 @@ class GenerationManager @Inject constructor(
     private suspend fun runRetry(record: RequestEntity, attemptId: String, owner: TaskOwner) {
         val prefix = SnapshotCodec.decode(record.snapshotJson)?.continuationText.orEmpty()
         // 保护覆盖准备阶段（重试也要重新编码/校验附件）。
-        val token = guard.acquire(record.requestId, record.conversationId)
+        var token: String? = null
         try {
+            SnapshotCodec.decode(record.snapshotJson)?.takeIf { it.isComplete }?.let {
+                preparer.validateConfiguration(it, RequestRepository.decodePathList(record.attachmentPaths).isNotEmpty())
+            }
+            token = guard.acquire(record.requestId, record.conversationId)
             val prepared = preparer.prepareRetry(record)
             if (prepared.failure != null) {
                 settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, prefix)
@@ -864,7 +882,7 @@ class GenerationManager @Inject constructor(
         } catch (error: Throwable) {
             settleFailureOnce(owner, record, describePreparationError(error), classify(error), prefix)
         } finally {
-            guard.release(token)
+            token?.let(guard::release)
         }
     }
 

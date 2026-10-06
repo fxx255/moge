@@ -57,9 +57,13 @@ fun HistoryScreen(
     vm: HistoryViewModel = hiltViewModel(),
     onOpenNotebook: (String?) -> Unit = {},
     onNewConversation: (() -> Unit)? = null,
+    onLocateMessage: (String, String) -> Unit = { _, _ -> },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    HistoryContent(state, onBack, onOpenConversation, vm::setQuery,
+    HistoryContent(state, onBack, { id -> vm.openConversation(id) { conversation, message ->
+        if (message != null) onLocateMessage(conversation, message)
+        onOpenConversation(conversation)
+    } }, vm::setQuery,
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::renameSelected,
         vm::deleteSelected, vm::pinSelected, vm::retry, vm::dismissMessage,
         vm::setCategory, vm::createCategory, vm::renameCategory, vm::reorderCategory, vm::deleteCategory,

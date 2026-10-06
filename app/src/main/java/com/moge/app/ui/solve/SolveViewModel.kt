@@ -9,6 +9,9 @@ import com.moge.app.data.db.ConversationRepository.Companion.PHOTO_PLACEHOLDER_T
 import com.moge.app.data.db.MessageEntity
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
+import com.moge.app.data.db.ConversationBranches
+import com.moge.app.data.db.BranchSelectionEntity
+import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.FailureKind
@@ -65,12 +68,17 @@ data class SolveUiState(
     val importingPhotos: Boolean = false,
     val documentPaths: List<String> = emptyList(),
     val answerFirst: Boolean = false,
+    val editingQuestionId: String? = null,
+    val editChanged: Boolean = true,
+    val switchingBranch: Boolean = false,
+    val branchPathKey: String = "",
 ) {
     val canSend: Boolean
-        get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting && !importingPhotos
+        get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting && !importingPhotos &&
+            !switchingBranch && (editingQuestionId == null || editChanged)
 
     val canAddPhoto: Boolean
-        get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting && !importingPhotos
+        get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting && !importingPhotos && !switchingBranch
 }
 
 /**
@@ -116,12 +124,16 @@ class SolveViewModel @Inject constructor(
 
     /** 用户在草稿恢复完成前就开始打字：恢复结果不得覆盖新输入。 */
     private var draftRestored = false
+    private var draftSlot: String? = conversationId.value
+    private val editing = MutableStateFlow<MessageEntity?>(null)
+    private val switchingBranch = MutableStateFlow(false)
     private val draftReady = CompletableDeferred<Unit>()
 
     private data class RoomSnapshot(
         val conversation: ConversationEntity?,
         val messages: List<MessageEntity>,
         val requests: List<RequestEntity>,
+        val selections: List<BranchSelectionEntity> = emptyList(),
     )
 
     private val roomState: Flow<RoomSnapshot> = conversationId.flatMapLatest { id ->
@@ -129,10 +141,10 @@ class SolveViewModel @Inject constructor(
             flowOf(RoomSnapshot(null, emptyList(), emptyList()))
         } else {
             combine(
-                conversationRepository.observeConversation(id),
-                conversationRepository.observeMessages(id),
+                conversationRepository.observeTree(id),
                 requestRepository.observeForConversation(id),
-            ) { conversation, messages, requests -> RoomSnapshot(conversation, messages, requests) }
+            ) { tree, requests -> RoomSnapshot(tree?.conversation, tree?.messages.orEmpty().sortedBy { it.createdAt },
+                requests, tree?.selections.orEmpty()) }
                 .onEach { storedFigureRepair.repair(it.messages, it.requests) }
         }
     }
@@ -152,11 +164,12 @@ class SolveViewModel @Inject constructor(
 
     val uiState: StateFlow<SolveUiState> =
         combine(conversationId, roomState, generationManager.active, transient, settings.settings) { id, room, active, local, prefs ->
-            val generatingHere = active.isRunning && id != null && active.conversationId == id
+            val path = ConversationBranches.visible(room.messages, room.selections)
+            val generatingHere = active.isRunning && id != null && active.conversationId == id && path.any { it.id == active.answerMessageId }
             SolveUiState(
                 conversationId = id,
                 title = room.conversation?.title ?: ConversationRepository.PLACEHOLDER_TITLE,
-                items = buildSolveItems(id, room.messages, room.requests, active),
+                items = buildSolveItems(id, path, room.requests, active, room.messages),
                 input = local.input,
                 generating = generatingHere,
                 busyElsewhere = active.isRunning && !generatingHere,
@@ -165,8 +178,14 @@ class SolveViewModel @Inject constructor(
                 photos = local.photos,
                 documentPaths = local.documents,
                 answerFirst = prefs.answerFirst,
+                branchPathKey = path.lastOrNull()?.id.orEmpty(),
             )
         }.combine(importingPhotos) { state, importing -> state.copy(importingPhotos = importing) }
+            .combine(editing) { state, original -> state.copy(editingQuestionId = original?.id,
+                editChanged = original == null || state.input.trim() != original.content.trim() ||
+                    state.photos != RequestRepository.decodePathList(original.imagePaths) ||
+                    state.documentPaths != RequestRepository.decodePathList(original.documentPaths)) }
+            .combine(switchingBranch) { state, switching -> state.copy(switchingBranch = switching) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SolveUiState(conversationId.value))
 
     init {
@@ -193,19 +212,43 @@ class SolveViewModel @Inject constructor(
 
     private fun restoreDraft() {
         val key = conversationId.value
+        val initialSlot = draftSlot
         viewModelScope.launch {
+            var normalSlot = initialSlot
+            var restoredSlot = initialSlot
+            var target: MessageEntity? = null
             val draft = try {
-                draftStore.load(key)
+                if (key != null) {
+                    normalSlot = normalDraftSlot(key)
+                    restoredSlot = normalSlot
+                    val targetId = draftStore.load(editMetaSlot(key))?.text
+                    target = targetId?.let { id -> conversationRepository.messages(key).firstOrNull { it.id == id && it.role == "user" } }
+                    target?.let { restoredSlot = editDraftSlot(key, it.id) }
+                }
+                draftStore.load(restoredSlot) ?: target?.let { original -> DraftStore.Draft(original.content,
+                    RequestRepository.decodePathList(original.imagePaths), RequestRepository.decodePathList(original.documentPaths)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null // 草稿读不出来不影响解题，空输入框即可
             }
-            if (!draftRestored && conversationId.value == key && draft != null) {
-                input.value = draft.text
+            if (!draftRestored && conversationId.value == key) {
+                draftSlot = restoredSlot
+                editing.value = target
+                input.value = draft?.text.orEmpty()
                 // 缺图引用照样恢复：发送时 persistAttachments 会明确报错，而不是悄悄丢图。
-                photos.value = draft.photoPaths.take(CaptureStore.MAX_PHOTOS)
-                documents.value = draft.documentPaths
+                photos.value = draft?.photoPaths.orEmpty().take(CaptureStore.MAX_PHOTOS)
+                documents.value = draft?.documentPaths.orEmpty()
+            } else if (conversationId.value == key && draftSlot == initialSlot) {
+                // Early typing belongs to the ordinary selected branch and supersedes recovery.
+                draftSlot = normalSlot
+                val reservation = draftStore.reserveSave(normalSlot, input.value, photos.value, documents.value)
+                val clearOld = if (initialSlot != normalSlot) draftStore.reserveSave(initialSlot, "", emptyList()) else null
+                runCatching {
+                    draftStore.persist(reservation)
+                    clearOld?.let { draftStore.persist(it) }
+                    if (key != null && target != null) draftStore.clear(editMetaSlot(key))
+                }
             }
             draftRestored = true
             draftReady.complete(Unit)
@@ -213,12 +256,102 @@ class SolveViewModel @Inject constructor(
     }
 
     fun onInputChange(text: String) {
+        if (switchingBranch.value) return
         input.value = text
         saveDraft()
     }
 
+    private fun editMetaSlot(id: String) = id + "__editing"
+    private fun editDraftSlot(id: String, question: String) = id + "__edit__" + question
+    private fun branchDraftSlot(id: String, tip: String?) = id + "__path__" + (tip ?: "root")
+
+    private suspend fun normalDraftSlot(id: String): String {
+        val all = conversationRepository.messages(id)
+        val branched = all.any { it.parentMessageId != null } &&
+            all.filter { it.role == "user" }.groupBy { it.parentMessageId }.values.any { it.size > 1 }
+        return if (branched) branchDraftSlot(id, conversationRepository.visibleMessages(id).lastOrNull()?.id) else id
+    }
+
+    private fun showDraft(draft: DraftStore.Draft?) {
+        input.value = draft?.text.orEmpty()
+        photos.value = draft?.photoPaths.orEmpty().take(CaptureStore.MAX_PHOTOS)
+        documents.value = draft?.documentPaths.orEmpty()
+        draftRestored = true
+        editRevision++
+    }
+
+    fun editQuestion(questionId: String) {
+        val id = conversationId.value ?: return
+        if (submitting.value || switchingBranch.value || importingPhotos.value || editing.value != null) return
+        switchingBranch.value = true
+        viewModelScope.launch {
+            try {
+                draftReady.await()
+                val path = conversationRepository.visibleMessages(id)
+                val original = path.firstOrNull { it.id == questionId && it.role == "user" } ?: return@launch
+                draftStore.save(draftSlot, input.value, photos.value, documents.value)
+                // A first edit creates the first fork, so also park a legacy conversation draft by its old tip.
+                draftStore.save(branchDraftSlot(id, path.lastOrNull()?.id), input.value, photos.value, documents.value)
+                val editSlot = editDraftSlot(id, questionId)
+                val draft = draftStore.load(editSlot) ?: DraftStore.Draft(original.content,
+                    RequestRepository.decodePathList(original.imagePaths), RequestRepository.decodePathList(original.documentPaths))
+                draftStore.save(editSlot, draft.text, draft.photoPaths, draft.documentPaths)
+                draftStore.save(editMetaSlot(id), questionId, emptyList())
+                editing.value = original
+                draftSlot = editSlot
+                showDraft(draft)
+                notice.value = null
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { notice.value = e.message ?: "原输入没能读取，请重试" }
+            finally { switchingBranch.value = false }
+        }
+    }
+
+    fun cancelEditing() {
+        val id = conversationId.value ?: return
+        val original = editing.value ?: return
+        if (submitting.value || switchingBranch.value || importingPhotos.value) return
+        switchingBranch.value = true
+        viewModelScope.launch {
+            try {
+                val next = normalDraftSlot(id)
+                val draft = draftStore.load(next)
+                draftStore.clear(editMetaSlot(id))
+                draftStore.clear(editDraftSlot(id, original.id))
+                editing.value = null
+                draftSlot = next
+                showDraft(draft)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { notice.value = e.message ?: "编辑草稿没能关闭，请重试" }
+            finally { switchingBranch.value = false }
+        }
+    }
+
+    fun switchVersion(questionId: String) {
+        val id = conversationId.value ?: return
+        if (submitting.value || switchingBranch.value || importingPhotos.value || editing.value != null) return
+        switchingBranch.value = true
+        viewModelScope.launch {
+            try {
+                draftReady.await()
+                draftStore.save(draftSlot, input.value, photos.value, documents.value)
+                conversationRepository.selectBranch(id, questionId)
+                val next = normalDraftSlot(id)
+                val draft = draftStore.load(next)
+                draftSlot = next
+                showDraft(draft)
+                notice.value = null
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { notice.value = e.message ?: "版本没能切换，请重试" }
+            finally { switchingBranch.value = false }
+        }
+    }
+
     /** Import originals as document attachments; never modify the question text. */
     fun importDocument(uri: android.net.Uri) {
+        if (switchingBranch.value || submitting.value) return
+        pendingPhotoPastes++
+        importingPhotos.value = true
         viewModelScope.launch {
             try {
                 val path = captureStore.importDocument(uri)
@@ -227,6 +360,9 @@ class SolveViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 notice.value = e.message ?: "文件导入失败"
+            } finally {
+                pendingPhotoPastes--
+                importingPhotos.value = pendingPhotoPastes > 0
             }
         }
     }
@@ -242,6 +378,7 @@ class SolveViewModel @Inject constructor(
     }
 
     fun removeDocument(path: String) {
+        if (switchingBranch.value) return
         documents.value = documents.value.filterNot { it == path }
         saveDraft()
     }
@@ -251,12 +388,14 @@ class SolveViewModel @Inject constructor(
 
     /** 追问时从相册选的图：复制进私有目录后交给页面逐张裁剪。 */
     fun importPicked(uris: List<android.net.Uri>, onImported: (List<String>) -> Unit) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || switchingBranch.value || submitting.value) return
         val room = CaptureStore.MAX_PHOTOS - photos.value.size
         if (room <= 0) {
             notice.value = "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片"
             return
         }
+        pendingPhotoPastes++
+        importingPhotos.value = true
         viewModelScope.launch {
             try {
                 onImported(captureStore.importFromGallery(uris.take(room)))
@@ -264,13 +403,16 @@ class SolveViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 notice.value = e.message ?: "照片导入失败"
+            } finally {
+                pendingPhotoPastes--
+                importingPhotos.value = pendingPhotoPastes > 0
             }
         }
     }
 
     /** Paste directly into the draft, without interrupting typing with a crop dialog. */
     fun pasteImages(uris: List<android.net.Uri>) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || switchingBranch.value) return
         if (submitting.value) {
             notice.value = "正在发送，请稍后再粘贴图片"
             return
@@ -336,6 +478,7 @@ class SolveViewModel @Inject constructor(
     }
 
     fun removePhoto(path: String) {
+        if (switchingBranch.value) return
         if (path !in photos.value) return
         photos.value = photos.value - path
         saveDraft()
@@ -345,7 +488,7 @@ class SolveViewModel @Inject constructor(
     private fun saveDraft() {
         draftRestored = true
         editRevision++
-        val reservation = draftStore.reserveSave(conversationId.value, input.value, photos.value, documents.value)
+        val reservation = draftStore.reserveSave(draftSlot, input.value, photos.value, documents.value)
         viewModelScope.launch {
             try {
                 draftStore.persist(reservation)
@@ -370,7 +513,11 @@ class SolveViewModel @Inject constructor(
 
     /** 发送输入框里的内容（文字和 / 或照片）。新题目会先建会话再提交。 */
     fun send() {
-        if (importingPhotos.value) return
+        if (importingPhotos.value || switchingBranch.value) return
+        val original = editing.value
+        if (original != null && input.value.trim() == original.content.trim() &&
+            photos.value == RequestRepository.decodePathList(original.imagePaths) &&
+            documents.value == RequestRepository.decodePathList(original.documentPaths)) return
         val text = input.value.trim()
         val pics = photos.value
         if (text.isEmpty() && pics.isEmpty() && documents.value.isEmpty()) return
@@ -394,9 +541,11 @@ class SolveViewModel @Inject constructor(
         val ownerSlot = conversationId.value
         val revisionAtSend = editRevision
         val documentsAtSend = documents.value.toList()
+        val slotAtSend = draftSlot
+        val editAtSend = editing.value
         viewModelScope.launch {
             try {
-                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend)
+                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend, slotAtSend, editAtSend)
             } finally {
                 submitting.value = false
             }
@@ -411,6 +560,8 @@ class SolveViewModel @Inject constructor(
         revisionAtSend: Long,
         consumesInput: Boolean,
         documentPaths: List<String>,
+        slotAtSend: String?,
+        editAtSend: MessageEntity?,
     ) {
         val mode = requestedMode
             ?: runCatching { settings.current().defaultSolveMode }.getOrDefault(SolveMode.DETAILED)
@@ -453,11 +604,16 @@ class SolveViewModel @Inject constructor(
                     attachmentPaths = pinned,
                     documentPaths = documentPaths,
                     solveMode = mode,
+                    parentMessageId = if (created) null else editAtSend?.parentMessageId ?: if (editAtSend != null) null else ConversationBranches.AUTO_PARENT,
                 ),
             )
         } catch (e: GenerationManager.AlreadyRunningException) {
             if (created) discardQuietly(targetId)
             notice.value = "另一道题正在生成回答，请等它结束后再发送"
+            return
+        } catch (e: ModelException) {
+            if (created) discardQuietly(targetId)
+            notice.value = e.message ?: "模型配置不可用，请检查设置后重新发送"
             return
         } catch (e: CancellationException) {
             if (created) withContext(NonCancellable) { discardQuietly(targetId) }
@@ -473,27 +629,37 @@ class SolveViewModel @Inject constructor(
         }
         // 题册封面取首张题目照片；写失败只影响题册缩略图，不影响这一轮解题。
         pinned.firstOrNull()?.let { cover -> runCatching { conversationRepository.setCoverIfEmpty(targetId, cover) } }
-        if (consumesInput) consumeDraft(ownerSlot, targetId, revisionAtSend)
+        if (consumesInput) consumeDraft(targetId, revisionAtSend, slotAtSend, editAtSend)
     }
 
     /**
      * 消费「发送时那份输入」。序号没变 ⇒ 清空输入框、待发照片和发送时所在的草稿槽；
      * 序号变了（提交期间又打了字 / 加了图）⇒ 保留新编辑，新题目还要把它从「新题目」槽挪到真实会话槽。
      */
-    private suspend fun consumeDraft(ownerSlot: String?, targetId: String, revisionAtSend: Long) {
-        val unchanged = editRevision == revisionAtSend
-        if (unchanged) {
+    private suspend fun consumeDraft(targetId: String, revisionAtSend: Long,
+                                    slotAtSend: String?, editAtSend: MessageEntity?) {
+        // Reserve clearing before suspending; any later keystroke supersedes this reservation.
+        val clearReservation = if (editRevision == revisionAtSend) draftStore.reserveSave(slotAtSend, "", emptyList()) else null
+        if (editRevision == revisionAtSend) {
             input.value = ""
             photos.value = emptyList()
             documents.value = emptyList()
         }
         try {
-            if (!unchanged && ownerSlot != targetId) {
-                draftStore.persist(draftStore.reserveSave(targetId, input.value, photos.value, documents.value))
+            val nextSlot = normalDraftSlot(targetId)
+            draftSlot = nextSlot
+            val unchanged = editRevision == revisionAtSend
+            val moveReservation = if (!unchanged && slotAtSend != nextSlot)
+                draftStore.reserveSave(nextSlot, input.value, photos.value, documents.value) else null
+            val oldSlotReservation = if (!unchanged && slotAtSend != nextSlot) draftStore.reserveSave(slotAtSend, "", emptyList()) else clearReservation
+            if (editAtSend != null) {
+                editing.value = null
+                draftStore.clear(editMetaSlot(targetId))
+                // The pre-edit ordinary draft was parked under its old branch tip.
+                if (nextSlot != targetId) draftStore.clear(targetId)
             }
-            if (unchanged || ownerSlot != targetId) {
-                draftStore.persist(draftStore.reserveSave(ownerSlot, "", emptyList()))
-            }
+            moveReservation?.let { draftStore.persist(it) }
+            oldSlotReservation?.let { draftStore.persist(it) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -555,7 +721,7 @@ class SolveViewModel @Inject constructor(
                     return@launch
                 }
                 // 用户已经追问过：这条中断保留为历史记录，不插队重放。
-                val latestUser = conversationRepository.messages(existing.conversationId)
+                val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
                     notice.value = "你已经发过新的问题了，这条中断已保留为历史记录"
@@ -620,7 +786,7 @@ class SolveViewModel @Inject constructor(
                     return@launch
                 }
                 if (RequestStatus.fromName(existing.status)?.isInFlight != false) return@launch
-                val latestUser = conversationRepository.messages(existing.conversationId)
+                val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
                     notice.value = "你已经发过新的问题了，只能重新生成最后一个回答"

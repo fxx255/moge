@@ -49,8 +49,10 @@ data class ConversationEntity(
             childColumns = ["conversation_id"],
             onDelete = ForeignKey.CASCADE,
         ),
+        ForeignKey(entity = MessageEntity::class, parentColumns = ["id"],
+            childColumns = ["parent_message_id"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("conversation_id")],
+    indices = [Index("conversation_id"), Index("parent_message_id")],
 )
 data class MessageEntity(
     @PrimaryKey
@@ -87,6 +89,25 @@ data class MessageEntity(
     @ColumnInfo(name = "document_paths", defaultValue = "") val documentPaths: String = "",
     @ColumnInfo(name = "created_at")
     val createdAt: Instant = Instant.now(),
+    @ColumnInfo(name = "parent_message_id")
+    val parentMessageId: String? = null,
+)
+
+@Entity(
+    tableName = "branch_selection",
+    primaryKeys = ["conversation_id", "parent_key"],
+    foreignKeys = [
+        ForeignKey(entity = ConversationEntity::class, parentColumns = ["id"],
+            childColumns = ["conversation_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = MessageEntity::class, parentColumns = ["id"],
+            childColumns = ["selected_child_id"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("selected_child_id")],
+)
+data class BranchSelectionEntity(
+    @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "parent_key") val parentKey: String,
+    @ColumnInfo(name = "selected_child_id") val selectedChildId: String,
 )
 
 /** 用户自定义分类；没有预置分类。 */

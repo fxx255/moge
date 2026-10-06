@@ -5,6 +5,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.Json
+import com.moge.app.domain.coding.CodingSpec
 
 /**
  * 解析模型给出的 `diagrams` 数组。
@@ -16,6 +18,7 @@ import kotlinx.serialization.json.contentOrNull
  * - 单张图不合法只丢这一张，并记一条可展示的警告，**不影响正文与其它图**。
  */
 object DiagramParser {
+    private val codingJson = Json { ignoreUnknownKeys = true }
 
     fun parseArray(array: JsonArray?, warnings: MutableList<String>): List<DiagramSpec> =
         parseSlots(array, warnings).filterNotNull()
@@ -33,6 +36,16 @@ object DiagramParser {
     }
 
     fun parseOne(obj: JsonObject): DiagramSpec {
+        val profile = parseProfile(obj["profile"] ?: obj["template"])
+        if (profile.isCoding()) {
+            val coding = codingJson.decodeFromJsonElement(
+                CodingSpec.serializer(), obj["coding"] ?: error("缺少生成多项式等 coding 参数"),
+            )
+            if (profile == DiagramLayoutProfile.CYCLIC_ENCODER) coding.validateCyclic()
+            else coding.validateConvolutional(profile == DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH)
+            return DiagramSpec(title = obj.boundedText("title", DiagramLimits.MAX_TITLE_CHARS).orEmpty(),
+                profile = profile, coding = coding)
+        }
         val rawNodes = obj["nodes"] as? JsonArray ?: error("缺少 nodes")
         val rawEdges = obj["edges"] as? JsonArray ?: error("缺少 edges")
         require(rawNodes.size in 1..DiagramLimits.MAX_NODES) {
@@ -65,7 +78,7 @@ object DiagramParser {
             nodes = nodes,
             edges = edges,
             direction = parseDirection(obj["direction"]),
-            profile = parseProfile(obj["profile"] ?: obj["template"]),
+            profile = profile,
             repeatLastLane = (obj["repeatLastLane"] as? JsonPrimitive)?.contentOrNull == "true",
         )
     }
@@ -153,6 +166,9 @@ object DiagramParser {
             "qpsk_demodulator", "16qam_demodulator" -> DiagramLayoutProfile.IQ_DEMODULATOR
             "generic", "auto" -> DiagramLayoutProfile.GENERIC
             "communication", "parallel_bank", "ofdm", "textbook_chain" -> DiagramLayoutProfile.COMMUNICATION
+            "convolutional_encoder" -> DiagramLayoutProfile.CONVOLUTIONAL_ENCODER
+            "cyclic_encoder" -> DiagramLayoutProfile.CYCLIC_ENCODER
+            "convolutional_state_graph", "convolutional_state" -> DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH
             else -> DiagramLayoutProfile.GENERIC
         }
     }

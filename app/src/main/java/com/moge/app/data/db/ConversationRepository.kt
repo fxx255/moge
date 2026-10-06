@@ -68,6 +68,19 @@ class ConversationRepository @Inject constructor(
     fun observeConversation(id: String): Flow<ConversationEntity?> = dao.observeConversation(id)
 
     fun observeMessages(conversationId: String): Flow<List<MessageEntity>> = dao.observeMessages(conversationId)
+    fun observeTree(id: String): Flow<ConversationTree?> = dao.observeTree(id)
+
+    fun observeBranchSelections(id: String): Flow<List<BranchSelectionEntity>> = dao.observeBranchSelections(id)
+
+    suspend fun visibleMessages(id: String): List<MessageEntity> = withContext(io) {
+        dao.visibleMessages(id)
+    }
+    suspend fun selectBranch(id: String, questionId: String) = withContext(io) { dao.selectBranch(id, questionId) }
+    suspend fun revealBranch(id: String, messageId: String) = withContext(io) { dao.revealBranch(id, messageId) }
+    suspend fun revealSearchMatch(id: String, query: String): String? = withContext(io) {
+        if (query.isBlank()) return@withContext null
+        dao.searchMessage(id, searchPattern(query))?.also { dao.revealBranch(id, it) }
+    }
 
     suspend fun messages(conversationId: String): List<MessageEntity> = withContext(io) {
         dao.getMessages(conversationId)

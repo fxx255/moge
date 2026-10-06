@@ -1601,6 +1601,7 @@ class ModelClient @Inject constructor(
       - 噪声、载波、常数、判决门限和定时源分别标 role:noise / carrier / constant / threshold / clock，接到实际作用节点；从上方接入写 toPort:top，从下方接入写 toPort:bottom。辅助源用 io 显示公式，名称不要与 edge.label 重复。并行支路的辅助源也可用 branch_0_carrier 等前缀。求和/相减的每条输入显式写 polarity:"+" 或 "-"，避免把相加画成相减。
       - 其它控制流程或特殊结构使用 `profile:"generic"`，通过节点和连线表达真实拓扑；需要时用 row/column 提示上下支路和阶段顺序。
        - A～G 测试点只在节点标签或对应 edge.label 中出现一次；如果使用 `test_a` 等节点角色，相关 edge 不要再次重复同一个字母。edge.label 优先只写载波、公式和信号名称，避免出现 `s(t) s(t)`、`G → G 输出` 这样的重复标注。
+      - 卷积码编码器使用 profile:"convolutional_encoder"，卷积码状态转移图使用 profile:"convolutional_state_graph"，系统循环码编码器使用 profile:"cyclic_encoder"。这些专用模板只需 title/profile/coding，不给 nodes/edges。卷积码 coding 示例：{"version":1,"memory":2,"generators":[[0,1,2],[0,2]],"outputMode":"serial"}；抽头指数 0 表示当前输入，1 表示延迟一拍，状态位最近输入在前，码率 1/输出路数、K=memory+1。编码器与状态图必须用同一份参数，客户端据此计算转移，图中按照教材样图标注输出(输入)，全部为实线箭头；状态编号 s₀、s₁…按最近位在低权序号排列，文字解释应与此一致。系统循环码 coding 示例：{"version":1,"n":7,"k":4,"generatorExponents":[0,1,3]}，表示 g(x)=1+x+x³，校验位按 x^(n-k)m(x) mod g(x) 计算，信息位在前。仅有码率、(n,k,K) 或 (n,k) 不能唯一确定抽头，缺少生成多项式时请询问，不能擅自补成题设；教学示例须注明假设。仅支持二进制、单输入前馈卷积码，最多 8 级记忆/4 路输出，完整状态图最多 8 状态；循环码校验位 1～8，n≤63。不支持的编码类型用文字说明，不套用错误模板。
       - 通用框图才使用 row / column 提示：row 0 = 主链，1 = 主链下方一行；column 越大越靠右。不写则由连线自动推导。
      - 连线端口 fromPort / toPort：left / right / top / bottom / auto。**从下方接进某个框**写 "toPort":"bottom"（本地载波 → 乘法器下方，箭头向上）；不写时按相对位置自动选
      - 连线可带 label（如短标注）、polarity（求和器输入符号，只能写 + 或 -）与 dashed:true（虚线，表示可选/反馈）。求和器上下输入会自动显示 +/−，复杂情况用 polarity 明确指定。
