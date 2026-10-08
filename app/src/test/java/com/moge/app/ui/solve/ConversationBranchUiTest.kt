@@ -5,8 +5,13 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.moge.app.data.prefs.Appearance
@@ -80,6 +85,35 @@ class ConversationBranchUiTest {
 
     @Test fun paperEditingPreview() = editingPreview(Appearance.PAPER, "paper")
     @Test fun chalkEditingPreview() = editingPreview(Appearance.CHALK, "chalk")
+
+    @Test fun editingScrimBlocksOldBubblesAndLeavesComposerUsable() {
+        val editing = mutableStateOf(true)
+        var oldBubbleClicks = 0
+        var canceled = 0
+        compose.setContent { MogeTheme {
+            val dismiss = { canceled++; editing.value = false }
+            ConversationScaffold("会话", null, {}, footer = {
+                FollowUpBar(SolveUiState(editingQuestionId = if (editing.value) "q" else null),
+                    {}, {}, {}, {}, {}, {}, {}, onCancelEditing = dismiss)
+            }, onDismissEditing = dismiss.takeIf { editing.value }) { padding ->
+                Column(Modifier.padding(padding)) {
+                    Text("旧输入", Modifier.clickable { oldBubbleClicks++ }.padding(20.dp))
+                }
+            }
+        } }
+        compose.onNodeWithTag("editing-background-scrim").assertExists()
+        compose.onNodeWithContentDescription("取消修改").performTouchInput { click() }
+        compose.runOnIdle { assertEquals(1, canceled) }
+        compose.runOnIdle { editing.value = true }
+        compose.onNodeWithText("旧输入").performTouchInput { click() }
+        compose.runOnIdle {
+            assertEquals(2, canceled)
+            assertEquals(0, oldBubbleClicks)
+        }
+        compose.onNodeWithTag("editing-background-scrim").assertDoesNotExist()
+        compose.onNodeWithText("旧输入").performTouchInput { click() }
+        compose.runOnIdle { assertEquals(1, oldBubbleClicks) }
+    }
     private fun editingPreview(appearance: Appearance, name: String) {
         var view: View? = null
         var canceled = false
@@ -87,7 +121,7 @@ class ConversationBranchUiTest {
             input = question("q-new").text)
         compose.setContent { MogeTheme(appearance) {
             view = LocalView.current
-            ConversationScaffold("卷积码编码器", null, {}, footer = {
+            ConversationScaffold("卷积码编码器", null, {}, onDismissEditing = { canceled = true }, footer = {
                 FollowUpBar(state, {}, {}, {}, {}, {}, {}, {}, onCancelEditing = { canceled = true })
             }) { padding ->
                 SolveList(state.copy(items = listOf(

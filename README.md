@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.3.8**（`versionCode = 18`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
+当前正式版本：**0.3.9**（`versionCode = 19`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -84,7 +84,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-0.3.8 的本地完整验证通过 **1092 项 Android 单元测试**；发布脚本 **18 项测试**通过。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
+0.3.9 的本地完整验证通过 **1111 项 Android 单元测试**；发布脚本 **18 项测试**通过。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
@@ -108,7 +108,7 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 
 0.3.7 优化附件输入栏、扇形添加菜单和文件预览主题，扩展常见通信框图布局，并简化模型协议与 PDF 分析方式，详见 [版本说明](docs/releases/0.3.7.md)。
 
-0.3.8 新增教材样式的卷积码、循环码编码器及卷积码状态图，支持编辑追问并切换完整对话分支，修复图片发送给文字模型且未配置看图兜底时的闪退，详见 [版本说明](docs/releases/0.3.8.md)。
+0.3.9 改进追问编辑的键盘与遮罩交互，恢复长按选字并修复公式选择复制，支持实时查看思考草稿并改善慢模型过早超时，详见 [版本说明](docs/releases/0.3.9.md)。
 
 ## 稿纸分享示例
 

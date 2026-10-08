@@ -6,6 +6,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -22,6 +25,40 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = Application::class)
 class ComposerInputTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun `editing waits for draft loading then focuses and shows keyboard once`() {
+        val state = mutableStateOf(SolveUiState(input = "普通草稿"))
+        var keyboardShows = 0
+        val keyboard = object : SoftwareKeyboardController {
+            override fun show() { keyboardShows++ }
+            override fun hide() = Unit
+        }
+        compose.setContent { MogeTheme {
+            CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
+                FollowUpBar(state.value, { state.value = state.value.copy(input = it) }, {}, {}, {}, {}, {}, {})
+            }
+        } }
+        val input = compose.onNodeWithTag("conversation-input")
+        input.assertIsNotFocused()
+        compose.runOnIdle {
+            state.value = state.value.copy(editingQuestionId = "old", switchingBranch = true)
+        }
+        input.assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(0, keyboardShows) }
+        compose.runOnIdle {
+            state.value = state.value.copy(input = "恢复的旧输入", switchingBranch = false)
+        }
+        input.assertIsFocused().assertTextEquals("恢复的旧输入")
+        compose.runOnIdle { assertEquals(1, keyboardShows) }
+        input.performTextInputSelection(TextRange(2))
+        input.performTextInput("改")
+        input.assertTextEquals("恢复改的旧输入")
+        compose.runOnIdle { assertEquals(1, keyboardShows) }
+        compose.runOnIdle { state.value = state.value.copy(editingQuestionId = null) }
+        compose.runOnIdle { state.value = state.value.copy(editingQuestionId = "another", input = "第二次修改") }
+        input.assertIsFocused().assertTextEquals("第二次修改")
+        compose.runOnIdle { assertEquals(2, keyboardShows) }
+    }
     @Test fun `formula input stays editable and sends exact original without a preview`() {
         val state = mutableStateOf(SolveUiState())
         var sent: String? = null

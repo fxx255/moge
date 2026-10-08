@@ -83,10 +83,11 @@ class ModelClient @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaType = "application/json; charset=utf-8".toMediaType()
 
-    /** 大模型响应较慢，读超时给足；连接仍保持短超时。 */
+    /** Allow slow first tokens and pauses in reasoning; cancellation still closes the socket immediately. */
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .callTimeout(30, TimeUnit.MINUTES)
         .build()
 
     suspend fun isConfigured(): Boolean = withContext(io) { credentialStore.resolveActiveIdentity() != null }
@@ -285,7 +286,11 @@ class ModelClient @Inject constructor(
             .get()
             .build()
         val response = try {
-            OkHttpCancellation.execute(client, request)
+            // Model lists do not need the long wait budget used by generation requests.
+            OkHttpCancellation.execute(client.newBuilder()
+                .readTimeout(20, TimeUnit.SECONDS)
+                .callTimeout(30, TimeUnit.SECONDS)
+                .build(), request)
         } catch (e: IOException) {
             throw ModelException(ModelException.Kind.NETWORK, "无法获取模型列表：${e.message}")
         }

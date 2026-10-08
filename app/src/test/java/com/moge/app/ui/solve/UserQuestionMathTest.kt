@@ -41,7 +41,8 @@ class UserQuestionMathTest {
         compose.runOnIdle {
             val view = nativeMathViews(root).single()
             assertEquals(listOf("x^2", "\\frac{1}{2}", "y_1", "\\int_0^1 x dx"), nativeMathSpans(view).map { it.drawable.destination.trim() })
-            assertFalse(view.isTextSelectable)
+            assertTrue(view.isTextSelectable)
+            assertTrue(view.isLongClickable)
             assertNativeMathDraws(view)
             assertEquals(raw, item.text)
         }

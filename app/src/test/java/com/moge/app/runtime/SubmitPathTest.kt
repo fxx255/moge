@@ -22,6 +22,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -143,6 +144,36 @@ class SubmitPathTest {
     @After
     fun tearDown() {
         db.close()
+    }
+
+    @Test
+    fun `submit publishes running and live reasoning before the first answer token`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val continueAnswer = CompletableDeferred<Unit>()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            val onEvent = arg<suspend (StreamEvent) -> Unit>(7)
+            onEvent(StreamEvent.ReasoningDelta("先检查条件，再进行计算"))
+            entered.complete(Unit)
+            continueAnswer.await()
+            onEvent(StreamEvent.AnswerDelta("""{"reply":"完整解答"}"""))
+            ReplyParser.parse("""{"reply":"完整解答"}""")
+        }
+        val record = manager.submit(GenerationManager.Submission("c1", "测试问题", emptyList()))
+        try {
+            withTimeout(5_000) { entered.await() }
+            val live = manager.active.value
+            assertEquals(RequestStatus.RUNNING, live.phase)
+            assertEquals("先检查条件，再进行计算", live.reasoning)
+            assertEquals("", live.partialText)
+            assertFalse(live.answerStarted)
+            assertEquals(RequestStatus.RUNNING.name, requestRepository.get(record.requestId)!!.status)
+        } finally {
+            continueAnswer.complete(Unit)
+            withTimeout(5_000) { while (manager.isRunning()) delay(10) }
+        }
+        assertEquals("完整解答", db.requestDao().getMessage(record.answerMessageId)!!.content)
     }
 
     /** 桩：记录实际 messages，并返回一个可解析的回复。 */

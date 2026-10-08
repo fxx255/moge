@@ -59,6 +59,25 @@ class SolveItemsTest {
     }
 
     @Test
+    fun `reasoning received before answer text leaves the reading state`() {
+        val active = ActiveState("r", "att", "c", RequestStatus.PREPARING,
+            answerMessageId = "a1", reasoning = "先检查已知条件")
+        val item = buildSolveItems("c", listOf(user("u1"), answer("a1")), emptyList(), active)[1] as SolveItem.Answer
+        assertEquals(AnswerState.STREAMING, item.state)
+        assertEquals("先检查已知条件", item.reasoning)
+        assertEquals("", item.text)
+    }
+
+    @Test
+    fun `waiting for the first model token is distinct from preparing attachments`() {
+        val active = ActiveState("r", "att", "c", RequestStatus.RUNNING, answerMessageId = "a1")
+        val item = buildSolveItems("c", listOf(user("u1"), answer("a1")), emptyList(), active)[1] as SolveItem.Answer
+        assertEquals(AnswerState.STREAMING, item.state)
+        assertTrue(item.text.isEmpty())
+        assertTrue(item.reasoning.isEmpty())
+    }
+
+    @Test
     fun `interrupted only the last answer is retryable`() {
         val messages = listOf(user("u1"), answer("a1"), user("u2"), answer("a2"))
         val reqs = listOf(

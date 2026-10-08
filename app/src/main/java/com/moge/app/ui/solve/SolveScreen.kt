@@ -1,6 +1,7 @@
 package com.moge.app.ui.solve
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -110,13 +113,25 @@ fun SolveScreen(
     }
 
     val existing = observedId != null
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val dismissEditing = {
+        if (!state.submitting && !state.switchingBranch && !state.importingPhotos) {
+            focusManager.clearFocus()
+            keyboard?.hide()
+            vm.cancelEditing()
+        }
+    }
+    BackHandler(enabled = state.editingQuestionId != null && viewer == null && exportContent == null &&
+        favorite == null && selection == null && cropQueue.isEmpty(), onBack = dismissEditing)
     PageSwipeSurface(enabled = viewer == null && exportContent == null && favorite == null &&
-        selection == null && cropQueue.isEmpty(),
+        selection == null && cropQueue.isEmpty() && state.editingQuestionId == null,
         onLeft = if (existing) onSwipeNotebook else onSwipeResumeConversation,
         onRight = if (existing) onSwipeNewConversation else onSwipeHistory,
         leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
         rightLabel = if (existing) "开始新对话" else "前往历史对话") {
-        ConversationScaffold(title = title, onBack = onBack, actions = {
+        ConversationScaffold(title = title, onBack = onBack,
+            onDismissEditing = dismissEditing.takeIf { state.editingQuestionId != null }, actions = {
             ConversationActions(
                 existingConversation = state.conversationId != null || conversationId != null,
                 onNewConversation = onNewConversation,
@@ -147,7 +162,7 @@ fun SolveScreen(
                 },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
-                onPasteImages = vm::pasteImages, onCancelEditing = vm::cancelEditing)
+                onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,

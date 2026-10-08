@@ -1,6 +1,8 @@
 package com.moge.app.ui.solve
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,7 +29,8 @@ import com.moge.app.ui.components.HighlightedTitle
 @Composable
 internal fun ConversationScaffold(
     title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit,
-    footer: @Composable () -> Unit, content: @Composable (PaddingValues) -> Unit,
+    footer: @Composable () -> Unit, onDismissEditing: (() -> Unit)? = null,
+    content: @Composable (PaddingValues) -> Unit,
 ) {
     val density = LocalDensity.current
     var headerPixels by remember { mutableIntStateOf(0) }
@@ -62,6 +65,14 @@ internal fun ConversationScaffold(
                     } else Spacer(Modifier.width(12.dp))
                     Box(Modifier.weight(1f)) { HighlightedTitle(title, maxLines = 1) }
                     actions()
+                }
+                if (onDismissEditing != null) {
+                    // Keep the composer above the scrim; old bubbles and navigation
+                    // behind it must not receive taps while an input is being edited.
+                    Box(Modifier.matchParentSize().testTag("editing-background-scrim")
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.48f))
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+                            onClickLabel = "取消修改输入", onClick = onDismissEditing))
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("conversation-composer")
                     .onSizeChanged { footerPixels = it.height }) { footer() }

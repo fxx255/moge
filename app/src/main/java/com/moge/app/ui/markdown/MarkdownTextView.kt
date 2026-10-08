@@ -2,18 +2,25 @@ package com.moge.app.ui.markdown
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.text.Spannable
+import android.text.Selection
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.util.Log
 import android.view.MotionEvent
+import android.view.GestureDetector
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.TextView
 import com.moge.app.data.parse.normalizeReplyMarkdown
 import com.moge.app.data.parse.sanitizeReplyLatex
@@ -34,6 +41,12 @@ import ru.noties.jlatexmath.JLatexMathDrawable
 private data class MarkdownRenderSource(val markdown: String, val formulaWidthPx: Int)
 private interface MarkdownRenderSourceOwner {
     var renderSource: MarkdownRenderSource?
+    var onTextTap: (() -> Unit)?
+}
+
+/** Native selectable TextViews handle taps themselves, so an OnClickListener is insufficient. */
+internal fun setMarkdownTextTap(view: TextView, onTap: (() -> Unit)?) {
+    (view as? MarkdownRenderSourceOwner)?.onTextTap = onTap
 }
 
 /** Retain the complete render input before normalization/sanitization for failure diagnostics. */
@@ -50,6 +63,66 @@ internal fun createMarkdownTextView(
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         @Volatile override var renderSource: MarkdownRenderSource? = null
+        override var onTextTap: (() -> Unit)? = null
+        private var adjustingSelection = false
+        private var selectionActionMode: ActionMode? = null
+        private var handlingNativeTouch = false
+        private var tapStartedWithSelection = false
+        private val tapDetector by lazy {
+            GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent) = true
+                override fun onSingleTapUp(event: MotionEvent): Boolean {
+                    if (!tapStartedWithSelection && !hasSelection()) performClick()
+                    return false
+                }
+            })
+        }
+
+        override fun performClick(): Boolean {
+            val onTap = onTextTap
+            if (onTap == null || handlingNativeTouch) return super.performClick()
+            if (hasSelection()) return false
+            super.performClick()
+            onTap()
+            return true
+        }
+
+        init {
+            customSelectionActionModeCallback = object : ActionMode.Callback {
+                override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                    selectionActionMode = mode
+                    return true
+                }
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+                override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
+                override fun onDestroyActionMode(mode: ActionMode) { selectionActionMode = null }
+            }
+        }
+
+        override fun onSelectionChanged(start: Int, end: Int) {
+            super.onSelectionChanged(start, end)
+            if (adjustingSelection || start < 0 || end < 0 || start == end) return
+            val spannable = text as? Spannable ?: return
+            val complete = completeFormulaSelection(spannable, start, end)
+            if (complete.start == minOf(start, end) && complete.end == maxOf(start, end)) return
+            adjustingSelection = true
+            try {
+                if (start < end) Selection.setSelection(spannable, complete.start, complete.end)
+                else Selection.setSelection(spannable, complete.end, complete.start)
+            } finally { adjustingSelection = false }
+        }
+
+        override fun onTextContextMenuItem(id: Int): Boolean {
+            if (id == android.R.id.copy && hasSelection()) {
+                val selected = selectedMarkdownText(text, selectionStart, selectionEnd)
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("选中的文字", selected))
+                selectionActionMode?.finish()
+                    ?: (text as? Spannable)?.let { Selection.setSelection(it, selectionEnd) }
+                return true
+            }
+            return super.onTextContextMenuItem(id)
+        }
 
         /**
          * 表格块不得抢占触摸：它没有文本选区，普通落点交给外层横向/纵向滚动。
@@ -64,6 +137,20 @@ internal fun createMarkdownTextView(
             if (selectable) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && !isPointInsideText(event)) {
                     return false
+                }
+                if (onTextTap != null) {
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                        val spannable = text as? Spannable
+                        tapStartedWithSelection = hasSelection() ||
+                            (spannable != null && isPointInsideClickableSpan(spannable, event))
+                    }
+                    // Let the editor process selection first. Its own click dispatch
+                    // must not also invoke editing; the detector handles only short taps.
+                    handlingNativeTouch = true
+                    val handled = try { super.onTouchEvent(event) }
+                        finally { handlingNativeTouch = false }
+                    tapDetector.onTouchEvent(event)
+                    return handled
                 }
                 return super.onTouchEvent(event)
             }

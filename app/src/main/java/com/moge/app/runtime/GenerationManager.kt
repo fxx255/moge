@@ -1196,6 +1196,8 @@ class GenerationManager @Inject constructor(
             if (!requestRepository.markRunning(requestId, request.attemptId)) {
                 throw CancellationException("这一轮已不是活动请求（attempt 过期或已终态）")
             }
+            // The preparation phase is finished even if the model has not sent answer text yet.
+            updateActive(owner) { it.copy(phase = RequestStatus.RUNNING) }
 
             var continuation = 0
             var barrenRounds = 0

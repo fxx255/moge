@@ -123,7 +123,7 @@ private fun answerItem(
     if (live != null) {
         return SolveItem.Answer(
             id = message.id,
-            state = if (live.phase == RequestStatus.PREPARING && live.partialText.isEmpty()) {
+            state = if (live.phase == RequestStatus.PREPARING && live.partialText.isEmpty() && live.reasoning.isBlank()) {
                 AnswerState.PREPARING
             } else {
                 AnswerState.STREAMING

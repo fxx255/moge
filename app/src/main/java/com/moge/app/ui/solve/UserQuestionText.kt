@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import com.moge.app.ui.markdown.MARKDOWN_TEXT_SIZE_SP
 import com.moge.app.ui.markdown.createMarkdownTextView
 import com.moge.app.ui.markdown.formulaWidthMeasurer
 import com.moge.app.ui.markdown.renderMarkdownIfChanged
+import com.moge.app.ui.markdown.setMarkdownTextTap
 
 /** Both first questions and follow-ups use the same native math path. */
 @Composable
@@ -45,10 +47,14 @@ internal fun UserQuestionText(source: String, color: Color = MaterialTheme.color
     val click = if (onClick != null) Modifier.clickable(onClickLabel = "修改输入", onClick = onClick) else Modifier
     val math = remember(source) { userMathSource(source) }
     if (math == null) {
-        Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
+        SelectionContainer {
+            Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
+        }
     } else {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (math.incomplete) Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
+            if (math.incomplete) SelectionContainer {
+                Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
+            }
             else UserMathBody(math, color, onClick)
             val context = LocalContext.current
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -79,7 +85,7 @@ private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Uni
         val viewportWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         key(textColor, linkColor, fontSizePx) {
             val view = remember {
-                createMarkdownTextView(context, textColor, linkColor, selectable = false, fontSizePx = fontSizePx)
+                createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx)
             }
             val renderWidthPx = remember(math, viewportWidthPx) {
                 val measure = formulaWidthMeasurer(view)
@@ -100,11 +106,10 @@ private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Uni
                     modifier = Modifier.width(with(density) { renderWidthPx.toDp() }),
                     factory = { view },
                     update = {
-                        // Selection belongs to the editable source. The explicit copy action
-                        // above copies it verbatim, rather than Markwon's normalized span text.
                         it.contentDescription = math.renderSource
-                        it.setOnClickListener(if (onClick != null) android.view.View.OnClickListener { onClick() } else null)
-                        it.isClickable = onClick != null
+                        // A long press or a tap ending an existing selection is a selection
+                        // gesture; only an ordinary tap should start editing the old input.
+                        setMarkdownTextTap(it, onClick)
                         renderMarkdownIfChanged(it, math.renderSource, renderWidthPx, textColor, linkColor)
                     },
                 )

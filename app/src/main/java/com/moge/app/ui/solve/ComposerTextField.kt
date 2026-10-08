@@ -25,10 +25,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.VisualTransformation
 
 /** State-based editing lets Android paste image content without inserting its URI as text. */
@@ -41,6 +45,7 @@ internal fun ComposerTextField(
     onPasteImages: (List<Uri>) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    editFocusKey: String? = null,
 ) {
     val binding = remember { ComposerTextBinding(value) }
     val onChange by rememberUpdatedState(onValueChange)
@@ -48,14 +53,26 @@ internal fun ComposerTextField(
     val context = LocalContext.current
     val receiver = remember(context) { imageContentReceiver(context) { onImages(it) } }
     val interaction = remember { MutableInteractionSource() }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     SideEffect { binding.acceptExternal(value) }
     LaunchedEffect(binding) {
         snapshotFlow { binding.field.text.toString() }.collect { binding.reportText(it, onChange) }
     }
+    // Wait for the restored draft and the enabled field to be attached. Typing and
+    // attachment updates must not request focus again or move the editing cursor.
+    LaunchedEffect(editFocusKey, enabled) {
+        if (editFocusKey != null && enabled) {
+            withFrameNanos { }
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
     BasicTextField(
         state = binding.field,
         enabled = enabled,
-        modifier = modifier.heightIn(min = TextFieldDefaults.MinHeight).contentReceiver(receiver),
+        modifier = modifier.focusRequester(focusRequester)
+            .heightIn(min = TextFieldDefaults.MinHeight).contentReceiver(receiver),
         interactionSource = interaction,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),

@@ -230,7 +230,7 @@ internal fun AnswerSheet(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         AnswerHeader(item)
-        if (item.reasoning.isNotBlank() && item.state == AnswerState.STREAMING) {
+        if (item.reasoning.isNotBlank() && generating) {
             ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty())
         }
         if (hasAnswer && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
@@ -252,7 +252,7 @@ internal fun AnswerSheet(
             if (generating && !expanded) GeneratingHint("正在整理完整解答…")
         } else when (item.state) {
             AnswerState.COMPLETED -> AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-            AnswerState.PREPARING -> GeneratingHint("正在读题…")
+            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) "正在思考…" else "正在读题…")
             AnswerState.STREAMING -> when {
                 answerFirst && !hasAnswer -> GeneratingHint("正在生成答案…")
                 item.text.isEmpty() -> GeneratingHint("正在思考…")
@@ -299,6 +299,7 @@ private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean) {
     Column(
         Modifier
             .fillMaxWidth()
+            .testTag("answer-scratch-pad")
             .background(MogeTheme.paper.scratch, RoundedCornerShape(6.dp))
             .dashedBorder(MaterialTheme.colorScheme.outline)
             .then(if (MogeTheme.motionEnabled) Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)) else Modifier)
@@ -496,9 +497,10 @@ internal fun FollowUpBar(
                 ComposerTextField(
                     value = state.input,
                     onValueChange = onInputChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).testTag("conversation-input"),
                     placeholder = if (state.editingQuestionId != null) "修改这次输入" else if (state.conversationId == null) "输入问题" else "继续对话",
                     enabled = !state.switchingBranch,
+                    editFocusKey = state.editingQuestionId,
                     onPasteImages = onPasteImages,
                 )
                 ComposerAttachmentMenu(
