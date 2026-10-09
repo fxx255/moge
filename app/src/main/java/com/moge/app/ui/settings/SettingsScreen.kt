@@ -16,6 +16,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -51,6 +52,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -142,6 +144,9 @@ fun SettingsScreen(
                 onClearCache = vm::clearFigureCache,
                 onClearOrphans = vm::clearOrphans,
                 onClearNotebook = vm::clearNotebook,
+                prefs = prefs,
+                onAutoCleanup = vm::setHistoryAutoCleanupEnabled,
+                onRetentionDays = vm::setHistoryRetentionDays,
             )
             BackgroundGenerationSection()
             SettingsSection("关于与更新") {
@@ -372,9 +377,13 @@ private fun DataSection(
     onClearCache: () -> Unit,
     onClearOrphans: () -> Unit,
     onClearNotebook: () -> Unit,
+    prefs: UserSettings,
+    onAutoCleanup: (Boolean) -> Unit,
+    onRetentionDays: (Int) -> Unit,
 ) {
     var pending by remember { mutableStateOf<DataAction?>(null) }
     SettingsSection("数据") {
+        HistoryRetentionControls(prefs, onAutoCleanup, onRetentionDays)
         DataRow("图表缓存", cacheBytes?.let(::formatBytes) ?: "计算中…") {
             OutlinedButton(onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
         }
@@ -412,6 +421,53 @@ private fun DataSection(
         )
         null -> Unit
     }
+}
+
+@Composable
+internal fun HistoryRetentionControls(
+    prefs: UserSettings,
+    onAutoCleanup: (Boolean) -> Unit,
+    onRetentionDays: (Int) -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    SwitchRow("自动清理历史对话", "仅清理未收藏、未分类的过期对话", prefs.historyAutoCleanupEnabled, onAutoCleanup)
+    DataRow("保留期限", "从最近一次更新起计算；收藏或分类后长期保留") {
+        OutlinedButton(onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
+            Text("${prefs.historyRetentionDays} 天")
+        }
+    }
+    if (editing && prefs.historyAutoCleanupEnabled) {
+        HistoryRetentionDaysDialog(prefs.historyRetentionDays, onDismiss = { editing = false }, onSave = {
+            editing = false
+            onRetentionDays(it)
+        })
+    }
+}
+
+@Composable
+private fun HistoryRetentionDaysDialog(days: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var input by rememberSaveable { mutableStateOf(days.toString()) }
+    val value = input.toIntOrNull()?.takeIf { it in 1..UserSettings.MAX_HISTORY_RETENTION_DAYS }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("历史保留期限") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("超过期限的未收藏、未分类对话会自动删除，收藏和分类内容长期保留。")
+                OutlinedTextField(input, onValueChange = { input = it.filter(Char::isDigit).take(3) },
+                    label = { Text("保留天数") }, suffix = { Text("天") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    isError = value == null, supportingText = { Text("可设置 1–365 天") })
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(3, 7, 14, 30, 90).forEach { preset ->
+                        FilterChip(value == preset, onClick = { input = preset.toString() }, label = { Text("$preset 天") })
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text("保存") } },
+        dismissButton = { TextButton(onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable

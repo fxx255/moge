@@ -2,6 +2,7 @@ package com.moge.app.data.db
 
 import com.moge.app.core.IoDispatcher
 import com.moge.app.domain.SolveMode
+import com.moge.app.data.prefs.UserSettings
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -52,6 +53,12 @@ class ConversationRepository @Inject constructor(
     }
 
     suspend fun allIds(): Set<String> = withContext(io) { dao.allConversationIds().toSet() }
+
+    /** Collected or classified conversations stay indefinitely; use the configured expiry interval. */
+    suspend fun deleteExpired(now: Instant = Instant.now(), retentionDays: Int = UserSettings.DEFAULT_HISTORY_RETENTION_DAYS): List<String> = withContext(io) {
+        require(retentionDays in 1..UserSettings.MAX_HISTORY_RETENTION_DAYS)
+        dao.deleteExpiredConversations(now.minusSeconds(retentionDays * 24L * 60 * 60))
+    }
 
     /**
      * 消息、封面和请求附件引用的全部本机图片路径（未规范化），孤儿文件回收时保留它们。

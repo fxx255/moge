@@ -7,6 +7,8 @@ import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.HistoryEntry
 import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.data.db.NotebookRepository
+import com.moge.app.data.prefs.SettingsRepository
+import com.moge.app.data.prefs.UserSettings
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,6 +44,8 @@ data class HistoryUiState(
     val busy: Boolean = false,
     val activeConversationId: String? = null,
     val savedFavoriteId: String? = null,
+    val autoCleanupEnabled: Boolean = true,
+    val retentionDays: Int = UserSettings.DEFAULT_HISTORY_RETENTION_DAYS,
 ) {
     val selecting: Boolean get() = selectedIds.isNotEmpty()
     val filtered: Boolean get() = query.isNotBlank() || categoryId != null || uncategorizedOnly
@@ -58,6 +62,7 @@ class HistoryViewModel @Inject constructor(
     private val drafts: DraftStore,
     private val manager: GenerationManager,
     private val notebooks: NotebookRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     private val restoredCategory = savedState.get<String>(CATEGORY).orEmpty()
     private val _state = MutableStateFlow(HistoryUiState(
@@ -70,6 +75,14 @@ class HistoryViewModel @Inject constructor(
     private val reload = MutableStateFlow(0)
 
     init {
+        viewModelScope.launch {
+            settings.settings.catch { error ->
+                if (error is CancellationException) throw error
+                emit(UserSettings(historyAutoCleanupEnabled = false))
+            }.collect { prefs ->
+                _state.update { it.copy(autoCleanupEnabled = prefs.historyAutoCleanupEnabled, retentionDays = prefs.historyRetentionDays) }
+            }
+        }
         viewModelScope.launch {
             // 打字时防抖，免得每个字都对全部消息做一次 LIKE；首次加载和清空搜索立即生效。
             val query = savedState.getStateFlow(QUERY, state.value.query).withIndex()

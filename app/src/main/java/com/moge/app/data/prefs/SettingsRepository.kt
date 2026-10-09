@@ -35,10 +35,14 @@ data class UserSettings(
     val nickname: String = "",
     /** 只影响展示：完整解答仍然生成并保存在本机。 */
     val answerFirst: Boolean = false,
+    val historyAutoCleanupEnabled: Boolean = true,
+    val historyRetentionDays: Int = DEFAULT_HISTORY_RETENTION_DAYS,
 ) {
     companion object {
         const val DEFAULT_CONTINUATIONS = 3
         const val MAX_CONTINUATIONS = 8
+        const val DEFAULT_HISTORY_RETENTION_DAYS = 7
+        const val MAX_HISTORY_RETENTION_DAYS = 365
     }
 }
 
@@ -59,6 +63,9 @@ class SettingsRepository @Inject constructor(
             webSearchEnabled = prefs[KEY_WEB_SEARCH] ?: false,
             nickname = prefs[KEY_NICKNAME].orEmpty(),
             answerFirst = prefs[KEY_ANSWER_FIRST] ?: false,
+            historyAutoCleanupEnabled = prefs[KEY_HISTORY_AUTO_CLEANUP] ?: true,
+            historyRetentionDays = (prefs[KEY_HISTORY_RETENTION_DAYS] ?: UserSettings.DEFAULT_HISTORY_RETENTION_DAYS)
+                .coerceIn(1, UserSettings.MAX_HISTORY_RETENTION_DAYS),
         )
     }
 
@@ -91,6 +98,15 @@ class SettingsRepository @Inject constructor(
         store.edit { it[KEY_ANSWER_FIRST] = value }
     }
 
+    suspend fun setHistoryAutoCleanupEnabled(value: Boolean) {
+        store.edit { it[KEY_HISTORY_AUTO_CLEANUP] = value }
+    }
+
+    suspend fun setHistoryRetentionDays(value: Int) {
+        require(value in 1..UserSettings.MAX_HISTORY_RETENTION_DAYS) { "保留期限为 1–365 天" }
+        store.edit { it[KEY_HISTORY_RETENTION_DAYS] = value }
+    }
+
     private companion object {
         const val MAX_NICKNAME_CHARS = 16
         val KEY_APPEARANCE = stringPreferencesKey("appearance")
@@ -99,5 +115,7 @@ class SettingsRepository @Inject constructor(
         val KEY_WEB_SEARCH = booleanPreferencesKey("web_search_enabled")
         val KEY_NICKNAME = stringPreferencesKey("nickname")
         val KEY_ANSWER_FIRST = booleanPreferencesKey("answer_first")
+        val KEY_HISTORY_AUTO_CLEANUP = booleanPreferencesKey("history_auto_cleanup")
+        val KEY_HISTORY_RETENTION_DAYS = intPreferencesKey("history_retention_days")
     }
 }

@@ -9,6 +9,8 @@ import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.GenerationManager.ActiveState
+import com.moge.app.data.prefs.SettingsRepository
+import com.moge.app.data.prefs.UserSettings
 import io.mockk.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -32,13 +34,23 @@ class HistoryViewModelTest {
     private val manager = mockk<GenerationManager> { every { this@mockk.active } returns this@HistoryViewModelTest.active }
     private fun entry(id: String) = HistoryEntry(ConversationEntity(id = id, title = id), "题目$id")
     private val entries = MutableStateFlow(listOf(entry("a"), entry("b")))
+    private val prefs = MutableStateFlow(UserSettings())
+    private val settings = mockk<SettingsRepository> { every { this@mockk.settings } returns prefs }
 
     @Before fun setup() {
         Dispatchers.setMain(dispatcher)
         every { repository.observeHistory(any(), any(), any()) } returns entries
     }
     @After fun teardown() { Dispatchers.resetMain() }
-    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks)
+    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks, settings)
+
+    @Test fun historyRetentionHintFollowsSettingsChanges() {
+        val model = vm()
+        prefs.value = UserSettings(historyRetentionDays = 30)
+        assertEquals(30, model.state.value.retentionDays)
+        prefs.value = prefs.value.copy(historyAutoCleanupEnabled = false)
+        assertFalse(model.state.value.autoCleanupEnabled)
+    }
 
     @Test fun openingSearchResultRevealsItsHiddenMessageBeforeNavigation() {
         val model = vm()

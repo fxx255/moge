@@ -141,6 +141,26 @@ interface ConversationDao {
         return deletable
     }
 
+    /** Last activity includes retry/failure timestamps; pinning alone is not collection. */
+    @Query("""
+        SELECT c.id FROM conversation c
+        WHERE c.updated_at <= :cutoff AND c.category_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM notebook_entry n WHERE n.source_conversation_id = c.id)
+          AND NOT EXISTS (SELECT 1 FROM message m
+                          WHERE m.conversation_id = c.id AND m.created_at > :cutoff)
+          AND NOT EXISTS (SELECT 1 FROM request r WHERE r.conversation_id = c.id
+                          AND (r.status IN ('PREPARING','RUNNING') OR r.updated_at > :cutoff))
+    """)
+    suspend fun expiredConversationIds(cutoff: Instant): List<String>
+
+    /** Eligibility and all cascades share a transaction with classification, collection and submission. */
+    @Transaction
+    suspend fun deleteExpiredConversations(cutoff: Instant): List<String> {
+        val expired = expiredConversationIds(cutoff)
+        expired.chunked(500).forEach { deleteConversations(it) }
+        return expired
+    }
+
     /** 保留生成流程使用的会话 API。历史列表使用 [observeHistory]。 */
     @Query("SELECT * FROM conversation ORDER BY pinned DESC, updated_at DESC")
     fun observeConversations(): Flow<List<ConversationEntity>>

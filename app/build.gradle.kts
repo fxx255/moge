@@ -53,8 +53,8 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.3.9"
+        versionCode = 20
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -205,6 +205,7 @@ dependencies {
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime)
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.hilt.android)
@@ -219,6 +220,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.mockk)
     testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.work.testing)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.androidx.compose.ui.test.junit4)
 

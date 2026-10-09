@@ -118,6 +118,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setAnswerFirst(value) }
     }
 
+    fun setHistoryAutoCleanupEnabled(value: Boolean) {
+        viewModelScope.launch { settings.setHistoryAutoCleanupEnabled(value) }
+    }
+
+    fun setHistoryRetentionDays(value: Int) {
+        viewModelScope.launch { settings.setHistoryRetentionDays(value) }
+    }
+
     fun setMaxContinuations(value: Int) {
         viewModelScope.launch { settings.setMaxContinuations(value) }
     }

@@ -179,6 +179,13 @@ internal fun HistoryContent(
                         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
                         TextButton(onRetry) { Text("重试读取分类") }
                     }
+                    if (!state.selecting) {
+                        Text(if (state.autoCleanupEnabled) "未收藏且未分类的对话保留 ${state.retentionDays} 天；收藏或分类后长期保留"
+                            else "自动清理已关闭，历史对话将持续保留",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    }
                     if (state.selecting) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }

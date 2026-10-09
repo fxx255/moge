@@ -212,6 +212,14 @@ internal fun createMarkdownTextView(
         }
         if (fontSizePx == null) textSize = MARKDOWN_TEXT_SIZE_SP
         else setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSizePx)
+        // Italic glyphs can extend past their measured advance (especially f/t).
+        // Reserve an em-relative gutter, including when the user enlarges text.
+        // TextView also clips *inside* its padding: a transparent shadow expands
+        // that native clip into the gutter without painting a visible shadow.
+        // Keep the outer Compose clip so text never covers adjacent image/table blocks.
+        val glyphGutter = kotlin.math.ceil(this.textSize * 0.25f).toInt()
+        setPadding(glyphGutter, paddingTop, glyphGutter, paddingBottom)
+        setShadowLayer(glyphGutter.toFloat(), 0f, 0f, android.graphics.Color.TRANSPARENT)
         val fallbackSizePx = this.textSize * 14f / MARKDOWN_TEXT_SIZE_SP
         // A previous asynchronous load can fail after the View has started rendering new input.
         // Keep its original input alive with its drawable, rather than logging only the latest source.
@@ -451,7 +459,8 @@ internal fun formatRenderErrorEntry(markdown: String, error: Throwable, original
 internal fun formulaMaxWidthPx(view: TextView, measuredWidthPx: Int): Int {
     val metrics = view.resources.displayMetrics
     val padding = (metrics.density * 24).toInt()
-    return (measuredWidthPx - padding).coerceAtLeast((metrics.density * 120).toInt())
+    return (measuredWidthPx - view.totalPaddingLeft - view.totalPaddingRight - padding)
+        .coerceAtLeast((metrics.density * 120).toInt())
 }
 
 /** 优先用 JLatexMath 真实测量公式宽度；测量失败时按字符数估算。 */
