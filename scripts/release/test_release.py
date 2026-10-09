@@ -7,6 +7,7 @@ import subprocess
 import shutil
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import generate_update as generate
@@ -20,6 +21,67 @@ SIGNING = "Signer #1 certificate DN: CN=Moge Release\nSigner #1 certificate SHA-
 
 
 class ReleaseTests(unittest.TestCase):
+    API_URL = "https://api.github.com/repos/test-owner/moge"
+
+    def limited(self, code=403, remaining="0"):
+        return urllib.error.HTTPError(self.API_URL, code, "rate limit", {"X-RateLimit-Remaining": remaining}, None)
+
+    def test_api_prefers_public_request_without_using_available_token(self):
+        with patch.dict(generate.os.environ, {"GH_TOKEN": "fixture-token"}), \
+                patch.object(generate, "public_json", return_value={"private": False}), \
+                patch.object(generate.urllib.request, "build_opener") as opener:
+            self.assertEqual(generate.github_api_json(self.API_URL), {"private": False})
+            opener.assert_not_called()
+
+    def test_rate_limited_api_uses_token_on_exact_origin_without_redirects(self):
+        for code in (403, 429):
+            with self.subTest(code=code), patch.dict(generate.os.environ, {"GH_TOKEN": "fixture-token"}), \
+                    patch.object(generate, "public_json", side_effect=self.limited(code)), \
+                    patch.object(generate.urllib.request, "build_opener") as opener:
+                opener.return_value.open.return_value = io.BytesIO(b'{"private":false}')
+                self.assertEqual(generate.github_api_json(self.API_URL), {"private": False})
+                request = opener.return_value.open.call_args.args[0]
+                self.assertEqual(request.full_url, self.API_URL)
+                self.assertEqual(request.get_header("Authorization"), "Bearer fixture-token")
+                handler = opener.call_args.args[0]
+                with self.assertRaises(ValueError):
+                    handler.redirect_request(request, None, 302, "redirect", {}, "https://example.com/")
+
+    def test_api_without_token_or_unrelated_forbidden_response_stays_failed(self):
+        for token, error in (("", self.limited()), ("fixture-token", self.limited(403, "10")),
+                             ("fixture-token", self.limited(404))):
+            with self.subTest(token=bool(token), code=error.code), patch.dict(generate.os.environ, {"GH_TOKEN": token}), \
+                    patch.object(generate, "public_json", side_effect=error), \
+                    patch.object(generate.urllib.request, "build_opener") as opener:
+                with self.assertRaises(urllib.error.HTTPError):
+                    generate.github_api_json(self.API_URL)
+                opener.assert_not_called()
+
+    def test_authenticated_api_never_accepts_foreign_origin_or_download_url(self):
+        for url in ("https://github.com/test-owner/moge/releases/download/v0.2.0/update.json",
+                    "https://api.github.com.evil.example/repos/test-owner/moge", "http://api.github.com/repos/x/y",
+                    "https://user@api.github.com/repos/x/y", "https://api.github.com:444/repos/x/y"):
+            with self.subTest(url=url), patch.object(generate, "public_json") as public:
+                with self.assertRaises(ValueError):
+                    generate.github_api_json(url)
+                public.assert_not_called()
+
+    def test_authenticated_api_retains_response_size_bound(self):
+        with patch.dict(generate.os.environ, {"GH_TOKEN": "fixture-token"}), \
+                patch.object(generate, "public_json", side_effect=self.limited()), \
+                patch.object(generate.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value = io.BytesIO(b"x" * (generate.MAX_JSON_BYTES + 1))
+            with self.assertRaises(ValueError):
+                generate.github_api_json(self.API_URL)
+
+    def test_public_asset_requests_never_attach_runner_token(self):
+        with patch.dict(generate.os.environ, {"GH_TOKEN": "fixture-token"}), \
+                patch.object(generate.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value = io.BytesIO(b'{"versionCode":1}')
+            generate.public_json("https://github.com/test-owner/moge/releases/download/v0.1.0/update.json")
+            request = opener.return_value.open.call_args.args[0]
+            self.assertIsNone(request.get_header("Authorization"))
+
     def fixture(self, directory):
         apk = Path(directory) / generate.APK_NAME
         apk.write_bytes(b"fixture APK bytes")

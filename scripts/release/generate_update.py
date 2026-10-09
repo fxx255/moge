@@ -108,6 +108,36 @@ def public_json(url):
     return json.loads(content)
 
 
+class RejectApiRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("Authenticated GitHub API redirects are not allowed")
+
+
+def github_api_json(url):
+    """Try public API first; a runner token can recover an exhausted anonymous quota."""
+    origin = urllib.parse.urlsplit(url)
+    if (origin.scheme != "https" or origin.hostname != "api.github.com" or
+            origin.username or origin.password or origin.port not in (None, 443) or
+            not origin.path.startswith("/repos/")):
+        raise ValueError("Require the GitHub repository API origin")
+    try:
+        return public_json(url)
+    except urllib.error.HTTPError as error:
+        limited = error.code == 429 or (error.code == 403 and error.headers.get("X-RateLimit-Remaining") == "0")
+        token = os.environ.get("GH_TOKEN", "")
+        if not limited or not token:
+            raise
+    # This token is for API metadata only, never APK/update.json downloads or redirects.
+    request = urllib.request.Request(url, headers={"User-Agent": "Moge-release-check",
+        "Accept": "application/vnd.github+json", "Authorization": "Bearer " + token,
+        "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.build_opener(RejectApiRedirects()).open(request, timeout=30) as response:
+        content = response.read(MAX_JSON_BYTES + 1)
+    if len(content) > MAX_JSON_BYTES:
+        raise ValueError("GitHub API metadata is too large")
+    return json.loads(content)
+
+
 def assert_monotonic(current, published):
     if current["packageName"] != published.get("packageName"):
         raise ValueError("Published APK package differs")
@@ -121,12 +151,12 @@ def assert_monotonic(current, published):
 def check_published(manifest):
     repository = manifest["repositoryUrl"].removeprefix("https://github.com/")
     # Also prove this repository is public; private repositories cannot bootstrap a public updater.
-    info = public_json(f"https://api.github.com/repos/{repository}")
+    info = github_api_json(f"https://api.github.com/repos/{repository}")
     if info.get("private") is not False:
         raise ValueError("Update distribution repository must be public")
     # Check every stable release, not only latest: a newer tag may contain a lower code.
     for page in range(1, 101):
-        releases = public_json(f"https://api.github.com/repos/{repository}/releases?per_page=20&page={page}")
+        releases = github_api_json(f"https://api.github.com/repos/{repository}/releases?per_page=20&page={page}")
         if not isinstance(releases, list):
             raise ValueError("Invalid releases response")
         for release in releases:

@@ -88,6 +88,8 @@ jobs:
           python3 -m unittest discover -s "$RELEASE_TOOLING_DIR" -p 'test_*.py'
           ./gradlew --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintRelease assembleRelease
       - name: Generate metadata from verified APK and compare published versions
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p release-output
           cp app/build/outputs/apk/release/app-release.apk release-output/Moge-arm64.apk
