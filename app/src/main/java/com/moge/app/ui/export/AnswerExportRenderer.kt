@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.ui.graphics.toArgb
+import com.moge.app.core.LatexEngine
 import com.moge.app.ui.theme.Paper
 import com.moge.app.ui.theme.PaperGrid
 import com.moge.app.ui.theme.Ink
@@ -31,7 +32,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import ru.noties.jlatexmath.JLatexMathAndroid
 import ru.noties.jlatexmath.JLatexMathDrawable
 import java.io.File
 import kotlin.math.ceil
@@ -59,7 +59,7 @@ internal suspend fun renderAnswerExport(
     val files = ExportFiles.create(context)
     try {
         return withContext(Dispatchers.Main.immediate) {
-            JLatexMathAndroid.init(context.applicationContext)
+            LatexEngine.init(context)
             val renderer = NativeExportRenderer(context, files, onProgress)
             try {
                 for (part in exportParts(content, choice)) {

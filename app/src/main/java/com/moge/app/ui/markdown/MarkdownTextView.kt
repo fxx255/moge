@@ -22,6 +22,7 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.TextView
+import com.moge.app.core.LatexEngine
 import com.moge.app.data.parse.normalizeReplyMarkdown
 import com.moge.app.data.parse.sanitizeReplyLatex
 import com.moge.app.data.parse.wrapLongFormulas
@@ -170,6 +171,7 @@ internal fun createMarkdownTextView(
             return super.onTouchEvent(event)
         }
     }.apply {
+        LatexEngine.init(context)
         // The database owns answer text; restoring a detached View's saved text can revive a partial.
         isSaveEnabled = false
         setTextColor(textColor)
@@ -465,7 +467,7 @@ internal fun formulaMaxWidthPx(view: TextView, measuredWidthPx: Int): Int {
 
 /** 优先用 JLatexMath 真实测量公式宽度；测量失败时按字符数估算。 */
 internal fun formulaWidthMeasurer(view: TextView): (String) -> Int {
-    val textSizePx = 17f * view.resources.displayMetrics.scaledDensity
+    val textSizePx = view.textSize
     return { latex ->
         runCatching { JLatexMathDrawable.builder(latex).textSize(textSizePx).build().intrinsicWidth }
             .getOrDefault((latex.length * textSizePx * 0.62f).toInt())

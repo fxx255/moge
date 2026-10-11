@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.3.9**（`versionCode = 19`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
+当前正式版本：**0.4.1**（`versionCode = 21`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包。
 
 ## 功能
 
@@ -17,6 +17,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；兼容公式内的中文标签和概率条件符号，无法排版时完整显示公式源码；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
 - **编码器与状态图**：按生成多项式本地绘制卷积码编码器、循环码编码器和卷积码状态转移图；采用教材中的寄存器、模二加、抽头、开关和状态标记，支持方格纸与黑板主题。
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史拖动分组后会同步生成或更新对应题册快照。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。
+- **历史保留**：手动收藏或已分类的对话与题目长期保留；其他历史默认保留 7 天，可在设置中关闭自动清理或调整为 1–365 天。
 - **长图分享**：以 2160 像素宽高清稿纸预览、保存和系统分享题目与解答；预览支持双击放大及滑动查看细节，极长内容按顺序分图。
 - **文档附件分析**：保留 PDF、DOCX、PPTX、XLSX 等原件，通过附件卡片预览；模型按需调用页、章节、表格、检索和图像读取工具，回答附可点击来源，追问与收藏保留文档引用。PDF 统一通过按页读取工具分析，图表和扫描页由看图模型读取页图。微信等应用的分享和“打开方式”会建立独立的新对话草稿，不把文档正文填入输入框。
 - **模型配置**：自行填写接口地址、模型名称和 API Key，选择 Chat Completions 或 Responses 协议，以及看图、联网和推理设置。关闭联网不会改变已选择的接口。图片提问需要看图模型；文字模型未配置可用看图兜底时，发送前提示并保留输入和图片。
@@ -84,7 +85,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
 
-0.3.9 的本地完整验证通过 **1111 项 Android 单元测试**；发布脚本 **18 项测试**通过。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
+0.4.1 的本地完整验证通过 **1143 项 Android 单元测试**；发布脚本 **24 项测试**通过。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
@@ -109,6 +110,10 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 0.3.7 优化附件输入栏、扇形添加菜单和文件预览主题，扩展常见通信框图布局，并简化模型协议与 PDF 分析方式，详见 [版本说明](docs/releases/0.3.7.md)。
 
 0.3.9 改进追问编辑的键盘与遮罩交互，恢复长按选字并修复公式选择复制，支持实时查看思考草稿并改善慢模型过早超时，详见 [版本说明](docs/releases/0.3.9.md)。
+
+0.4.0 修复斜体文字右边缘裁切，并加入可配置的历史自动清理，收藏或分类的对话与题目长期保留，详见 [版本说明](docs/releases/0.4.0.md)。
+
+0.4.1 修复闭曲面积分和 Ω 符号显示，兼容多重积分公式的重复转义与连续等式，并统一屏幕和长图导出的公式渲染，详见 [版本说明](docs/releases/0.4.1.md)。
 
 ## 稿纸分享示例
 

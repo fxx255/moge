@@ -129,10 +129,11 @@ private fun isDuplicateLatexCommand(text: String, start: Int): Boolean {
 private val DUPLICATE_LATEX_COMMANDS = setOf(
     "alpha", "beta", "cdot", "cdots", "cos", "delta", "dfrac", "dot", "ell",
     "equiv", "exists", "exp", "frac", "gamma", "ge", "geq", "in", "infty",
-    "iint", "int", "lambda", "le", "leq", "lim", "ln", "log", "left", "mid",
+    "iint", "iiint", "iiiint", "int", "oint", "oiint", "oiiint", "Omega", "varphi",
+    "lambda", "le", "leq", "lim", "ln", "log", "left", "mid",
     "mu", "nabla", "neq", "notin", "nu", "omega", "partial", "pi", "pm",
     "prod", "quad", "qquad", "rho", "right", "sigma", "sin", "sqrt", "sum",
-    "tan", "tau", "theta", "times", "text", "mathrm", "mathbf", "mathbb",
+    "tan", "tau", "theta", "times", "to", "setminus", "text", "mathrm", "mathbf", "mathbb",
     "mathcal", "operatorname", "begin", "end",
 )
 
@@ -324,7 +325,7 @@ private fun looksLikeBareLatexContinuation(line: String): Boolean {
                 groups.removeAt(groups.lastIndex)
                 index++
             }
-            c.isWhitespace() || c.isDigit() || c in "+-=<>^_.,|!" -> index++
+            c.isWhitespace() || c.isDigit() || c in "+-=<>^_.,;|!" -> index++
             else -> return false
         }
     }

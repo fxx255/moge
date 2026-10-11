@@ -42,6 +42,10 @@ class LatexCapabilityProbeTest {
             // 基础运算
             "\\frac{a}{b}", "\\dfrac{a}{b}", "\\tfrac{a}{b}", "\\sqrt{x}", "\\sqrt[3]{x}",
             "\\sum_{i=1}^{n} i", "\\prod_{i=1}^{n} i", "\\int_0^1 x\\,dx",
+            "\\iint_S z\\,\\mathrm{d}S", "\\iiint_\\Omega f\\,dV", "\\iiiint_V f\\,dV",
+            "\\oint_C f\\,dz", "\\oiint_S z\\,\\mathrm{d}S", "\\oiiint_V f\\,dV",
+            "I=\\oiint_S z\\,\\mathrm{d}S;", "=\\oiint_S z\\,\\mathrm{d}S.",
+            "I=\\iiint_\\Omega 3r^2\\cdot r^2\\sin\\varphi\\,dr\\,d\\varphi\\,d\\theta",
             "\\lim_{x \\to 0} f(x)", "\\binom{n}{k}",
             // 字母表与字体
             "\\alpha + \\beta", "\\Gamma(z)", "\\mathbb{R}", "\\mathcal{L}",
