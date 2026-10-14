@@ -17,6 +17,7 @@ import com.moge.app.data.llm.GenerationDiagnostics
 import com.moge.app.data.llm.ModelClient
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.MonotonicClock
+import com.moge.app.data.llm.withTestModelCatalog
 import com.moge.app.data.parse.ReplyFigure
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
@@ -218,7 +219,7 @@ class EndToEndGenerationTest {
             every { questionVisionProfileId() } returns null
             every { profiles() } returns listOf(profile)
         }
-        val modelClient = ModelClient(settings, credentials, Dispatchers.Unconfined)
+        val modelClient = ModelClient(settings, credentials, Dispatchers.Unconfined).withTestModelCatalog()
         val preparer = GenerationPreparer(modelClient, db.conversationDao(), settings, credentials)
         manager = GenerationManager(
             modelClient = modelClient,
