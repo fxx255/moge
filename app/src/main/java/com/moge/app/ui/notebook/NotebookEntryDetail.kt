@@ -55,7 +55,7 @@ internal fun NotebookEntryDetail(
             else "## 最终答案\n\n${entry.finalAnswer}\n\n## 完整解答\n\n${entry.answerText}"
         }
         AnswerMarkdownBody(fullAnswer, figures.getOrDefault(emptyList()), onImage)
-        if (sourceExists) OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { onOpenConversation(entry.sourceConversationId) }) { Text("回到原对话") }
+        if (sourceExists) OutlinedButton(onClick = { onOpenConversation(entry.sourceConversationId) }) { Text("回到原对话") }
         else Text("原对话已删除或暂不可用，保存的题目与解答仍可阅读", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

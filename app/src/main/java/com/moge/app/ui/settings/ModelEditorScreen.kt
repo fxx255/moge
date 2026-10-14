@@ -150,7 +150,7 @@ fun ModelEditorScreen(
 
             SettingsSection("模型") {
                 Field {
-                    OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
+                    OutlinedButton(
                         onClick = { vm.fetchModels(baseUrl, apiKey, profile?.id, protocol) },
                         enabled = !editor.modelsBusy && baseUrl.isNotBlank() && (apiKey.isNotBlank() || hasStoredKey),
                         modifier = Modifier.fillMaxWidth(),
@@ -223,7 +223,7 @@ fun ModelEditorScreen(
                 }
                 Hint("附件使用按页读取工具；图表和扫描件需要开启模型看图能力。")
                 Field {
-                    OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
+                    OutlinedButton(
                         onClick = { vm.testWebSearch(draft(), profile?.id) },
                         enabled = !editor.webSearchBusy && baseUrl.isNotBlank() && model.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
@@ -251,7 +251,7 @@ fun ModelEditorScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onClose) { Text("取消") }
                 Spacer(Modifier.weight(1f))
-                Button(shape = MaterialTheme.shapes.extraSmall,
+                Button(
                     onClick = { vm.saveProfile(profile?.id, draft(), onSaved = onClose) },
                     enabled = !editor.saving,
                 ) { Text("保存并测试") }

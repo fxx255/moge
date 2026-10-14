@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
@@ -20,8 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -46,6 +50,8 @@ internal fun ComposerAttachmentMenu(
     var visible by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val motion = MogeTheme.motionEnabled
+    val shadowInset = 24.dp
+    val shadowInsetPx = with(LocalDensity.current) { shadowInset.roundToPx() }
     LaunchedEffect(expanded, enabled, motion) {
         if (!enabled) expanded = false
         val opening = expanded && enabled
@@ -59,13 +65,13 @@ internal fun ComposerAttachmentMenu(
         AttachmentToggle(expanded, enabled, progress, onClick = { expanded = !expanded },
             modifier = if (visible) Modifier.clearAndSetSemantics {} else Modifier)
         if (visible) Popup(
-            popupPositionProvider = remember { AttachmentFanPositionProvider },
+            popupPositionProvider = remember(shadowInsetPx) { AttachmentFanPositionProvider(shadowInsetPx) },
             onDismissRequest = { expanded = false },
             properties = PopupProperties(focusable = true, clippingEnabled = false),
         ) {
-            Box(Modifier.size(184.dp, 176.dp).pointerInput(Unit) {
+            Box(Modifier.pointerInput(Unit) {
                 detectTapGestures { expanded = false }
-            }) {
+            }.padding(shadowInset).size(184.dp, 176.dp)) {
                 val actions = listOf(
                     Triple(Icons.Outlined.PhotoCamera, "拍照", onTakePhoto),
                     Triple(Icons.Outlined.PhotoLibrary, "从相册选图", onPickPhotos),
@@ -74,10 +80,12 @@ internal fun ComposerAttachmentMenu(
                 actions.forEachIndexed { index, (icon, label, action) ->
                     val available = enabled && expanded && (index == 2 || photosEnabled)
                     Surface(onClick = { expanded = false; action() }, enabled = available,
-                        shape = MaterialTheme.shapes.small, shadowElevation = 6.dp, tonalElevation = 3.dp,
+                        shape = CircleShape, shadowElevation = 6.dp, tonalElevation = 3.dp,
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.size(48.dp).graphicsLayer {
+                            // Auto creates a button-sized alpha buffer that crops the Surface's shadow.
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
                             val fraction = progress.value
                             // Positive angular movement opens clockwise; reversing it closes counterclockwise.
                             val angle = Math.toRadians(-180.0 + (45.0 + index * 45.0) * fraction)
@@ -107,7 +115,7 @@ private fun AttachmentToggle(expanded: Boolean, enabled: Boolean,
     progress: Animatable<Float, AnimationVector1D>, onClick: () -> Unit, modifier: Modifier = Modifier) {
     IconButton(onClick = onClick, enabled = enabled,
         modifier = modifier.size(48.dp).semantics { stateDescription = if (expanded) "已展开" else "已收起" }) {
-        Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.surfaceVariant,
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.size(34.dp)) {
             Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Icon(Icons.Outlined.Add, if (expanded) "收起附件菜单" else "添加附件",
@@ -117,9 +125,9 @@ private fun AttachmentToggle(expanded: Boolean, enabled: Boolean,
     }
 }
 
-private object AttachmentFanPositionProvider : PopupPositionProvider {
+private class AttachmentFanPositionProvider(private val shadowInsetPx: Int) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
         layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset =
         IntOffset(anchorBounds.center.x - popupContentSize.width / 2,
-            anchorBounds.bottom - popupContentSize.height)
+            anchorBounds.bottom - popupContentSize.height + shadowInsetPx)
 }

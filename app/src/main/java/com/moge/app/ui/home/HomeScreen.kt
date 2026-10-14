@@ -334,7 +334,7 @@ internal fun CameraUnavailable(cameraFailed: Boolean, onGrant: () -> Unit, onSys
             textAlign = TextAlign.Center,
         )
         if (!cameraFailed) {
-            OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text("去授权相机") }
+            OutlinedButton(onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text("去授权相机") }
         }
         TextButton(onClick = onSystemCamera, modifier = Modifier.heightIn(min = 48.dp)) {
             Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.padding(end = 8.dp))

@@ -256,18 +256,18 @@ private fun DataSection(
     SettingsSection("数据") {
         HistoryRetentionControls(prefs, onAutoCleanup, onRetentionDays)
         DataRow("图表缓存", cacheBytes?.let(::formatBytes) ?: "计算中…") {
-            OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
+            OutlinedButton(onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
         }
         Hint("只删渲染出的图片，题目里的图表下次打开时会重新画。")
         DataRow("未使用的照片和图表", orphanBytes?.let { "可释放 ${formatBytes(it)}" } ?: "计算中…") {
-            OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
+            OutlinedButton(
                 onClick = { pending = DataAction.ORPHANS },
                 enabled = !busy && (orphanBytes ?: 0L) > 0L,
             ) { Text("清理") }
         }
         Hint("已删除的题目留下的文件。最近 24 小时内拍的照片不会动。")
         DataRow("清空题册", "移除全部收藏，保留历史对话和分类") {
-            OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
+            OutlinedButton(
                 onClick = { pending = DataAction.NOTEBOOK },
                 enabled = !busy,
             ) { Text("清空", color = if (busy) Color.Unspecified else MaterialTheme.colorScheme.error) }
@@ -303,7 +303,7 @@ internal fun HistoryRetentionControls(
     var editing by rememberSaveable { mutableStateOf(false) }
     SwitchRow("自动清理历史对话", "仅清理未收藏、未分类的过期对话", prefs.historyAutoCleanupEnabled, onAutoCleanup)
     DataRow("保留期限", "从最近一次更新起计算；收藏或分类后长期保留") {
-        OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
+        OutlinedButton(onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
             Text("${prefs.historyRetentionDays} 天")
         }
     }

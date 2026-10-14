@@ -367,10 +367,10 @@ private fun AnswerFooter(
             item.retryRequestId?.let { requestId ->
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item.resumeRequestId?.let { resumeId ->
-                        OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { onResume(resumeId) }, enabled = actionsEnabled,
+                        OutlinedButton(onClick = { onResume(resumeId) }, enabled = actionsEnabled,
                             modifier = Modifier.heightIn(min = 48.dp)) { Text("接着生成") }
                     }
-                    OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { onRetry(requestId) }, enabled = actionsEnabled,
+                    OutlinedButton(onClick = { onRetry(requestId) }, enabled = actionsEnabled,
                         modifier = Modifier.heightIn(min = 48.dp)) { Text("重新发送") }
                 }
             }
@@ -491,8 +491,8 @@ internal fun FollowUpBar(
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
-            Modifier.fillMaxWidth().testTag("composer-surface").shadow(4.dp, MaterialTheme.shapes.small)
-                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 10.dp),
+            Modifier.fillMaxWidth().testTag("composer-surface").shadow(8.dp, RoundedCornerShape(32.dp))
+                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
@@ -517,14 +517,14 @@ internal fun FollowUpBar(
                     onPickDocument = onPickDocument,
                 )
                 if (state.generating) {
-                    FilledIconButton(shape = MaterialTheme.shapes.extraSmall, onClick = onStop,
+                    FilledIconButton(onClick = onStop,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.tertiary,
                             contentColor = MaterialTheme.colorScheme.onTertiary,
                         ),
                     ) { Icon(Icons.Outlined.Stop, contentDescription = "停止生成") }
                 } else {
-                    FilledIconButton(shape = MaterialTheme.shapes.extraSmall, onClick = onSend, enabled = state.canSend) {
+                    FilledIconButton(onClick = onSend, enabled = state.canSend) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                     }
                 }

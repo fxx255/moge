@@ -177,7 +177,7 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
                         }
                         Text("分享图片使用高清浅色稿纸，优先生成一张长图；超长解答按页码分张。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Button(shape = MaterialTheme.shapes.extraSmall, onClick = { confirmed = true; render() }, enabled = !busy,
+                    Button(onClick = { confirmed = true; render() }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("export-confirm-question")) { Text("确认题目并预览") }
                 } else {
                     val ready = result
@@ -208,15 +208,15 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
                             Text(progress, modifier = Modifier.weight(1f))
                             TextButton(onClick = { session.job?.cancel() }) { Text("取消") }
                         }
-                    } else if (ready == null) Button(shape = MaterialTheme.shapes.extraSmall, onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text("重试导出") }
+                    } else if (ready == null) Button(onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text("重试导出") }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(shape = MaterialTheme.shapes.extraSmall, enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
+                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
                             if (galleryNeedsLegacyPermission() && ContextCompat.checkSelfPermission(context,
                                     Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                                 permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                             } else save()
                         }) { Text("保存全部图片") }
-                        Button(shape = MaterialTheme.shapes.extraSmall, enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
+                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
                             try {
                                 val exported = checkNotNull(ready)
                                 shareImages(context, exported.pages.map { it.absolutePath })

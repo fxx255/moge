@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
@@ -72,7 +73,7 @@ fun ConfirmSheet(
                         key(path) {
                             PhotoArrival(path, surface = "confirm", Modifier.size(width = 96.dp, height = 120.dp)) {
                                 PhotoThumb(path, "第 ${index + 1} 张照片", onClick = { onOpenPhoto(index) }, modifier = Modifier.matchParentSize())
-                                FilledTonalIconButton(shape = MaterialTheme.shapes.extraSmall,
+                                FilledTonalIconButton(
                                     onClick = { onRemove(path) },
                                     modifier = Modifier.align(Alignment.TopEnd).size(48.dp),
                                     colors = IconButtonDefaults.filledTonalIconButtonColors(
@@ -82,7 +83,7 @@ fun ConfirmSheet(
                                     Icon(Icons.Outlined.Close, contentDescription = "删掉第 ${index + 1} 张照片", Modifier.size(18.dp))
                                 }
                                 onCropPhoto?.let { crop ->
-                                    FilledTonalIconButton(shape = MaterialTheme.shapes.extraSmall,
+                                    FilledTonalIconButton(
                                         onClick = { crop(index) },
                                         modifier = Modifier.align(Alignment.BottomEnd).size(48.dp),
                                         colors = IconButtonDefaults.filledTonalIconButtonColors(
@@ -112,10 +113,11 @@ fun ConfirmSheet(
                     }
                 }
             }
-            Button(shape = MaterialTheme.shapes.extraSmall,
+            Button(
                 onClick = onStart,
                 enabled = photos.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                shape = CircleShape,
             ) {
                 Text("使用照片", style = MaterialTheme.typography.titleMedium)
             }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.filled.Close
@@ -202,7 +203,7 @@ fun PhotoViewer(
                         .align(Alignment.BottomCenter)
                         .safeDrawingPadding()
                         .padding(bottom = 32.dp)
-                        .background(Color.White.copy(alpha = 0.16f), MaterialTheme.shapes.extraSmall)
+                        .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(50))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }

@@ -36,14 +36,14 @@ internal fun ModelsSection(
         )
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onAdd, enabled = !state.testing,
+            OutlinedButton(onClick = onAdd, enabled = !state.testing,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                 Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("添加模型")
             }
             if (selected != null) {
-                OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onTest, enabled = !state.testing,
+                OutlinedButton(onClick = onTest, enabled = !state.testing,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(if (state.testing) "测试中…" else "测试连接")
                 }
