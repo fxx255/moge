@@ -67,4 +67,3 @@ object ModelGenerationParameters {
 internal fun finalAnswerPrompt(prompt: PromptSegments, originalEffort: AiReasoningEffort): PromptSegments =
     prompt.copy(stableSystem = prompt.stableSystem.replace(reasoningInstruction(originalEffort),
         "已有分析仅供核对。现在直接完成最终正文，保留必要公式和步骤，不再展开冗长内部思考。"))
-

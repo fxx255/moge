@@ -131,4 +131,3 @@ internal fun isOutputBudgetRejected(body: String): Boolean {
         "greater than", "larger than", "上限", "过大", "超出", "超过", "最多",
     ).any { it in lower }
 }
-
