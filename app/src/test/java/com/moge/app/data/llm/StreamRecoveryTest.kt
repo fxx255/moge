@@ -43,20 +43,20 @@ class StreamRecoveryTest {
         coEvery { prefs.current() } returns UserSettings()
         val credentials = mockk<AiCredentialStore>()
         every { credentials.activeProfile() } returns AiModelProfile(
-            "test", "test", "https://openrouter.ai/api/v1", "test-model", true,
+            "test", "test", "https://openrouter.ai/api/v1", "stepfun/step-5-preview", true,
             AiSearchProtocol.OFF, AiReasoningEffort.HIGH, true,
         )
         // 新 resolver：与 activeProfile 同源的身份+凭证（同一把锁取齐）。
         every { credentials.resolveActiveIdentity() } returns AiResolvedIdentity(
             profileId = "test",
             baseUrl = "https://openrouter.ai/api/v1",
-            model = "test-model",
+            model = "stepfun/step-5-preview",
             apiKey = "test-key",
             visionEnabled = true,
             searchProtocol = AiSearchProtocol.OFF,
             reasoningEffort = AiReasoningEffort.HIGH,
         )
-        val transport = OkHttpClient.Builder().addInterceptor { chain ->
+        val transport = OkHttpClient.Builder().addInterceptor(TestModelCatalogInterceptor()).addInterceptor { chain ->
             val buffer = Buffer()
             chain.request().body!!.writeTo(buffer)
             val index = requests.size
@@ -103,8 +103,8 @@ class StreamRecoveryTest {
         assertEquals("final answer", result.reply)
         assertEquals(2, requests.size)
         val recovery = requests.last()
-        assertEquals(16384, recovery["max_tokens"]!!.jsonPrimitive.int)
-        assertEquals("low", recovery["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content)
+        assertEquals(200000, recovery["max_tokens"]!!.jsonPrimitive.int)
+        assertEquals("low", recovery["reasoning_effort"]!!.jsonPrimitive.content)
         val messages = recovery["messages"]!!.jsonArray
         // 断言意图（不依赖固定下标）：图片必须留在**原始问题**那条消息上，
         // 而不是被挂到恢复指令上 —— 前缀分段顺序调整后消息位置会变，
@@ -176,7 +176,7 @@ class StreamRecoveryTest {
         val model = client(listOf(200 to sse(reasoning = "analysis"), 400 to "max_tokens exceeds limit",
             200 to sse(content = """{"reply":"done"}""")))
         assertEquals("done", model.chatStreaming(listOf(ChatMessage("user", "question"))) {}.reply)
-        assertEquals(listOf(8192, 16384, 8192), requests.map { it["max_tokens"]!!.jsonPrimitive.int })
+        assertEquals(listOf(200000, 200000, null), requests.map { it["max_tokens"]?.jsonPrimitive?.intOrNull })
     }
 
     @Test fun `cancellation during recovery is propagated`() = runBlocking {
@@ -353,7 +353,7 @@ class StreamRecoveryTest {
             ),
         )
         assertEquals("done", model.chatStreaming(listOf(ChatMessage("user", "question"))) {}.reply)
-        assertEquals(listOf(8192, 16384, 8192), requests.map { it["max_tokens"]!!.jsonPrimitive.int })
+        assertEquals(listOf(200000, 200000, 8192), requests.map { it["max_tokens"]!!.jsonPrimitive.int })
     }
 
     /** 预算重发判据（纯函数）：必须点名输出上限参数且明确说过大。 */
@@ -421,7 +421,7 @@ class StreamRecoveryTest {
             searchProtocol = AiSearchProtocol.OFF,
             reasoningEffort = AiReasoningEffort.HIGH,
         )
-        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined)
+        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined).withTestModelCatalog()
         try {
             // 先启动客户端，再等服务端写完响应体（反了会互相等待）。
             val clientCall = GlobalScope.async(Dispatchers.IO) {

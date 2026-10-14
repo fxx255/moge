@@ -113,6 +113,9 @@ fun SettingsScreen(
                 onTest = vm::testActiveProfile,
             )
             VisionSection(state = models, onSelect = vm::setVisionProfile)
+            SettingsSection("使用偏好") {
+                ConversationScreenOnSetting(prefs.keepScreenOnInConversation, vm::setKeepScreenOnInConversation)
+            }
             PreferencesSection(
                 prefs = prefs,
                 onMode = vm::setDefaultSolveMode,
@@ -427,6 +430,11 @@ internal fun ChipRow(content: @Composable () -> Unit) {
 }
 
 /** 整行可切换的开关；Switch 本身不再单独响应，读屏只播报一次。 */
+@Composable
+internal fun ConversationScreenOnSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    SwitchRow("对话中屏幕常亮", subtitle = null, checked = checked, onCheckedChange = onCheckedChange)
+}
+
 @Composable
 internal fun SwitchRow(
     label: String,

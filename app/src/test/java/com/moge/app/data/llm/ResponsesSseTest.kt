@@ -86,7 +86,7 @@ class ResponsesSseTest {
         )
         reqIndex = 0
         val list = responses.toList()
-        val transport = OkHttpClient.Builder().addInterceptor { chain ->
+        val transport = OkHttpClient.Builder().addInterceptor(TestModelCatalogInterceptor(canDisable = true)).addInterceptor { chain ->
             val buffer = Buffer()
             chain.request().body!!.writeTo(buffer)
             requests += buffer.readUtf8()
@@ -101,6 +101,34 @@ class ResponsesSseTest {
     }
 
     private var reqIndex = 0
+
+    @Test fun `hidden reasoning length exhaustion recovers once with thinking disabled and full budget`() = runBlocking {
+        val incomplete = respEvent("response.incomplete", ""","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[],"usage":{"input_tokens":10,"output_tokens":100}}""")
+        val complete = respEvent("response.output_text.delta", ""","delta":"{\"reply\":\"完整答案\"}"""") + respEvent("response.completed", ""","response":{}""")
+        val samples = mutableListOf<UsageSample?>()
+        val result = client(200 to incomplete, 200 to complete).chatStreaming(listOf(ChatMessage("user", "题目")),
+            imageBase64s = listOf("image-data"), webSearchEnabled = false, onUsage = { samples += it },
+            policy = RequestPolicy(apiProtocol = "RESPONSES")) {}
+        assertEquals("完整答案", result.reply)
+        assertEquals(2, requests.size)
+        assertEquals(2, samples.size)
+        val first = Json.parseToJsonElement(requests[0]).jsonObject
+        val recovery = Json.parseToJsonElement(requests[1]).jsonObject
+        assertEquals("medium", first["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content)
+        assertEquals("none", recovery["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content)
+        assertEquals("200000", recovery["max_output_tokens"]!!.jsonPrimitive.content)
+        assertFalse(recovery["instructions"]!!.jsonPrimitive.content.contains("本轮使用中等思考强度"))
+        assertTrue(requests[1].contains("image-data"))
+    }
+
+    @Test fun `output budget incomplete with visible text is preserved as truncated without a resend`() = runBlocking {
+        val body = respEvent("response.output_text.delta", ""","delta":"{\"reply\":\"已有部分正文\"}"""") +
+            respEvent("response.incomplete", ""","response":{"incomplete_details":{"reason":"max_output_tokens"},"output":[]}""")
+        val result = client(200 to body).chatStreaming(listOf(ChatMessage("user", "题目")), webSearchEnabled = true) {}
+        assertEquals("已有部分正文", result.reply)
+        assertTrue(result.truncated)
+        assertEquals(1, requests.size)
+    }
 
     /** 写一个 chunked 编码的 body 块（不发 0 长度结束块）；长度必须是**字节数**。 */
     private fun writeChunk(out: java.io.OutputStream, payload: String) {
@@ -243,7 +271,7 @@ class ResponsesSseTest {
             searchProtocol = AiSearchProtocol.RESPONSES,
             reasoningEffort = AiReasoningEffort.MEDIUM,
         )
-        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined)
+        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined).withTestModelCatalog()
         var clientCall: kotlinx.coroutines.Deferred<Triple<ParsedReply, List<UsageSample?>, String>>? = null
         try {
             clientCall = async(Dispatchers.IO) {
@@ -327,7 +355,7 @@ class ResponsesSseTest {
             searchProtocol = AiSearchProtocol.RESPONSES,
             reasoningEffort = AiReasoningEffort.MEDIUM,
         )
-        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined)
+        val model = ModelClient(prefs, credentials, Dispatchers.Unconfined).withTestModelCatalog()
         var clientCall: kotlinx.coroutines.Deferred<Throwable?>? = null
         try {
             clientCall = async(Dispatchers.IO) {

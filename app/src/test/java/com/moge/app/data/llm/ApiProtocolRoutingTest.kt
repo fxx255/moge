@@ -35,7 +35,7 @@ class ApiProtocolRoutingTest {
             identity.searchProtocol, AiApiProtocol.RESPONSES)
         val settings = mockk<SettingsRepository>()
         coEvery { settings.current() } returns UserSettings(webSearchEnabled = false)
-        val transport = OkHttpClient.Builder().addInterceptor { chain ->
+        val transport = OkHttpClient.Builder().addInterceptor(TestModelCatalogInterceptor()).addInterceptor { chain ->
             requests += chain.request()
             val buffer = Buffer(); chain.request().body!!.writeTo(buffer)
             payloads += Json.parseToJsonElement(buffer.readUtf8()).jsonObject

@@ -79,7 +79,7 @@ data: [DONE]
             searchProtocol = searchProtocol,
             reasoningEffort = AiReasoningEffort.MEDIUM,
         )
-        val transport = OkHttpClient.Builder().addInterceptor { chain ->
+        val transport = OkHttpClient.Builder().addInterceptor(TestModelCatalogInterceptor()).addInterceptor { chain ->
             val buffer = Buffer()
             chain.request().body!!.writeTo(buffer)
             requests += Json.parseToJsonElement(buffer.readUtf8()).jsonObject
@@ -326,10 +326,7 @@ data: {"type":"response.completed","response":{"output":[{"type":"message","cont
      * 模型名必须真的写进请求体。
      *
      * 推理档位的表达**因供应商而异**，测试要断言的是真实契约：
-     * - OpenRouter ⇒ `reasoning.effort`；
-     * - OpenAI 推理模型 ⇒ `reasoning_effort`；
-     * - DeepSeek 等**没有**这个字段的端点 ⇒ **绝不能**塞进去（会 400），
-     *   它的推理强度通过系统提示词里的「## 推理设定」表达。
+     * 思考参数由协议决定；服务商域名不能改变字段。
      */
     @Test
     fun `model reaches the request body`() = runBlocking {
@@ -339,14 +336,13 @@ data: {"type":"response.completed","response":{"output":[{"type":"message","cont
         assertEquals("test-model", payload["model"]!!.jsonPrimitive.content)
     }
 
-    /** DeepSeek 端点不得收到它不认识的推理字段（否则直接 400）。 */
     @Test
-    fun `deepseek endpoint is not sent an unsupported reasoning field`() = runBlocking {
+    fun `deepseek endpoint receives the same standard chat effort`() = runBlocking {
         val model = client(baseUrl = "https://api.deepseek.com/v1")
         model.chatStreaming(listOf(ChatMessage("user", "q"))) {}
         val payload = requests.single()
-        assertFalse("DeepSeek 不支持 reasoning/reasoning_effort", payload.containsKey("reasoning"))
-        assertFalse(payload.containsKey("reasoning_effort"))
+        assertFalse(payload.containsKey("reasoning"))
+        assertEquals("medium", payload["reasoning_effort"]!!.jsonPrimitive.content)
         // 但推理强度必须仍然被表达出来（走系统提示词的稳定段）。
         val system = payload["messages"]!!.jsonArray
             .map { it.jsonObject }
@@ -357,24 +353,23 @@ data: {"type":"response.completed","response":{"output":[{"type":"message","cont
         )
     }
 
-    /** OpenRouter 端点必须收到 reasoning.effort（它靠这个字段控制思考强度）。 */
     @Test
-    fun `openrouter endpoint receives reasoning effort field`() = runBlocking {
+    fun `relay endpoint receives standard chat reasoning effort field`() = runBlocking {
         val model = client(baseUrl = "https://openrouter.ai/api/v1")
         model.chatStreaming(listOf(ChatMessage("user", "q"))) {}
         val payload = requests.single()
         assertEquals(
             "medium",
-            payload["reasoning"]?.jsonObject?.get("effort")?.jsonPrimitive?.content,
+            payload["reasoning_effort"]?.jsonPrimitive?.content,
         )
     }
 
-    /** max_tokens 必须是合理上限（不能是 0 或缺省导致回答被截断）。 */
+    /** Catalog declarations are used in full. */
     @Test
-    fun `max tokens is present and positive`() = runBlocking {
+    fun `unknown provider does not get the old 8K cap`() = runBlocking {
         val model = client()
         model.chatStreaming(listOf(ChatMessage("user", "q"))) {}
-        assertTrue(requests.single()["max_tokens"]!!.jsonPrimitive.int > 0)
+        assertEquals("200000", requests.single()["max_tokens"]!!.jsonPrimitive.content)
     }
 
 }

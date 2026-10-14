@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +73,11 @@ fun ModelEditorScreen(
     var searchEnabled by rememberSaveable(key) { mutableStateOf(profile?.searchEnabled ?: (profile?.searchProtocol != AiSearchProtocol.OFF)) }
     var effort by rememberSaveable(key) { mutableStateOf(profile?.reasoningEffort ?: AiReasoningEffort.LOW) }
     val hasStoredKey = profile?.hasApiKey == true
+    LaunchedEffect(key) {
+        if (hasStoredKey) {
+            vm.fetchModels(profile.baseUrl, "", profile.id, profile.searchProtocol)
+        }
+    }
 
     fun draft() = ModelProfileDraft(name, baseUrl, model, apiKey, vision, when (apiProtocol) { AiApiProtocol.CHAT_COMPLETIONS -> AiSearchProtocol.CHAT_COMPLETIONS; AiApiProtocol.RESPONSES -> AiSearchProtocol.RESPONSES }, effort, apiProtocol, searchEnabled)
 
@@ -130,7 +136,7 @@ fun ModelEditorScreen(
                 Field {
                     OutlinedTextField(
                         value = apiKey,
-                        onValueChange = { apiKey = it.trim(); vm.clearEditorError() },
+                        onValueChange = { apiKey = it.trim(); vm.invalidateModels(); vm.clearEditorError() },
                         label = { Text(if (hasStoredKey) "API 密钥（留空则沿用）" else "API 密钥") },
                         singleLine = true,
                         visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
@@ -198,6 +204,8 @@ fun ModelEditorScreen(
                         )
                     }
                 }
+                Hint(com.moge.app.data.llm.ModelGenerationParameters.reasoningStatus(baseUrl, model, effort,
+                    apiProtocol, editor.capabilities[model]))
             }
 
             SettingsSection("接口协议") {

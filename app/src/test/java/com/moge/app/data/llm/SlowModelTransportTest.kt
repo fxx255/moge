@@ -39,7 +39,7 @@ class SlowModelTransportTest {
             visionEnabled = false, searchProtocol = AiSearchProtocol.OFF, reasoningEffort = AiReasoningEffort.LOW,
             apiProtocol = AiApiProtocol.CHAT_COMPLETIONS,
         )
-        return ModelClient(settings, credentials, Dispatchers.IO)
+        return ModelClient(settings, credentials, Dispatchers.IO).also { useTransport(it, transport(it).newBuilder().addInterceptor(TestModelCatalogInterceptor()).build()) }
     }
 
     private fun transport(model: ModelClient): OkHttpClient =
@@ -65,7 +65,7 @@ data: [DONE]
             val model = model(server.url("/v1").toString())
             val client = transport(model)
             assertTrue("Slow models need more than the old 180s idle limit", client.readTimeoutMillis >= 600_000)
-            assertTrue("A heartbeat-only response must have a bounded lifetime", client.callTimeoutMillis in 1..1_800_000)
+            assertEquals("Active long answers must not be cancelled by a wall-clock limit", 0, client.callTimeoutMillis)
             val events = mutableListOf<StreamEvent>()
             val reply = model.chatStreaming(listOf(ChatMessage("user", "合成测试问题"))) { events += it }
             assertEquals("结果正确", reply.reply)

@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.RectF
@@ -17,6 +18,7 @@ import com.moge.app.domain.plot.niceTicks
 import com.moge.app.domain.plot.prettifyPlotLabel
 import com.moge.app.domain.plot.sampleShadePolygons
 import com.moge.app.domain.plot.sampleSeries
+import com.moge.app.domain.plot.*
 import ru.noties.jlatexmath.JLatexMathDrawable
 import java.util.Locale
 import kotlin.math.abs
@@ -113,6 +115,11 @@ class PlotBitmapRenderer(
      * 保证图内的注释/标记标签不会画到图片外面。
      */
     private var labelBounds: RectF = RectF()
+    private data class PendingLabel(val raw: String, val x: Float, val baseline: Float, val size: Float,
+        val color: Int, val centered: Boolean, val bounds: RectF, val movable: Boolean, val matrix: Matrix)
+    private var pendingLabels: MutableList<PendingLabel>? = null
+    private var movableLabel = false
+    internal val labelPlacements = mutableListOf<Pair<String, LabelRect>>()
 
     private fun dp(v: Float) = v * density
 
@@ -145,6 +152,10 @@ class PlotBitmapRenderer(
         color: Int,
         alignCenter: Boolean = false,
     ) {
+        pendingLabels?.let {
+            it += PendingLabel(raw, x, baselineY, textSizePx, color, alignCenter, RectF(labelBounds), movableLabel, Matrix(canvas.matrix))
+            return
+        }
         val pieces = splitLabelPieces(raw)
         if (pieces.isEmpty()) return
         val bounds = labelBounds
@@ -278,6 +289,18 @@ class PlotBitmapRenderer(
             gap * (pieces.size - 1)
     }
 
+    /** Fractions/roots can be taller than a normal line: use their real raster metrics for collisions. */
+    private fun smartTextExtent(raw: String, size: Float): Pair<Float, Float> {
+        textPaint.textSize = size
+        var above = -textPaint.fontMetrics.ascent
+        var below = textPaint.fontMetrics.descent
+        splitLabelPieces(raw).forEach { piece -> piece.latex?.let { tex -> texDrawable(tex, size)?.let {
+            above = maxOf(above, it.intrinsicHeight * .72f)
+            below = maxOf(below, it.intrinsicHeight * .28f)
+        } } }
+        return above + 1f to below + 1f
+    }
+
     /** 构造（并缓存）公式 drawable；写法非法时返回 null，由调用方回落到纯文本。 */
     private fun texDrawable(latex: String, textSizePx: Float): JLatexMathDrawable? {
         val key = "$textSizePx::$latex"
@@ -299,7 +322,14 @@ class PlotBitmapRenderer(
     }
 
     /** 绘制入口（internal 便于测试注入记录型 Canvas 校验定位）。 */
-    internal fun drawAll(canvas: Canvas, spec: PlotSpec, width: Float, height: Float) {
+    internal fun drawAll(canvas: Canvas, source: PlotSpec, width: Float, height: Float) {
+        val spec = source.voronoi?.let { geometry -> source.copy(equalAspect = true,
+            series = source.series + geometry.sites.mapIndexed { index, site ->
+                Series(label = site.label, points = listOf(site.x to site.y), style = "marker",
+                    colorIndex = geometry.colorIndex(index))
+            }) } ?: source
+        pendingLabels = mutableListOf()
+        labelPlacements.clear()
         // 整个画面的绘图范围：所有标签的默认夹取边界。
         labelBounds = RectF(0f, 0f, width, height)
 
@@ -334,17 +364,29 @@ class PlotBitmapRenderer(
         // 绘图区宽高比只由画布比例决定，与 density 无关。
         val padLeft = width * LEFT_PAD_RATIO
         val padRight = width * RIGHT_PAD_RATIO
-        val hasLegend = spec.legend || spec.series.size > 1
-        // 图例改到绘图区上方（标题下面），所以上边距要把它一并算进去
-        val padTop = height *
-            ((if (spec.title.isNotEmpty()) TITLE_BAND_RATIO else TOP_PAD_RATIO) +
-                (if (hasLegend) LEGEND_BAND_RATIO else 0f))
-        val padBottom = height * BOTTOM_PAD_RATIO
-        // 字号同样按画布缩放：画布是固定像素尺寸，用 dp 会在高 density 机器上
-        // 把标签顶到挤出画面。
+        val hasLegend = spec.legend && spec.voronoi == null
         val titleSize = width * 0.031f
         val labelSize = width * 0.026f
         val tickSize = width * 0.024f
+        val legendEntries = spec.series.filter { prettifyPlotLabel(it.label).isNotEmpty() }
+        val legendAvailable = width - padLeft - padRight
+        val legendRows = mutableListOf<MutableList<Series>>()
+        if (hasLegend) {
+            var used = 0f
+            for (series in legendEntries) {
+                val item = (width * .034f + smartTextWidth(series.label, tickSize)).coerceAtMost(legendAvailable)
+                if (legendRows.isEmpty() || used + item > legendAvailable) { legendRows += mutableListOf<Series>(); used = 0f }
+                legendRows.last() += series
+                used += item
+            }
+        }
+        // 图例改到绘图区上方（标题下面），所以上边距要把它一并算进去
+        val padTop = height *
+            ((if (spec.title.isNotEmpty()) TITLE_BAND_RATIO else TOP_PAD_RATIO) +
+                (if (hasLegend) LEGEND_BAND_RATIO else 0f)) + (legendRows.size - 1).coerceAtLeast(0) * tickSize * 1.6f
+        val padBottom = height * BOTTOM_PAD_RATIO
+        // 字号同样按画布缩放：画布是固定像素尺寸，用 dp 会在高 density 机器上
+        // 把标签顶到挤出画面。
 
         val xTicks = spec.x.ticks ?: niceTicks(xLo, xHi, 5)
         val yTicks = spec.y.ticks ?: niceTicks(yLo, yHi, 4)
@@ -389,21 +431,34 @@ class PlotBitmapRenderer(
         //
         // 注意 [sx]/[sy] 映射的是内缩后的矩形，所以曲线、网格、markLine、markArea
         // 全部自动获得余量；坐标轴画在内缩矩形的边上，刻度仍按真实数值定位。
-        val insetX = plotW * PLOT_INSET_X_RATIO
+        val insetX = plotW * if (spec.equalAspect) .04f else PLOT_INSET_X_RATIO
         val insetY = plotH * PLOT_INSET_Y_RATIO
-        val drawX = plotX + insetX
-        val drawY = plotY + insetY
-        val drawW = (plotW - insetX * 2f).coerceAtLeast(1f)
-        val drawH = (plotH - insetY * 2f).coerceAtLeast(1f)
+        val availableW = (plotW - insetX * 2f).coerceAtLeast(1f)
+        val availableH = (plotH - insetY * 2f).coerceAtLeast(1f)
+        val (drawW, drawH) = if (spec.equalAspect) equalAspectSize(availableW, availableH, spanX, spanY) else availableW to availableH
+        val drawX = plotX + insetX + (availableW - drawW) / 2
+        val drawY = plotY + insetY + (availableH - drawH) / 2
 
         // 坐标变换：绘图区（含内缩余量）定位之后才能定义
         fun sx(x: Double): Float = drawX + ((x - xLo) / spanX * drawW).toFloat()
         fun sy(y: Double): Float = drawY + drawH - ((y - yLo) / spanY * drawH).toFloat()
+        val window = DataWindow(xLo, xHi, yLo, yHi)
+        val regions = spec.voronoi?.let { decisionRegions(it, window) }
+        val decisionEdges = regions?.boundaries.orEmpty()
 
         // Filled regions stay behind the grid, axes and every data series.
         val plotBounds = RectF(drawX, drawY, drawX + drawW, drawY + drawH)
         val fillSave = canvas.save()
         canvas.clipRect(plotBounds)
+        regions?.cells.orEmpty().forEach { cell ->
+            val path = Path().apply {
+                cell.polygon.forEachIndexed { index, point -> if (index == 0) moveTo(sx(point.first), sy(point.second)) else lineTo(sx(point.first), sy(point.second)) }
+                close()
+            }
+            val multiple = (regions?.cells?.size ?: 0) > 1
+            drawRegion(canvas, path, plotBounds, plotColor(null, spec.voronoi!!.colorIndex(cell.siteIndex)),
+                if (multiple) .12 else .16, if (multiple) "solid" else "hatched")
+        }
         for (area in spec.markAreas) {
             val region = Path().apply { addRect(sx(area.x0), sy(area.y1 ?: yHi), sx(area.x1), sy(area.y0 ?: yLo), Path.Direction.CW) }
             drawRegion(canvas, region, plotBounds, plotColor(area.color, area.colorIndex), area.opacity, area.pattern)
@@ -588,16 +643,16 @@ class PlotBitmapRenderer(
             val save = canvas.save()
             canvas.rotate(-90f, axisX, axisCenterY)
             labelBounds = RectF(
-                axisCenterY - drawH / 2,
-                axisX,
-                axisCenterY + drawH / 2,
-                axisX + drawH,
+                axisX - drawH / 2,
+                axisCenterY - labelSize,
+                axisX + drawH / 2,
+                axisCenterY + labelSize,
             )
             drawSmartText(
                 canvas,
                 withUnit,
-                axisCenterY,
-                axisX + labelSize * 0.34f,
+                axisX,
+                axisCenterY + labelSize * 0.34f,
                 labelSize,
                 theme.text,
                 alignCenter = true,
@@ -612,6 +667,7 @@ class PlotBitmapRenderer(
         }
 
         // ---- 11. markLine ----
+        movableLabel = true
         // 竖直标记线（`±B/2` 这类**定义域边界**）改成**实线**，并且只画到曲线为止。
         //
         // 教材参考图里这两条边界是实线、从 x 轴升到曲线端点、不越到曲线之上——
@@ -623,7 +679,7 @@ class PlotBitmapRenderer(
         for (line in spec.markLines) {
             if (line.x == null) {
                 val y = line.y ?: continue
-                if (y !in yLo..yHi) continue
+                if (y !in yLo..yHi) { continue }
                 linePaint.color = theme.markLine
                 linePaint.strokeWidth = dp(MARK_LINE_STROKE_DP)
                 linePaint.pathEffect = null
@@ -632,7 +688,7 @@ class PlotBitmapRenderer(
                 continue
             }
             val x = line.x
-            if (x !in xLo..xHi) continue
+            if (x !in xLo..xHi) { continue }
             val px = sx(x)
             val curveTop = curveTopAt(sampled, x, ::sx, ::sy)
             linePaint.color = theme.markLine
@@ -659,6 +715,9 @@ class PlotBitmapRenderer(
             if (series.style != "marker") drawPolyline(canvas, sampled[index], ::sx, ::sy,
                 withAlpha(plotColor(series.color, series.colorIndex), (255 * series.opacity).toInt()), series.width, series.style)
         }
+        decisionEdges.forEach { edge -> drawPolyline(canvas, edge, ::sx, ::sy,
+            if ((regions?.cells?.size ?: 0) > 1) theme.axis else plotColor(null, spec.voronoi!!.colorIndex(regions!!.cells.first().siteIndex)),
+            1.5f, "dashed") }
         canvas.restoreToCount(seriesSave)
         val markerSave = canvas.save()
         // Keep endpoint markers whole; reject out-of-range centers instead of showing folded points.
@@ -674,6 +733,12 @@ class PlotBitmapRenderer(
         }
         canvas.restoreToCount(markerSave)
         labelBounds = plotBounds
+        spec.series.forEach { series ->
+            if (series.style == "marker" && series.points?.size == 1 && series.label.isNotBlank()) {
+                val (x, y) = series.points.single()
+                if (x in xLo..xHi && y in yLo..yHi) drawSmartText(canvas, series.label, sx(x), sy(y), tickSize, theme.text)
+            }
+        }
         spec.markAreas.forEach { area -> area.label?.let {
             drawSmartText(canvas, it, (sx(area.x0) + sx(area.x1)) / 2, drawY + height * .058f, tickSize, theme.subText, true)
         } }
@@ -682,19 +747,18 @@ class PlotBitmapRenderer(
             drawSmartText(canvas, it, sx(middle), drawY + height * .085f, tickSize, theme.subText, true)
         } }
         labelBounds = RectF(0f, 0f, width, height)
+        movableLabel = false
 
         // ---- 12. 图例：横排在标题下方、绘图区之外 ----
         // 早先画在绘图区内部左上角，会被曲线压住（左右对称的谱线尤其明显）。
-        if (hasLegend) {
-            val legendY = plotY - height * 0.015f
+        if (hasLegend) for ((rowIndex, row) in legendRows.withIndex()) {
+            val legendY = plotY - height * 0.015f - (legendRows.lastIndex - rowIndex) * tickSize * 1.6f
             var xx = plotX
-            spec.series.forEach { s ->
+            row.forEach { s ->
                 val label = s.label
                 if (prettifyPlotLabel(label).isEmpty()) return@forEach
                 val swatchW = width * 0.021f
-                val itemWidth = swatchW + smartTextWidth(label, tickSize) + width * 0.013f
-                // 排不下就不再画，绝不让图例伸出画布被裁成半截
-                if (xx + itemWidth > plotX + plotW + width * 0.014f) return@forEach
+                val itemWidth = (swatchW + smartTextWidth(label, tickSize) + width * 0.013f).coerceAtMost(plotW)
                 val color = plotColor(s.color, s.colorIndex)
                 linePaint.color = color
                 linePaint.strokeWidth = dp(2f)
@@ -704,13 +768,62 @@ class PlotBitmapRenderer(
                 linePaint.pathEffect = null
                 // 图例项也要夹取：最后一个图例项贴着右边界时不能画出去
                 val save = canvas.save()
-                labelBounds = RectF(plotX, plotY - height * 0.06f, plotX + plotW + width * 0.014f, plotY)
+                labelBounds = RectF(xx + swatchW * .95f, legendY - tickSize * 1.2f, plotX + plotW, legendY + tickSize * .3f)
                 drawSmartText(canvas, label, xx + swatchW * 0.95f, legendY, tickSize, theme.subText)
                 canvas.restoreToCount(save)
                 labelBounds = RectF(0f, 0f, width, height)
                 xx += itemWidth
             }
         }
+        val labels = pendingLabels.orEmpty().toList()
+        pendingLabels = null
+        val occupied = mutableListOf<LabelRect>()
+        val obstacles = mutableListOf(LabelObstacleLine(drawX, axisY, drawX + drawW, axisY),
+            LabelObstacleLine(yAxisX, drawY, yAxisX, drawY + drawH))
+        decisionEdges.forEach { edge -> obstacles += LabelObstacleLine(sx(edge[0].first), sy(edge[0].second), sx(edge[1].first), sy(edge[1].second)) }
+        sampled.forEachIndexed { index, points ->
+            if (spec.series[index].style != "marker") points.zipWithNext().forEach { (a, b) ->
+                if (a.second != null && b.second != null) obstacles += LabelObstacleLine(sx(a.first), sy(a.second!!), sx(b.first), sy(b.second!!))
+            }
+            if (spec.series[index].style in setOf("marker", "line_marker")) points.forEach { (x, y) ->
+                if (y != null && x in xLo..xHi && y in yLo..yHi) occupied += LabelRect(sx(x) - dp(4f), sy(y) - dp(4f), sx(x) + dp(4f), sy(y) + dp(4f))
+            }
+        }
+        // Fixed ticks/titles are drawn after geometry, with a small paper/board backing.
+        for (label in labels.sortedBy { it.movable }) {
+            labelBounds = label.bounds
+            val w = smartTextWidth(label.raw, label.size).coerceAtMost(label.bounds.width())
+            val (above, below) = smartTextExtent(label.raw, label.size)
+            val h = above + below
+            val initialX = (if (label.centered) label.x - w / 2 else label.x).coerceIn(label.bounds.left, (label.bounds.right - w).coerceAtLeast(label.bounds.left))
+            val initial = LabelRect(initialX, label.baseline - above, initialX + w, label.baseline + below)
+            val box = if (label.movable) placePlotLabel(label.x, label.baseline, w, h,
+                LabelRect(label.bounds.left, label.bounds.top, label.bounds.right, label.bounds.bottom), occupied, obstacles, width * .009f)
+                ?: placePlotLabel(label.x, label.baseline, w, h, LabelRect(width * .01f, height * .075f, width * .99f, height * .98f),
+                    occupied, obstacles, width * .009f)
+                ?: initial else initial
+            val save = canvas.save()
+            canvas.setMatrix(label.matrix)
+            if (label.movable && kotlin.math.hypot(box.left - initial.left, box.top - initial.top) > label.size * 1.7f) {
+                val connectorSave = canvas.save()
+                occupied.forEach { canvas.clipOutRect(it.left - 2, it.top - 2, it.right + 2, it.bottom + 2) }
+                linePaint.color = theme.subText
+                linePaint.strokeWidth = width * .001f
+                linePaint.pathEffect = null
+                canvas.drawLine(label.x, label.baseline, (box.left + box.right) / 2, (box.top + box.bottom) / 2, linePaint)
+                canvas.restoreToCount(connectorSave)
+            }
+            labelBounds = RectF(0f, 0f, width, height).takeIf { label.movable } ?: label.bounds
+            fillPaint.color = theme.background
+            canvas.drawRoundRect(RectF(box.left - 2f, box.top - 1f, box.right + 2f, box.bottom + 1f), 2f, 2f, fillPaint)
+            drawSmartText(canvas, label.raw, box.left, box.top + above, label.size, label.color)
+            val mapped = RectF(box.left, box.top, box.right, box.bottom)
+            label.matrix.mapRect(mapped)
+            labelPlacements += label.raw to LabelRect(mapped.left, mapped.top, mapped.right, mapped.bottom)
+            occupied += LabelRect(mapped.left, mapped.top, mapped.right, mapped.bottom).padded(width * .004f)
+            canvas.restoreToCount(save)
+        }
+        labelBounds = RectF(0f, 0f, width, height)
     }
 
     /**

@@ -43,6 +43,9 @@ class DisconnectedModelStreamTest {
                 AiSearchProtocol.OFF, AiReasoningEffort.MEDIUM, apiProtocol = protocol,
             )
             val model = ModelClient(settings, store, Dispatchers.IO)
+            val clientField = ModelClient::class.java.getDeclaredField("client").apply { isAccessible = true }
+            val transport = clientField.get(model) as okhttp3.OkHttpClient
+            clientField.set(model, transport.newBuilder().addInterceptor(TestModelCatalogInterceptor()).build())
             val visible = StringBuilder()
             val usages = mutableListOf<UsageSample?>()
             val error = runCatching {

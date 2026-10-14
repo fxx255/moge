@@ -26,6 +26,8 @@ data class UsageSample(
     /** 数据来源，便于夹具比对与诊断。 */
     val source: String = "",
     val cacheFieldsPresent: Boolean = cachedInputTokens != null,
+    /** Provider-reported reasoning tokens; absence stays unknown and does not prove effort execution. */
+    val reasoningTokens: Long? = null,
 ) {
     /** 这份样本能否进入「缓存命中率」的分子/分母。 */
     val cacheComparable: Boolean
@@ -91,6 +93,10 @@ object UsageParser {
             cachedInputTokens = cached,
             outputTokens = output,
             source = source,
+            reasoningTokens = resolveField(usage, "推理 token", "reasoning_tokens",
+                detailsKey = listOf("completion_tokens_details" to "reasoning_tokens"),
+                detailsKey2 = listOf("output_tokens_details" to "reasoning_tokens"))
+                ?.takeIf { output == null || it <= output },
             cacheFieldsPresent = usage.containsKey("prompt_cache_hit_tokens") ||
                 usage.containsKey("cache_hit_tokens") ||
                 (usage["prompt_tokens_details"] as? JsonObject)?.containsKey("cached_tokens") == true ||

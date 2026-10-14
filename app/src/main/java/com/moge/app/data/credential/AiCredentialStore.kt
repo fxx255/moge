@@ -38,6 +38,7 @@ data class AiProfileCredentials(
     val searchProtocol: AiSearchProtocol = AiSearchProtocol.RESPONSES,
     val apiProtocol: AiApiProtocol? = null,
     val searchEnabled: Boolean = true,
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
 )
 
 /**
@@ -218,7 +219,7 @@ class AiCredentialStore @Inject constructor(
     @Synchronized
     fun credentialsFor(id: String): AiProfileCredentials? =
         storedProfiles().firstOrNull { it.id == id }?.let {
-            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol, it.apiProtocol, it.searchEnabled)
+            AiProfileCredentials(it.baseUrl, it.model, it.apiKey, it.searchProtocol, it.apiProtocol, it.searchEnabled, it.reasoningEffort)
         }
 
     /** **同一次锁内**解析活动档案的安全身份与凭证；没有可用档案时返回 null。 */

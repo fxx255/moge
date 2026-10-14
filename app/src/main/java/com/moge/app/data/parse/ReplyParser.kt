@@ -7,6 +7,8 @@ import com.moge.app.domain.plot.ExprEval
 import com.moge.app.domain.plot.MarkArea
 import com.moge.app.domain.plot.MarkLine
 import com.moge.app.domain.plot.PlotSpec
+import com.moge.app.domain.plot.ConstellationSite
+import com.moge.app.domain.plot.VoronoiSpec
 import com.moge.app.domain.plot.Series
 import com.moge.app.domain.plot.ShadeRegion
 import kotlinx.serialization.json.Json
@@ -14,6 +16,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -255,7 +258,7 @@ object ReplyParser {
             single != null -> listOf(single)
             // 兼容模型直接返回单个 PlotSpec（title/x/y/series），而不是包在
             // {"plot": {...}} 或 {"plots": [...]} 里。
-            root["series"] is JsonArray -> listOf(root)
+            root["series"] is JsonArray || root["voronoi"] is JsonObject -> listOf(root)
             else -> return emptyList()
         }
         return items.map { element ->
@@ -286,7 +289,7 @@ object ReplyParser {
         val foundDiagrams = mutableListOf<DiagramSpec?>()
         fun collect(root: JsonObject): Boolean {
             val recognized = root["plots"] is JsonArray || root["plot"] is JsonObject ||
-                root["series"] is JsonArray || root["diagrams"] is JsonArray
+                root["series"] is JsonArray || root["voronoi"] is JsonObject || root["diagrams"] is JsonArray
             if (!recognized) return false
             foundPlots += parsePlots(root, warnings)
             foundDiagrams += DiagramParser.parseSlots(root["diagrams"] as? JsonArray, warnings)
@@ -379,16 +382,37 @@ object ReplyParser {
     }
 
     private fun parsePlot(obj: JsonObject, warnings: MutableList<String>): PlotSpec {
-        val seriesArray = obj["series"] as? JsonArray ?: throw IllegalArgumentException("缺少 series")
+        val voronoi = (obj["voronoi"] as? JsonObject)?.let { geometry ->
+            val siteArray = geometry["sites"] as? JsonArray ?: error("判决域缺少星座点")
+            require(siteArray.size <= 64) { "星座点超过 64 个，不能截掉部分点后计算判决域" }
+            val sites = siteArray.map { element ->
+                val site = element as? JsonObject ?: error("星座点无效")
+                ConstellationSite(finiteNumber(site, "x") ?: error("星座点缺少横坐标"),
+                    finiteNumber(site, "y") ?: error("星座点缺少纵坐标"),
+                    (site["label"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(40))
+            }
+            require(sites.size >= 2 && sites.map { it.x to it.y }.distinct().size == sites.size) { "星座点不足或重合" }
+            val selection = geometry["highlight"]
+            val all = (geometry["allRegions"] as? JsonPrimitive)?.booleanOrNull ?: false
+            val allSelection = (selection as? JsonPrimitive)?.contentOrNull == "all"
+            require(selection == null || selection is JsonArray || allSelection) { "判决域目标必须为索引列表或 all" }
+            val targets = (selection as? JsonArray).orEmpty().map {
+                (it as? JsonPrimitive)?.intOrNull?.takeIf { index -> index in sites.indices } ?: error("判决域目标索引无效")
+            }.distinct()
+            VoronoiSpec(sites, targets, all || allSelection)
+        }
+        val seriesArray = obj["series"] as? JsonArray ?: if (voronoi != null) JsonArray(emptyList()) else throw IllegalArgumentException("缺少 series")
         val series = seriesArray.take(MAX_SERIES).mapIndexedNotNull { index, element ->
             parsePlotSeries(element as? JsonObject ?: return@mapIndexedNotNull null, index)
         }
-        require(series.isNotEmpty()) { "series 为空" }
+        require(series.isNotEmpty() || voronoi != null) { "series 为空" }
         return PlotSpec(
             title = (obj["title"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(80),
             x = parseAxis(obj["x"] as? JsonObject),
             y = parseAxis(obj["y"] as? JsonObject),
             series = series,
+            equalAspect = (obj["equalAspect"] as? JsonPrimitive)?.booleanOrNull ?: (voronoi != null),
+            voronoi = voronoi,
             legend = (obj["legend"] as? JsonPrimitive)?.booleanOrNull ?: (series.size > 1),
             markLines = (obj["markLines"] as? JsonArray)?.take(MAX_MARKS)
                 ?.mapNotNull { el ->

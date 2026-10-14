@@ -34,6 +34,7 @@ data class SseEvent(val name: String?, val data: String)
  */
 internal suspend fun BufferedSource.readSseEvents(
     onRawLine: ((String) -> Unit)? = null,
+    onLine: (() -> Unit)? = null,
     onEvent: suspend (SseEvent) -> Boolean,
 ) {
     val dataLines = mutableListOf<String>()
@@ -54,6 +55,7 @@ internal suspend fun BufferedSource.readSseEvents(
     while (true) {
         currentCoroutineContext().ensureActive()
         val line = readUtf8Line() ?: break
+        onLine?.invoke()
         when {
             line.isEmpty() -> if (!dispatch()) return
             line.startsWith(":") -> Unit

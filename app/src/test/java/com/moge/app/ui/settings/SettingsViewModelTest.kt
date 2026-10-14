@@ -9,6 +9,8 @@ import com.moge.app.data.db.NotebookRepository
 import com.moge.app.data.figure.DiagramImageStore
 import com.moge.app.data.figure.PlotImageStore
 import com.moge.app.data.llm.ModelClient
+import com.moge.app.data.llm.ModelCatalog
+import com.moge.app.data.llm.ModelCapability
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
@@ -87,6 +89,14 @@ class SettingsViewModelTest {
         assertEquals(1024L, vm.figureCacheBytes.value)
     }
 
+    @Test fun persistsConversationScreenOnPreference() {
+        val vm = vm()
+        vm.setKeepScreenOnInConversation(true)
+        coVerify(exactly = 1) { settings.setKeepScreenOnInConversation(true) }
+        vm.setKeepScreenOnInConversation(false)
+        coVerify(exactly = 1) { settings.setKeepScreenOnInConversation(false) }
+    }
+
     @Test
     fun saveValidatesLocallyWithoutTouchingStore() {
         val vm = vm()
@@ -135,12 +145,14 @@ class SettingsViewModelTest {
 
     @Test
     fun fetchModelsKeepsOldListOnFailure() {
-        coEvery { client.fetchModels("https://api.deepseek.com", "sk", null) } returns listOf("a", "b")
+        val capability = ModelCapability(maxOutputTokens = 64000, supportedEfforts = listOf("low", "medium", "high"))
+        coEvery { client.fetchModelCatalog("https://api.deepseek.com", "sk", null) } returns ModelCatalog(mapOf("a" to capability, "b" to ModelCapability()))
         val vm = vm()
         vm.fetchModels("https://api.deepseek.com", "sk", null)
         assertEquals(listOf("a", "b"), vm.editor.value.models)
+        assertEquals(capability, vm.editor.value.capabilities["a"])
 
-        coEvery { client.fetchModels(any(), any(), any()) } throws IllegalStateException("boom")
+        coEvery { client.fetchModelCatalog(any(), any(), any()) } throws IllegalStateException("boom")
         vm.fetchModels("https://api.deepseek.com", "sk", null)
         assertEquals(listOf("a", "b"), vm.editor.value.models)
         assertTrue(vm.editor.value.fetchMessage!!.contains("boom"))
@@ -148,6 +160,7 @@ class SettingsViewModelTest {
 
         vm.invalidateModels()
         assertTrue(vm.editor.value.models.isEmpty())
+        assertTrue(vm.editor.value.capabilities.isEmpty())
     }
 
     @Test
@@ -155,7 +168,7 @@ class SettingsViewModelTest {
         val vm = vm()
         vm.fetchModels("deepseek.com", "sk", null)
         assertTrue(vm.editor.value.fetchMessage!!.contains("http"))
-        coVerify(exactly = 0) { client.fetchModels(any(), any(), any()) }
+        coVerify(exactly = 0) { client.fetchModelCatalog(any(), any(), any()) }
     }
 
     @Test

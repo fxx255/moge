@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
+import com.moge.app.ui.components.KeepConversationScreenOn
 import com.moge.app.ui.export.AnswerExportContent
 import com.moge.app.ui.export.AnswerExportDialog
 import com.moge.app.ui.photo.PhotoCropDialog
@@ -86,6 +87,7 @@ fun SolveScreen(
     saveViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
+    KeepConversationScreenOn(state.keepScreenOnInConversation)
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var exportContent by remember { mutableStateOf<AnswerExportContent?>(null) }
     var favorite by remember { mutableStateOf<FavoriteTarget?>(null) }

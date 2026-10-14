@@ -114,6 +114,8 @@ class GenerationDiagnostics @Inject constructor() {
     private val entries = ArrayDeque<Entry>()
     private val lock = Any()
     private val registry = CacheUsageRegistry()
+    private var latestUsage: UsageSample? = null
+    private var hasHttpCall = false
 
     /** 一次**逻辑轮**的终态与耗时；usage 由 [recordHttpUsage] 逐次单独统计。 */
     fun record(entry: Entry) {
@@ -131,7 +133,11 @@ class GenerationDiagnostics @Inject constructor() {
      * 现在次数与样本都来自这里的逐次上报。
      */
     fun recordHttpUsage(groupKey: String, sample: UsageSample?) {
-        synchronized(lock) { registry.record(groupKey, sample) }
+        synchronized(lock) {
+            registry.record(groupKey, sample)
+            latestUsage = sample
+            hasHttpCall = true
+        }
     }
 
     /** 最近若干条（新的在前）。 */
@@ -149,6 +155,9 @@ class GenerationDiagnostics @Inject constructor() {
         val latest = recentEntries.lastOrNull()
         buildString {
             append("缓存：").append(registry.total().summary())
+            if (hasHttpCall) append("\n最近接口报告 token：输出 ")
+                .append(latestUsage?.outputTokens ?: "未知").append("，其中推理 ")
+                .append(latestUsage?.reasoningTokens ?: "供应商未提供")
             if (latest != null) {
                 append("\n最近一次：").append(latest.modelKey)
                 append("（").append(latest.protocol).append("）")
@@ -162,6 +171,8 @@ class GenerationDiagnostics @Inject constructor() {
     fun clear() = synchronized(lock) {
         entries.clear()
         registry.clear()
+        latestUsage = null
+        hasHttpCall = false
     }
 
     companion object {

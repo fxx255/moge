@@ -95,6 +95,8 @@ data class PlotSpec(
     val widthPx: Int = 960,
     val heightPx: Int = 560,
     val shades: List<ShadeRegion> = emptyList(),
+    val equalAspect: Boolean = false,
+    val voronoi: VoronoiSpec? = null,
 )
 
 /**

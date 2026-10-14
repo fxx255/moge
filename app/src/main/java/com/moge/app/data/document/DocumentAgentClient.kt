@@ -2,6 +2,7 @@ package com.moge.app.data.document
 
 import android.content.Context
 import com.moge.app.data.credential.AiApiProtocol
+import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.llm.*
 import com.moge.app.data.parse.ParsedReply
 import com.moge.app.domain.ConversationMode
@@ -29,6 +30,8 @@ class DocumentAgentClient @Inject constructor(
         onUsage: (UsageSample?) -> Unit, onEvent: suspend (StreamEvent) -> Unit,
         requireRead: Boolean = true,
         conversationMode: ConversationMode = ConversationMode.SOLVE,
+        reasoningEffort: AiReasoningEffort = AiReasoningEffort.LOW,
+        capability: ModelCapability? = null,
     ): ParsedReply {
         val attachments = messages.flatMap { it.documentPaths }.distinct().map { store.attachment(it, verifyHash = true) }
         if (requireRead && attachments.all { File(it.path).extension.lowercase() in setOf("doc", "ppt", "xls") })
@@ -60,29 +63,22 @@ class DocumentAgentClient @Inject constructor(
         var searched = false
         val webSources = linkedSetOf<String>()
         val visible = StringBuilder()
+        var recovering = false
         repeat(24) {
             currentCoroutineContext().ensureActive()
             val payload = buildJsonObject {
                 put("model", model); put("stream", false); put("tools", tools)
-                if (responses) { put("instructions", prompt); put("max_output_tokens", 8192); put("input", JsonArray(transcript)); put("store", false) }
-                else { put("messages", JsonArray(transcript)); put("max_tokens", 8192) }
+                ModelGenerationParameters.fields(baseUrl, model, reasoningEffort, protocol,
+                    finalAnswer = recovering, capability = capability).forEach { (key, value) -> put(key, value) }
+                if (responses) { put("instructions", if (recovering) finalAnswerPrompt(PromptSegments(prompt, ""), reasoningEffort).stableSystem else prompt); put("input", JsonArray(transcript)); put("store", false) }
+                else { put("messages", JsonArray(transcript)) }
             }
             val url = when (protocol) {
                 AiApiProtocol.RESPONSES -> baseUrl.trimEnd('/').removeSuffix("/chat/completions").removeSuffix("/responses").let { if (it.endsWith("/v1")) "$it/responses" else "$it/v1/responses" }
                 else -> completionsUrl(baseUrl)
             }
             val request = Request.Builder().url(url).header("Authorization", "Bearer $apiKey").post(payload.toString().toRequestBody("application/json".toMediaType())).build()
-            val body = OkHttpCancellation.execute(client, request).use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val errorType = runCatching { Json.parseToJsonElement(text).jsonObject["error"]?.jsonObject?.get("type")?.jsonPrimitive?.content }.getOrNull()
-                    throw ModelException(if (response.code in listOf(401, 403)) ModelException.Kind.UNAUTHORIZED else ModelException.Kind.SERVER,
-                        "文档分析失败：HTTP ${response.code}" + (errorType?.let { "（$it）" } ?: "") +
-                            if (response.code == 400) "，请检查接口是否支持当前协议、文件及工具调用" else "")
-                }
-                Json.parseToJsonElement(text).jsonObject
-            }
-            onUsage(UsageParser.parse(body, if (responses) "responses" else "chat"))
+            val body = executeBudgetedJsonRequest(client, request, payload, if (responses) "responses" else "chat-completions", onUsage)
             fun recordWeb(value: JsonElement) {
                 when (value) {
                     is JsonObject -> {
@@ -115,6 +111,16 @@ class DocumentAgentClient @Inject constructor(
                 }
             }
             if (calls.isEmpty()) {
+                val truncated = if (responses) (body["incomplete_details"] as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull == "max_output_tokens"
+                    else body["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("finish_reason")?.jsonPrimitive?.contentOrNull == "length"
+                if (text.isBlank() && truncated && !recovering) {
+                    recovering = true
+                    if (!responses) transcript[0] = buildJsonObject { put("role", "system");
+                        put("content", finalAnswerPrompt(PromptSegments(prompt, ""), reasoningEffort).stableSystem) }
+                    transcript += buildJsonObject { put("role", "user"); put("content", ConversationResponse(conversationMode).recoveryInstruction) }
+                    onEvent(StreamEvent.ReasoningDelta("\n正在补全最终回答\n"))
+                    return@repeat
+                }
                 visible.append(text)
                 if (forceWebSearch && !searched) throw ModelException(ModelException.Kind.CONFIG_INVALID, "本轮要求联网，但接口没有执行搜索；请测试联网设置")
                 if (visible.isBlank()) throw ModelException(ModelException.Kind.INVALID_RESPONSE, "文档模型没有返回有效答案")
@@ -127,10 +133,6 @@ class DocumentAgentClient @Inject constructor(
                 } + webSources.map { "[$it]($it)" }
                 val reply = if (references.isEmpty()) parsed.reply else parsed.reply + "\n\n来源：" + references.distinct().joinToString("；")
                 onEvent(StreamEvent.AnswerDelta(visible.toString()))
-                val truncated = when {
-                    responses -> (body["incomplete_details"] as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull == "max_output_tokens"
-                    else -> body["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("finish_reason")?.jsonPrimitive?.contentOrNull == "length"
-                }
                 return parsed.copy(reply = reply, truncated = truncated, warnings = parsed.warnings + listOfNotNull(
                     "本次回答未联网".takeIf { webSearch && !searched },
                 ))

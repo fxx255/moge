@@ -26,6 +26,23 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class, shadows = [PosixAtomicFileShadow::class])
 class DocumentAgentClientTest {
+    @Test fun hiddenReasoningExhaustionUsesFullBudgetAndOnlyOneFinalAnswerRecovery() = runBlocking {
+        val doc = document()
+        val empty = """{"choices":[{"message":{"role":"assistant","content":null},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":65536}}"""
+        val final = """{"choices":[{"message":{"role":"assistant","content":"{\"reply\":\"最终答案\"}"},"finish_reason":"stop"}]}"""
+        val samples = mutableListOf<com.moge.app.data.llm.UsageSample?>()
+        val result = DocumentAgentClient(context, store).run(client(empty, final), "https://api.deepseek.com", "deepseek-v4-pro", "test-key",
+            AiApiProtocol.CHAT_COMPLETIONS, false, listOf(ChatMessage("user", "追问", documentPaths = listOf(doc.path))),
+            emptyList(), "return JSON", false, false, { samples += it }, {}, requireRead = false,
+            reasoningEffort = com.moge.app.data.credential.AiReasoningEffort.HIGH,
+            capability = com.moge.app.data.llm.ModelCapability(393216, listOf("low", "medium", "high"), canDisableThinking = true))
+        assertEquals("最终答案", result.reply)
+        assertEquals(2, requests.size)
+        assertEquals(2, samples.size)
+        assertEquals(393216, payloads.first()["max_tokens"]!!.jsonPrimitive.int)
+        assertEquals("high", payloads.first()["reasoning_effort"]!!.jsonPrimitive.content)
+        assertEquals("none", payloads.last()["reasoning_effort"]!!.jsonPrimitive.content)
+    }
 
     @Test fun ordinaryChatDocumentPathPreservesJsonExamplesAndUsesGeneralOutputRules() = runBlocking {
         val doc = document()

@@ -11,6 +11,7 @@ import com.moge.app.data.db.NotebookRepository
 import com.moge.app.data.figure.DiagramImageStore
 import com.moge.app.data.figure.PlotImageStore
 import com.moge.app.data.llm.ModelClient
+import com.moge.app.data.llm.ModelCapability
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
@@ -46,6 +47,7 @@ data class ModelsUiState(
 /** 编辑页的异步状态：模型列表、测试结果。随编辑页打开/关闭重置。 */
 data class EditorUiState(
     val models: List<String> = emptyList(),
+    val capabilities: Map<String, ModelCapability> = emptyMap(),
     val modelsBusy: Boolean = false,
     val fetchMessage: String? = null,
     val webSearchBusy: Boolean = false,
@@ -118,6 +120,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setAnswerFirst(value) }
     }
 
+    fun setKeepScreenOnInConversation(value: Boolean) {
+        viewModelScope.launch { settings.setKeepScreenOnInConversation(value) }
+    }
+
     fun setHistoryAutoCleanupEnabled(value: Boolean) {
         viewModelScope.launch { settings.setHistoryAutoCleanupEnabled(value) }
     }
@@ -185,7 +191,7 @@ class SettingsViewModel @Inject constructor(
     /** 接口地址改了，旧列表不再可信。 */
     fun invalidateModels() {
         fetchJob?.cancel()
-        _editor.update { it.copy(models = emptyList(), modelsBusy = false, fetchMessage = null) }
+        _editor.update { it.copy(models = emptyList(), capabilities = emptyMap(), modelsBusy = false, fetchMessage = null) }
     }
 
     fun clearEditorError() {
@@ -210,8 +216,9 @@ class SettingsViewModel @Inject constructor(
         fetchJob = viewModelScope.launch {
             _editor.update { it.copy(modelsBusy = true, fetchMessage = null) }
             try {
-                val list = modelClient.fetchModels(baseUrl, apiKey, profileId, protocol)
-                _editor.update { it.copy(models = list, fetchMessage = "已获取 ${list.size} 个模型") }
+                val catalog = modelClient.fetchModelCatalog(baseUrl, apiKey, profileId, protocol)
+                _editor.update { it.copy(models = catalog.ids, capabilities = catalog.capabilities,
+                    fetchMessage = "已获取 ${catalog.ids.size} 个模型") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -14,7 +14,6 @@ import com.moge.app.domain.ConversationMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
@@ -52,6 +51,8 @@ class ModelException(
      * 只有「联网搜索这一层明确不可用」这类兼容性信号才置 true。
      */
     val isSearchFallbackAllowed: Boolean = false,
+    /** Status of a rejected HTTP request, before any generated content. */
+    val rejectedHttpStatus: Int? = null,
 ) : Exception(message) {
     enum class Kind { NOT_CONFIGURED, CONFIG_INVALID, UNAUTHORIZED, NETWORK, SERVER, INVALID_RESPONSE }
 }
@@ -81,12 +82,13 @@ class ModelClient @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaType = "application/json; charset=utf-8".toMediaType()
+    private val capabilityCatalog = ModelCapabilityCatalog()
 
     /** Allow slow first tokens and pauses in reasoning; cancellation still closes the socket immediately. */
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.MINUTES)
-        .callTimeout(30, TimeUnit.MINUTES)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     /** Model operations share the IO dispatcher and classify failures throughout body consumption. */
@@ -148,15 +150,16 @@ class ModelClient @Inject constructor(
             else -> AiApiProtocol.CHAT_COMPLETIONS
         }
         if (messages.any { it.documentPaths.isNotEmpty() }) {
-            return@modelRequest withTimeoutOrNull(10 * 60 * 1000L) {
+            return@modelRequest run {
                 (documentAgent ?: throw ModelException(ModelException.Kind.CONFIG_INVALID, "文档分析模块不可用"))
                     .run(client, configured.baseUrl, configured.model, configured.apiKey, apiProtocol,
                     configured.visionEnabled, messages, imageBase64s,
                     listOf(prompt.stableSystem, prompt.volatileSystem).joinToString("\n\n"),
                     webSearchOn, forceWebSearch, onUsage, onEvent,
                     requireRead = messages.lastOrNull { it.role == "user" }?.documentReadRequired == true,
-                    conversationMode = response.mode)
-            } ?: throw ModelException(ModelException.Kind.NETWORK, "文档分析超过 10 分钟，请缩小范围后重试；原件已保留")
+                    conversationMode = response.mode, reasoningEffort = configured.reasoningEffort,
+                    capability = configured.capability)
+            }
         }
         var searchNote: String? = null
         if (apiProtocol == AiApiProtocol.RESPONSES) {
@@ -190,10 +193,10 @@ class ModelClient @Inject constructor(
             .post(payload.toString().toRequestBody(mediaType))
             .build()
 
-        val firstOutput = executeStreaming(request, onEvent, onUsage)
+        val firstOutput = executeGenerationStreaming(request, payload, onEvent, onUsage)
         val firstParsed = response.parse(firstOutput.answer)
         val firstStreamedReply = response.visible(firstOutput.answer)
-        val needsAnswer = firstOutput.answer.isBlank() && firstOutput.reasoning.isNotBlank() ||
+        val needsAnswer = firstOutput.answer.isBlank() && (firstOutput.reasoning.isNotBlank() || firstOutput.finishReason == "length") ||
             response.mode == ConversationMode.SOLVE && isPlaceholderReply(firstParsed.reply) && firstStreamedReply.length < MIN_MEANINGFUL_CHARS
         val output = if (needsAnswer) {
             onEvent(StreamEvent.ReasoningDelta("\n\n…正在补全最终回答…\n"))
@@ -278,7 +281,14 @@ class ModelClient @Inject constructor(
         apiKey: String = "",
         profileId: String? = null,
         protocol: AiSearchProtocol? = null,
-    ): List<String> = withContext(io) {
+    ): List<String> = fetchModelCatalog(baseUrl, apiKey, profileId, protocol).ids
+
+    suspend fun fetchModelCatalog(
+        baseUrl: String,
+        apiKey: String = "",
+        profileId: String? = null,
+        protocol: AiSearchProtocol? = null,
+    ): ModelCatalog = modelRequest {
         require(baseUrl.isNotBlank()) { "请填写接口地址" }
         val key = resolveFetchKey(
             inputKey = apiKey,
@@ -286,33 +296,7 @@ class ModelClient @Inject constructor(
             activeKey = credentialStore.activeProfileId()?.let { credentialStore.credentialsFor(it)?.apiKey },
         )
         require(key.isNotEmpty()) { "请填写 API 密钥" }
-        val request = Request.Builder()
-            .url(modelsUrl(baseUrl))
-            .header("Authorization", "Bearer $key")
-            .get()
-            .build()
-        val response = try {
-            // Model lists do not need the long wait budget used by generation requests.
-            OkHttpCancellation.execute(client.newBuilder()
-                .readTimeout(20, TimeUnit.SECONDS)
-                .callTimeout(30, TimeUnit.SECONDS)
-                .build(), request)
-        } catch (e: IOException) {
-            throw ModelException(ModelException.Kind.NETWORK, "无法获取模型列表：${e.message}")
-        }
-        response.use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                throw ModelException(
-                    if (resp.code == 401 || resp.code == 403) ModelException.Kind.UNAUTHORIZED
-                    else ModelException.Kind.SERVER,
-                    "获取模型列表失败（HTTP ${resp.code}）：${text.take(160)}",
-                )
-            }
-            parseModelIds(text).ifEmpty {
-                throw ModelException(ModelException.Kind.INVALID_RESPONSE, "接口没有返回可用模型")
-            }
-        }
+        capabilityCatalog.fetch(client, baseUrl, key)
     }
 
     /**
@@ -441,6 +425,7 @@ class ModelClient @Inject constructor(
             reasoningEffort = active?.reasoningEffort ?: AiReasoningEffort.LOW,
             // 自检本身就是在测联网，不看全局开关。
             effectiveWebSearchEnabled = true,
+            capability = capabilityCatalog.resolve(client, targetBaseUrl, targetKey, targetModel),
         )
     }
 
@@ -566,17 +551,21 @@ class ModelClient @Inject constructor(
         systemPrompt: String,
         userText: String,
         imageBase64s: List<String> = emptyList(),
-        maxTokens: Int = 2048,
+        maxTokens: Int? = null,
     ): String = modelRequest {
         val credentials = credentialStore.credentialsFor(profileId)
             ?: throw ModelException(
                 ModelException.Kind.NOT_CONFIGURED,
                 "所选多模态模型配置不存在或缺少密钥，请在设置页重新选择",
             )
+        val capability = capabilityCatalog.resolve(client, credentials.baseUrl, credentials.apiKey, credentials.model)
         if (credentials.apiProtocol == AiApiProtocol.RESPONSES) {
             val payload = buildJsonObject {
                 put("model", credentials.model); put("instructions", systemPrompt)
-                put("stream", false); put("store", false); put("max_output_tokens", maxTokens)
+                put("stream", false); put("store", false)
+                ModelGenerationParameters.fields(credentials.baseUrl, credentials.model, credentials.reasoningEffort,
+                    AiApiProtocol.RESPONSES, capability = capability).forEach { (key, value) -> put(key, value) }
+                maxTokens?.let { put("max_output_tokens", it) }
                 put("input", buildJsonArray { add(buildJsonObject {
                     put("role", "user"); put("content", buildJsonArray {
                         add(buildJsonObject { put("type", "input_text"); put("text", userText) })
@@ -589,22 +578,17 @@ class ModelClient @Inject constructor(
             val request = Request.Builder().url(deepSeekResponsesUrl(credentials.baseUrl))
                 .header("Authorization", "Bearer ${credentials.apiKey}")
                 .post(payload.toString().toRequestBody(mediaType)).build()
-            val raw = OkHttpCancellation.execute(client, request).use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw ModelException(
-                    if (response.code in listOf(401, 403)) ModelException.Kind.UNAUTHORIZED else ModelException.Kind.SERVER,
-                    "多模态模型调用失败（HTTP ${response.code}）",
-                )
-                body
-            }
-            return@modelRequest parseDeepSeekResponses(raw).text.trim().ifEmpty {
+            val raw = executeBudgetedJsonRequest(client, request, payload, "responses")
+            return@modelRequest parseDeepSeekResponses(raw.toString()).text.trim().ifEmpty {
                 throw ModelException(ModelException.Kind.INVALID_RESPONSE, "多模态模型未返回有效内容")
             }
         }
         val payload = buildJsonObject {
             put("model", credentials.model)
             put("temperature", 0.2)
-            put("max_tokens", maxTokens)
+            ModelGenerationParameters.fields(credentials.baseUrl, credentials.model, credentials.reasoningEffort,
+                AiApiProtocol.CHAT_COMPLETIONS, capability = capability).forEach { (key, value) -> put(key, value) }
+            maxTokens?.let { put(capability?.chatOutputParameter ?: "max_tokens", it) }
             put("stream", false)
             put("messages", buildJsonArray {
                 add(buildJsonObject { put("role", "system"); put("content", systemPrompt) })
@@ -631,16 +615,7 @@ class ModelClient @Inject constructor(
             .header("Authorization", "Bearer ${credentials.apiKey}")
             .post(payload.toString().toRequestBody(mediaType))
             .build()
-        val response = OkHttpCancellation.execute(client, request)
-        val body = response.use { it.body?.string().orEmpty() }
-        if (!response.isSuccessful) {
-            throw ModelException(
-                ModelException.Kind.SERVER,
-                "多模态模型调用失败（HTTP ${response.code}）：${body.take(160)}",
-            )
-        }
-        val root = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
-            ?: throw ModelException(ModelException.Kind.SERVER, "多模态模型返回了无法解析的结果")
+        val root = executeBudgetedJsonRequest(client, request, payload, "chat-completions")
         val message = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject
             ?: throw ModelException(ModelException.Kind.SERVER, "多模态模型未返回内容")
         val content = when (val rawContent = message["content"]) {
@@ -712,6 +687,7 @@ class ModelClient @Inject constructor(
             effectiveWebSearchEnabled = policy?.effectiveWebSearchEnabled ?: (settings.current().webSearchEnabled && identity.searchEnabled),
             apiProtocol = policy?.apiProtocol?.takeIf { it.isNotBlank() }?.let { AiApiProtocol.valueOf(it) } ?: identity.apiProtocol.takeIf { policy == null },
             visionEnabled = policy?.visionEnabled ?: identity.visionEnabled,
+            capability = capabilityCatalog.resolve(client, identity.baseUrl, identity.apiKey, identity.model),
         )
     }
 
@@ -726,6 +702,8 @@ class ModelClient @Inject constructor(
         val apiProtocol: AiApiProtocol? = null,
         val visionEnabled: Boolean = false,
         val requestWebSearch: Boolean = true,
+        val finalAnswer: Boolean = false,
+        val capability: ModelCapability? = null,
     ) {
         /** 安全端点身份（主机+路径），用于诊断归集与重试校验。 */
         val endpointIdentity: String get() = endpointIdentityOf(baseUrl)
@@ -738,16 +716,17 @@ class ModelClient @Inject constructor(
         prompt: PromptSegments,
         stream: Boolean,
         webSearchEnabled: Boolean = false,
-        maxOutputTokens: Int = MAX_OUTPUT_TOKENS,
     ): JsonObject = buildJsonObject {
         put("model", configured.model)
         put("temperature", 0.4)
-        put("max_tokens", maxOutputTokens)
         put("stream", stream)
-        nativeReasoningRequestFields(
+        ModelGenerationParameters.fields(
             baseUrl = configured.baseUrl,
             model = configured.model,
             effort = configured.reasoningEffort,
+            protocol = AiApiProtocol.CHAT_COMPLETIONS,
+            finalAnswer = configured.finalAnswer,
+            capability = configured.capability,
         ).forEach { (key, value) -> put(key, value) }
         // Chat Completions 的联网方式各家不同，必须分开写：
         // - 小米 MiMo：在 tools 里声明 web_search（配 force_search 强制检索），已实测可用；
@@ -862,31 +841,19 @@ class ModelClient @Inject constructor(
             ),
         )
         val payload = buildChatPayload(
-            configured = configured.copy(reasoningEffort = AiReasoningEffort.LOW),
+            configured = configured.copy(reasoningEffort = AiReasoningEffort.LOW, finalAnswer = true),
             messages = recoveryMessages,
             imageBase64s = emptyList(),
-            prompt = prompt,
+            prompt = finalAnswerPrompt(prompt, configured.reasoningEffort),
             stream = true,
             webSearchEnabled = false,
-            maxOutputTokens = RECOVERY_OUTPUT_TOKENS,
         )
         val request = Request.Builder()
             .url(completionsUrl(configured.baseUrl))
             .header("Authorization", "Bearer ${configured.apiKey}")
             .post(payload.toString().toRequestBody(mediaType))
             .build()
-        val recovered = try {
-            executeStreaming(request, onEvent, onUsage)
-        } catch (error: ModelException) {
-            // 只有**明确点名输出预算过大**的 400 才降预算重发一次；
-            // 泛化的 invalid_request_error 重发是白花一次计费请求。
-            if (error.kind != ModelException.Kind.SERVER) throw error
-            val body = error.message.orEmpty()
-            if (!body.contains("HTTP 400") || !isOutputBudgetRejected(body)) throw error
-            val compatible = JsonObject(payload + ("max_tokens" to JsonPrimitive(MAX_OUTPUT_TOKENS)))
-            val retryRequest = request.newBuilder().post(compatible.toString().toRequestBody(mediaType)).build()
-            executeStreaming(retryRequest, onEvent, onUsage)
-        }
+        val recovered = executeGenerationStreaming(request, payload, onEvent, onUsage)
         return recovered.copy(
             reasoning = (previous.reasoning + recovered.reasoning).takeLast(MAX_REASONING_CAPTURE_CHARS),
             citations = previous.citations + recovered.citations,
@@ -895,6 +862,19 @@ class ModelClient @Inject constructor(
             searched = previous.searched || recovered.searched,
             warnings = previous.warnings + recovered.warnings,
         )
+    }
+
+    private suspend fun executeGenerationStreaming(request: Request, payload: JsonObject,
+        onEvent: suspend (StreamEvent) -> Unit, onUsage: (UsageSample?) -> Unit): StreamOutput {
+        val negotiation = GenerationParameterNegotiation(payload)
+        while (true) {
+            try {
+                val current = request.newBuilder().post(negotiation.payload.toString().toRequestBody(mediaType)).build()
+                return executeStreaming(current, onEvent, onUsage)
+            } catch (error: ModelException) {
+                negotiation.afterRejection(error) ?: throw error
+            }
+        }
     }
 
     private suspend fun executeStreaming(
@@ -926,7 +906,7 @@ class ModelClient @Inject constructor(
                 } else {
                     ModelException.Kind.SERVER
                 }
-                throw ModelException(kind, "接口返回 HTTP ${resp.code}：${text.take(240).ifEmpty { "无返回内容" }}")
+                throw ModelException(kind, "接口返回 HTTP ${resp.code}：${text.take(2048).ifEmpty { "无返回内容" }}", rejectedHttpStatus = resp.code)
             }
             val body = resp.body ?: throw ModelException(
                 ModelException.Kind.INVALID_RESPONSE,
@@ -941,7 +921,8 @@ class ModelClient @Inject constructor(
             val raw = StringBuilder()
             // 同一请求的累计 usage 只能统计一次：这里保留最后一次有效上报，绝不累加。
             val source = body.source()
-            source.readSseEvents(onRawLine = { raw.append(it) }) { sse ->
+            val progress = GenerationProgressWatchdog()
+            source.readSseEvents(onRawLine = { raw.append(it); progress.progress() }, onLine = progress::check) { sse ->
                 val data = sse.data
                 if (!sawSse && data.isNotBlank()) sawSse = true
                 if (data == "[DONE]") {
@@ -960,6 +941,7 @@ class ModelClient @Inject constructor(
                     ?: return@readSseEvents true
                 val reason = (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull
                 if (reason != null) {
+                    progress.progress()
                     finishReason = reason
                     // 有 finish_reason 就是一次合法的收尾（长度上限或被内容过滤都算）。
                     sawTerminal = true
@@ -974,10 +956,12 @@ class ModelClient @Inject constructor(
                 extractText(
                     message["reasoning_content"] ?: message["reasoning"] ?: message["reasoning_details"],
                 ).takeIf { it.isNotEmpty() }?.let {
+                    progress.progress()
                     reasoning.appendTail(it, MAX_REASONING_CAPTURE_CHARS)
                     onEvent(StreamEvent.ReasoningDelta(it))
                 }
                 extractText(message["content"]).takeIf { it.isNotEmpty() }?.let {
+                    progress.progress()
                     answer.append(it)
                     onEvent(StreamEvent.AnswerDelta(it))
                 }
@@ -1100,8 +1084,24 @@ class ModelClient @Inject constructor(
         onEvent: suspend (StreamEvent) -> Unit,
         webSearchEnabled: Boolean = true,
         responseFormat: ConversationResponse = ConversationResponse(ConversationMode.SOLVE),
+        allowRecovery: Boolean = true,
     ): ParsedReply {
         val configured = configured.copy(requestWebSearch = webSearchEnabled)
+        suspend fun finish(output: DeepSeekResponsesOutput, warning: String? = null): ParsedReply {
+            if (allowRecovery && output.text.isBlank() && (output.thinking.isNotBlank() || output.truncated)) {
+                onEvent(StreamEvent.ReasoningDelta("\n\n…正在补全最终回答…\n"))
+                onEvent(StreamEvent.AnswerReset)
+                val recoveryMessages = messages.mapIndexed { index, message ->
+                    if (index == messages.indexOfLast { it.role == "user" } && imageBase64s.isNotEmpty()) message.copy(imageBase64s = imageBase64s) else message
+                } + listOf(ChatMessage("assistant", "上一轮分析仅供核对：\n" + output.thinking.takeLast(RECOVERY_REASONING_CHARS)),
+                    ChatMessage("user", responseFormat.recoveryInstruction))
+                val recovered = chatDeepSeekNativeResponses(configured.copy(reasoningEffort = AiReasoningEffort.LOW, finalAnswer = true),
+                    recoveryMessages, emptyList(), finalAnswerPrompt(prompt, configured.reasoningEffort), false,
+                    onUsage, onEvent, false, responseFormat, allowRecovery = false)
+                return withCitations(recovered.copy(rawReasoning = (output.thinking + recovered.rawReasoning).takeLast(MAX_REASONING_CAPTURE_CHARS)), output.citations)
+            }
+            return finalizeResponsesReply(output, warning, webSearchEnabled, responseFormat)
+        }
         // 先尝试**真正的逐片流式**：Responses 端点支持 stream 时，
         // response.output_text.delta 会随生成逐片到达，用户能在结束前看到正文。
         //
@@ -1121,19 +1121,13 @@ class ModelClient @Inject constructor(
             // 端点回了 HTTP 200 + JSON（忽略了 stream 参数）：**就地解析**，
             // 不再发第二次请求。早先这里把已经拿到的 200 JSON 丢掉重发一次，
             // 等于白花一次计费请求。
-            return finalizeResponsesReply(
+            return finish(
                 e.parsed,
-                response = responseFormat,
-                webSearchRequested = webSearchEnabled,
-                extraWarning = "联网搜索走了 Responses 完整响应读取（该端点未启用流式），本次正文在生成结束后才展示",
+                warning = "Responses 接口未启用流式，本次正文在生成结束后展示",
             )
         }
         if (streamed != null) {
-            return finalizeResponsesReply(
-                streamed.output,
-                response = responseFormat,
-                webSearchRequested = webSearchEnabled,
-            )
+            return finish(streamed.output)
         }
         // 走到这里说明流式请求被端点**明确拒绝**（StreamUnsupportedSignal）：
         // 才允许再发一次非流式请求。
@@ -1145,45 +1139,9 @@ class ModelClient @Inject constructor(
             .header("Authorization", "Bearer ${configured.apiKey}")
             .post(payload.toString().toRequestBody(mediaType))
             .build()
-        var sample: UsageSample? = null
-        currentCoroutineContext().ensureActive()
-        try {
-        val response = try {
-            OkHttpCancellation.execute(client, request)
-        } catch (e: IOException) {
-            throw ModelException(
-                ModelException.Kind.NETWORK,
-                "网络错误：${e.message ?: "无法连接 DeepSeek 接口"}",
-            )
-        }
-        return response.use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                val kind = if (resp.code == 401 || resp.code == 403) {
-                    ModelException.Kind.UNAUTHORIZED
-                } else {
-                    ModelException.Kind.SERVER
-                }
-                throw ModelException(kind, "DeepSeek 返回 HTTP ${resp.code}：${text.take(240).ifEmpty { "无返回内容" }}")
-            }
-            val usage = runCatching {
-                val root = json.parseToJsonElement(text) as? JsonObject
-                (root?.get("usage") as? JsonObject)?.let {
-                    UsageParser.parseUsageObject(it, "responses")
-                }
-            }.getOrNull()
-            sample = usage
-            val output = parseDeepSeekResponses(text)
-            finalizeResponsesReply(
-                output,
-                response = responseFormat,
-                webSearchRequested = webSearchEnabled,
-                extraWarning = "联网搜索走了 Responses 完整响应读取（该端点未启用流式），本次正文在生成结束后才展示",
-            )
-        }
-        } finally {
-            onUsage(sample)
-        }
+        val body = executeBudgetedJsonRequest(client, request, payload, "responses", onUsage)
+        return finish(parseDeepSeekResponses(body.toString()),
+            warning = "Responses 接口未启用流式，本次正文在生成结束后展示")
     }
 
     /** Responses 流式路径中「端点不支持」的信号，用于静默回退完整读取。 */
@@ -1223,18 +1181,21 @@ class ModelClient @Inject constructor(
         forceWebSearch: Boolean,
         onUsage: (UsageSample?) -> Unit,
         onEvent: suspend (StreamEvent) -> Unit,
+        negotiation: GenerationParameterNegotiation? = null,
     ): ResponsesStreamResult {
-        val payload = JsonObject(
+        val parameters = negotiation ?: GenerationParameterNegotiation(JsonObject(
             buildDeepSeekResponsesPayload(
                 configured, messages, imageBase64s, prompt, forceWebSearch,
             ) + ("stream" to JsonPrimitive(true)),
-        )
+        ))
+        val payload = parameters.payload
         val request = Request.Builder()
             .url(deepSeekResponsesUrl(configured.baseUrl))
             .header("Authorization", "Bearer ${configured.apiKey}")
             .post(payload.toString().toRequestBody(mediaType))
             .build()
         val usageAccumulator = UsageAccumulator("responses")
+        var usageReported = false
         currentCoroutineContext().ensureActive()
         try {
         val response = try {
@@ -1248,6 +1209,10 @@ class ModelClient @Inject constructor(
         return response.use { resp ->
             if (!resp.isSuccessful) {
                 val body = resp.body?.string().orEmpty()
+                if (resp.code == 404) throw ModelException(
+                    ModelException.Kind.SERVER,
+                    "Responses 请求返回 HTTP 404；请核对接口地址和模型名。若此网关仅提供 Chat Completions，请在模型设置切换接口协议",
+                )
                 // 401/403/429 是**鉴权或限流**问题，换一种协议再发一次毫无意义，
                 // 而且会重复计费。只有明确的「不支持该参数/工具」才允许回退。
                 if (resp.code == 401 || resp.code == 403) {
@@ -1268,7 +1233,8 @@ class ModelClient @Inject constructor(
                 // 其余 4xx/5xx 都是**真实错误**，直接中断，不再换协议重发。
                 throw ModelException(
                     ModelException.Kind.SERVER,
-                    "DeepSeek 返回 HTTP ${resp.code}：${body.take(240).ifEmpty { "无返回内容" }}",
+                    "模型接口返回 HTTP ${resp.code}：${body.take(2048).ifEmpty { "无返回内容" }}",
+                    rejectedHttpStatus = resp.code,
                 )
             }
             val body = resp.body ?: throw ModelException(
@@ -1278,6 +1244,7 @@ class ModelClient @Inject constructor(
             val contentType = resp.header("Content-Type").orEmpty()
             val text = StringBuilder()
             val thinking = StringBuilder()
+            var truncated = false
             val citations = mutableListOf<Citation>()
             var searched = false
             var sawEvent = false
@@ -1287,7 +1254,8 @@ class ModelClient @Inject constructor(
             // 非 SSE 的 200 响应体：原样留存，供就地解析（不重发请求）。
             val rawStreamBody = StringBuilder()
             val source = body.source()
-            source.readSseEvents(onRawLine = { rawStreamBody.append(it) }) { sse ->
+            val progress = GenerationProgressWatchdog()
+            source.readSseEvents(onRawLine = { rawStreamBody.append(it); progress.progress() }, onLine = progress::check) { sse ->
                 val data = sse.data
                 if (data.isEmpty() || data == "[DONE]") return@readSseEvents true
                 val chunk = runCatching { json.parseToJsonElement(data) as? JsonObject }.getOrNull()
@@ -1299,6 +1267,7 @@ class ModelClient @Inject constructor(
                     "response.output_text.delta" -> {
                         val delta = (chunk["delta"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                         if (delta.isNotEmpty()) {
+                            progress.progress()
                             text.append(delta)
                             onEvent(StreamEvent.AnswerDelta(delta))
                         }
@@ -1306,6 +1275,7 @@ class ModelClient @Inject constructor(
                     "response.reasoning_summary_text.delta", "response.reasoning_text.delta" -> {
                         val delta = (chunk["delta"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                         if (delta.isNotEmpty()) {
+                            progress.progress()
                             thinking.appendTail(delta, MAX_REASONING_CAPTURE_CHARS)
                             onEvent(StreamEvent.ReasoningDelta(delta))
                         }
@@ -1349,8 +1319,21 @@ class ModelClient @Inject constructor(
                     }
                     // 明确的不完整终态：同样不得重发，按失败处理。
                     "response.incomplete" -> {
-                        failedTerminal = true
-                        streamError = "服务端返回了不完整的结果（response.incomplete）"
+                        val terminal = chunk["response"] as? JsonObject
+                        if ((terminal?.get("incomplete_details") as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull == "max_output_tokens") {
+                            truncated = true
+                            sawCompleted = true
+                            usageAccumulator.accept(terminal["usage"]?.let { it as? JsonObject }?.let { UsageParser.parseUsageObject(it, "responses") })
+                            val parsed = parseDeepSeekResponses(terminal.toString())
+                            citations += parsed.citations
+                            searched = searched || parsed.searched
+                            if (text.isEmpty() && parsed.text.isNotEmpty()) { text.append(parsed.text); onEvent(StreamEvent.AnswerDelta(parsed.text)) }
+                            if (thinking.isEmpty()) thinking.appendTail(parsed.thinking, MAX_REASONING_CAPTURE_CHARS)
+                            return@readSseEvents false
+                        } else {
+                            failedTerminal = true
+                            streamError = "服务端返回了不完整的结果（response.incomplete）"
+                        }
                     }
                     else -> Unit
                 }
@@ -1406,12 +1389,21 @@ class ModelClient @Inject constructor(
                     thinking = thinking.toString(),
                     citations = citations,
                     searched = searched || citations.isNotEmpty(),
+                    truncated = truncated,
                 ),
                 usageAccumulator.result(),
             )
         }
-        } finally {
+        } catch (error: ModelException) {
+            val compatible = parameters.afterRejection(error)
+            if (compatible == null) throw error
+            // Record the rejected HTTP before the retry, in request order.
+            usageReported = true
             onUsage(usageAccumulator.result())
+            return executeResponsesStreaming(configured, messages, imageBase64s, prompt, forceWebSearch,
+                onUsage, onEvent, parameters)
+        } finally {
+            if (!usageReported) onUsage(usageAccumulator.result())
         }
     }
 
@@ -1472,7 +1464,7 @@ class ModelClient @Inject constructor(
             if (extraWarning != null) add(extraWarning)
         }
         val noted = if (warnings.isEmpty()) parsed else parsed.copy(warnings = parsed.warnings + warnings)
-        return withCitations(noted.copy(rawReasoning = output.thinking), output.citations)
+        return withCitations(noted.copy(rawReasoning = output.thinking, truncated = output.truncated), output.citations)
     }
 
     private fun buildDeepSeekResponsesPayload(
@@ -1483,7 +1475,8 @@ class ModelClient @Inject constructor(
         forceWebSearch: Boolean,
     ): JsonObject = buildJsonObject {
         put("model", configured.model)
-        put("max_output_tokens", MAX_OUTPUT_TOKENS)
+        ModelGenerationParameters.fields(configured.baseUrl, configured.model, configured.reasoningEffort,
+            AiApiProtocol.RESPONSES, configured.finalAnswer, configured.capability).forEach { (key, value) -> put(key, value) }
         // 与 Chat Completions 保持同一分段顺序：instructions 只放稳定前缀
         // （固定协议 + 稳定用户资料 + 推理设定），时间与只读数据挪到 input 尾部。
         put("instructions", prompt.stableSystem)
@@ -1544,8 +1537,6 @@ class ModelClient @Inject constructor(
 
     internal companion object {
         const val TAG = "ModelClient"
-        const val MAX_OUTPUT_TOKENS = 8192
-        const val RECOVERY_OUTPUT_TOKENS = 16384
         const val RECOVERY_REASONING_CHARS = 12_000
         const val MAX_REASONING_CAPTURE_CHARS = 64_000
 
@@ -1578,6 +1569,8 @@ class ModelClient @Inject constructor(
     - 序列可选 style:"line|dashed|dotted|dashdot|marker|line_marker"，依次为实线、虚线、点线、点划线、散点、折线带点；width:0.75~5，opacity:0.05~1。稠密函数采样通常用线型，marker/line_marker 优先配少量明确的 points。
     - 颜色可用 colorIndex:0~11（蓝、金、绿、粉、紫、橙、青、黄绿、棕、红、浅蓝、灰）或 color:"#RRGGBB"。未指定时各序列自动分色；同一物理量保持同色，不同曲线同时用颜色与线型区分。深色底图应选明亮可辨识的颜色。
     - 散点可选 markerShape:"circle|open_circle|square|diamond|triangle|cross"，markerSize:2~8。实心/空心圆可用于区分端点是否取到，曲线和点的图层高于坐标轴。
+    - 星座图/欧氏几何图必须设置 equalAspect:true，横纵坐标同单位、同物理比例；一个点一个 marker 序列时 label 会直接标在该点附近。先核对题设的对称性、点名、最小距离和全部点坐标，正文和图必须使用同一组数据。
+    - 等概星座、各向同性 AWGN 的最小距离判决域请使用 voronoi，不要手写斜率、矩形带或三角形阴影：{"title":"判决域","x":{"min":-2,"max":2},"y":{"min":-2,"max":2},"legend":false,"equalAspect":true,"voronoi":{"sites":[{"x":1,"y":1,"label":"s₁"},{"x":-1,"y":1,"label":"s₂"},{"x":-1,"y":-1,"label":"s₃"},{"x":1,"y":-1,"label":"s₄"}],"highlight":[0]}}。上例是完整四点星座的字段示范，实际必须填入题目的全部星座点；highlight 为从 0 开始的目标点索引：单点用 [0]，多点用 [0,2,5]；需要全部点的判决域时使用 allRegions:true（也支持 highlight:"all"）。仅画星座点时省略 highlight 和 allRegions。按题目要求选择单点、多点或全部；无论选择哪些点，sites 始终包含全部竞争点。不同目标域与对应点自动配色。客户端对全部点计算半平面交集，边界与阴影同源；无界区域仅在视窗边缘裁剪，视窗边缘不是判决边界。不要再为同一判决域添加手算的 shades/markAreas/边界 series。非等概或非各向同性噪声不得使用此几何规则。
     - 标记线 markLines:[{"x":5,"label":"f_c"}]（也支持 y）；矩形带 markAreas:[{"x0":4,"x1":6,"y0":0,"y1":2,"label":"B","colorIndex":1,"opacity":0.15,"pattern":"solid"}]。省略 y0/y1 时覆盖完整绘图区高度。
     - 区域阴影用独立 shades 数组，不改变曲线数据。例如曲线与 x 轴间面积："shades":[{"x0":0,"x1":2,"upper":"x^2","lower":"0","colorIndex":0,"opacity":0.2,"pattern":"hatched","label":"积分区域"}]。两曲线之间替换 upper/lower（均使用 expr 的安全表达式语法），不要用整条竖带代替曲边区域。
     - 不规则区域用闭合多边形："shades":[{"points":[[0,0],[2,0],[1,2]],"colorIndex":2,"opacity":0.2,"pattern":"solid"}]。pattern 可为 solid（半透明填充）、hatched（斜线）、crosshatch（交叉斜线）；opacity:0.03~0.6，通常 0.12~0.3。阴影必须对应真实边界与题意，不得遮盖曲线或凭空增加区域；每图最多 12 块。
@@ -1586,7 +1579,7 @@ class ModelClient @Inject constructor(
     - 图内的 title / label / 标注文字：**可以直接写 LaTeX**（客户端会用公式排版引擎渲染），例如 S_c(f)（写作 ${'$'}S_c(f)${'$'}）、\\frac{N_0}{2}、\\Delta f；不想写 LaTeX 时用纯文本或 Unicode 符号（π、²、≤、f_c）也可以，两种都支持
     - 图内公式请保持简短（标题/轴标签一两项即可），**不要放整段推导**：图里排版空间有限，长公式会被挤小、看不清
     - **标注（markAreas / markLines 的 label）要短**：它们是画在曲线区域里的小字，超过 12 个字就会被截断成省略号；需要长篇解释请写在正文里，别塞进图里
-    - **图的比例由客户端决定**（绘图区约 1.8:1），你只需要把 min/max 给合适。**x 与 y 要分开对待**：
+    - **普通函数图的比例由客户端决定**（绘图区约 1.8:1）；equalAspect 的几何图会保持横纵单位等长。你需要把 min/max 给合适。**x 与 y 要分开对待**：
       · **x 轴**：收在「主体特征 + 少量余量」，范围太窄曲线会顶到框线、太宽形状会被压平，别把量级差很大的无关数据一起放进去；
       · **y 轴**：根据零基线、峰谷值和需要说明的特征选范围，保留适量顶部空间；不能一律压扁，也不能靠裁掉非零基值来夸大起伏。
     - **题目用符号/参数表达时，坐标刻度也必须用符号，绝不要代入具体数值**：这类题的 f_c、N_0、B、T 都是参数，题目并没有给出它们的值；你随手编一个（比如把纵轴标成 3900 / 4200）等于把图换成了另一道题，用户看到的刻度就是错的。做法是用 ticks + tickLabels 显式给出刻度位置与文案。
@@ -1652,6 +1645,7 @@ internal fun completionsUrl(baseUrl: String): String {
 internal fun modelsUrl(baseUrl: String): String {
     val trimmed = baseUrl.trim().trimEnd('/')
         .removeSuffix("/chat/completions")
+        .removeSuffix("/responses")
     return if (trimmed.endsWith("/models")) trimmed else "$trimmed/models"
 }
 
@@ -1691,33 +1685,6 @@ internal fun isStreamParameterRejected(code: Int, body: String): Boolean {
 }
 
 /**
- * 是否应该为了「输出预算过大」重发一次并降低预算。
- *
- * 只认**明确点名输出上限参数且表达上限被超出**的拒绝。
- * `max_tokens must be an integer greater than 0` 这类**下界/类型**校验错误
- * 只是参数写错了，降低预算重发不会成功，也不会成功 —— 必须排除。
- * 泛化的 `invalid_request_error` 400 同样不算。
- */
-internal fun isOutputBudgetRejected(body: String): Boolean {
-    val lower = body.lowercase()
-    val namesBudgetParameter = listOf(
-        "max_tokens", "max_output_tokens", "max_completion_tokens",
-    ).any { it in lower }
-    if (!namesBudgetParameter) return false
-    // 下界/类型校验：预算值本身非法，降预算解决不了，绝不能重发。
-    val lowerBoundOrType = listOf(
-        "must be an integer", "integer greater than", "must be greater than",
-        "must be a positive", "must be positive", "invalid value", "invalid type",
-        "not a number", "must be an even", "低于", "必须为整数",
-    ).any { it in lower }
-    if (lowerBoundOrType) return false
-    return listOf(
-        "too large", "too big", "too high", "exceed", "maximum", "max is",
-        "greater than", "larger than", "上限", "过大", "超出", "超过", "最多",
-    ).any { it in lower }
-}
-
-/**
  * 服务商实际可用的联网协议。
  *
  * MiMo 的 Responses 网关明确拒绝 web_search 工具
@@ -1751,6 +1718,7 @@ internal data class DeepSeekResponsesOutput(
      * 只有这个标记能区分「搜了但没找到引用」和「压根没搜」。
      */
     val searched: Boolean = false,
+    val truncated: Boolean = false,
 )
 
 /** 解析 DeepSeek Responses API 的非流式响应：收集 output_text / 思考与 citations，并标记是否真的发起过搜索。 */
@@ -1786,10 +1754,10 @@ internal fun parseDeepSeekResponses(raw: String): DeepSeekResponsesOutput {
             // 服务端确实发起过搜索才会出现这个 item
             "web_search_call" -> searched = true
             "reasoning" -> {
-                val summary = obj["summary"] as? JsonArray ?: continue
+                val summary = (obj["summary"] as? JsonArray).orEmpty() + (obj["content"] as? JsonArray).orEmpty()
                 for (part in summary) {
                     val partObj = part as? JsonObject ?: continue
-                    if ((partObj["type"] as? JsonPrimitive)?.contentOrNull == "summary_text") {
+                    if ((partObj["type"] as? JsonPrimitive)?.contentOrNull in setOf("summary_text", "reasoning_text")) {
                         thinking.append((partObj["text"] as? JsonPrimitive)?.contentOrNull.orEmpty())
                     }
                 }
@@ -1802,6 +1770,7 @@ internal fun parseDeepSeekResponses(raw: String): DeepSeekResponsesOutput {
         thinking.toString(),
         citations,
         searched || citations.isNotEmpty(),
+        (root["incomplete_details"] as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull == "max_output_tokens",
     )
 }
 
@@ -1815,30 +1784,6 @@ private fun extractDeepSeekCitations(element: JsonElement?, out: MutableList<Mod
             .ifBlank { (obj["title"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty() }
         out.add(ModelClient.Citation(title, url))
     }
-}
-
-internal fun nativeReasoningRequestFields(
-    baseUrl: String,
-    model: String,
-    effort: AiReasoningEffort,
-): JsonObject = buildJsonObject {
-    val value = effort.name.lowercase()
-    val normalizedUrl = baseUrl.lowercase()
-    when {
-        "openrouter.ai" in normalizedUrl -> put(
-            "reasoning",
-            buildJsonObject { put("effort", value) },
-        )
-        "api.openai.com" in normalizedUrl && isOpenAiReasoningModel(model) -> put("reasoning_effort", value)
-    }
-}
-
-private fun isOpenAiReasoningModel(model: String): Boolean {
-    val normalized = model.trim().lowercase()
-    return normalized.startsWith("gpt-5") ||
-        normalized.startsWith("o1") ||
-        normalized.startsWith("o3") ||
-        normalized.startsWith("o4")
 }
 
 internal fun reasoningInstruction(effort: AiReasoningEffort): String = when (effort) {
@@ -1857,16 +1802,7 @@ internal fun shouldUseWebSearch(userPrompt: String, forced: Boolean): Boolean {
     return WEB_SEARCH_INTENT_MARKERS.any(normalized::contains)
 }
 
-internal fun parseModelIds(raw: String): List<String> {
-    val root = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return emptyList()
-    return (root["data"] as? JsonArray).orEmpty()
-        .mapNotNull { (it as? JsonObject)?.get("id") as? JsonPrimitive }
-        .mapNotNull(JsonPrimitive::contentOrNull)
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-        .sorted()
-}
+internal fun parseModelIds(raw: String): List<String> = parseModelCatalog(raw).ids
 
 /**
  * 解析「获取模型列表」实际使用的密钥。
