@@ -22,6 +22,7 @@ import com.moge.app.data.llm.shouldUseWebSearch
 import com.moge.app.data.parse.replaceFigureAnchors
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -78,7 +79,7 @@ class GenerationPreparer @Inject constructor(
     ): Prepared {
         validateConfiguration(initial, submission.attachmentPaths.isNotEmpty())
         if (!initial.isComplete) {
-            return failure(owner, "本轮恢复信息不完整，无法安全准备；请重新发送这道题")
+            return failure(owner, "本轮恢复信息不完整，无法安全准备；请重新发送本次消息")
         }
         val photo = when (initial.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_NONE -> PhotoOutcome(emptyList(), submission.userText)
@@ -86,7 +87,7 @@ class GenerationPreparer @Inject constructor(
                 val encoded = encodeAll(submission.attachmentPaths)
                 if (encoded.failure != null) return failure(owner, encoded.failure)
                 // 保留用户原问题；纯照片题（没打字）用默认看图提示词。
-                encoded.copy(outgoingText = submission.userText.ifBlank { DEFAULT_VISION_PROMPT })
+                encoded.copy(outgoingText = submission.userText.ifBlank { defaultImagePrompt(initial) })
             }
             RequestSnapshot.PHOTO_ROUTE_TRANSCRIBE ->
                 transcribe(submission.attachmentPaths, submission.userText, initial)
@@ -132,7 +133,9 @@ class GenerationPreparer @Inject constructor(
         if (hasAttachments && initial.photoRoute == RequestSnapshot.PHOTO_ROUTE_NONE) {
             throw ModelException(
                 ModelException.Kind.CONFIG_INVALID,
-                "当前模型不支持图片，请在设置中切换到支持看图的模型，或配置识题模型后重新发送",
+                if (ConversationMode.fromName(initial.conversationMode) == ConversationMode.CHAT)
+                    "当前模型不支持图片，请在设置中切换到支持看图的模型后重新发送"
+                else "当前模型不支持图片，请在设置中切换到支持看图的模型，或配置识题模型后重新发送",
             )
         }
     }
@@ -149,6 +152,7 @@ class GenerationPreparer @Inject constructor(
         answerMessageId: String,
     ): RequestSnapshot {
         val prefs = settings.current()
+        val conversationMode = ConversationMode.fromName(conversationDao.getConversation(conversationId)?.conversationMode)
         val identity = credentialStore.resolveActiveIdentity()
         val baseUrl = identity?.baseUrl.orEmpty()
         // 历史在此刻钉下：之后用户删消息都不能改变这轮的上下文。
@@ -158,9 +162,9 @@ class GenerationPreparer @Inject constructor(
         else if (submission.parentMessageId == ConversationBranches.AUTO_PARENT)
             ConversationBranches.visible(allMessages, conversationDao.getBranchSelections(conversationId))
         else ConversationBranches.ancestors(allMessages, submission.parentMessageId)
-        val bounded = boundedHistory(sourceHistory, userMessageId, answerMessageId)
+        val bounded = boundedHistory(sourceHistory, userMessageId, answerMessageId, conversationMode)
         val visionDirect = identity?.visionEnabled ?: false
-        val recognizer = if (visionDirect) null else credentialStore.questionVisionProfileId()
+        val recognizer = if (visionDirect || conversationMode == ConversationMode.CHAT) null else credentialStore.questionVisionProfileId()
             ?.let { credentialStore.resolveIdentityFor(it) }
         // 「有图片但两条路都不通」由 hasImages=true + photoRoute=none 携带，提交前据此拦截。
         val route = when {
@@ -179,6 +183,7 @@ class GenerationPreparer @Inject constructor(
                 .flatMap { RequestRepository.decodePathList(it.documentPaths) } + submission.documentPaths).distinct(),
             reasoningEffort = (identity?.reasoningEffort ?: AiReasoningEffort.LOW).name,
             solveMode = submission.solveMode.name,
+            conversationMode = conversationMode.name,
             hasImages = submission.attachmentPaths.isNotEmpty(),
             sourceUserText = submission.userText,
             prepared = false,
@@ -205,8 +210,8 @@ class GenerationPreparer @Inject constructor(
     suspend fun prepareRetry(owner: RequestEntity): Prepared {
         val snapshot = SnapshotCodec.decode(owner.snapshotJson)
         when {
-            snapshot == null -> return failure(owner, "这一轮没有恢复信息，无法安全重发。请重新发送这道题。")
-            !snapshot.isComplete -> return failure(owner, "这一轮的恢复信息不完整，无法安全重发。请重新发送这道题。")
+            snapshot == null -> return failure(owner, "这一轮没有恢复信息，无法安全重发。请重新发送本次消息。")
+            !snapshot.isComplete -> return failure(owner, "这一轮的恢复信息不完整，无法安全重发。请重新发送本次消息。")
         }
         val attachments = RequestRepository.decodePathList(owner.attachmentPaths)
         validateConfiguration(snapshot, attachments.isNotEmpty())
@@ -233,7 +238,7 @@ class GenerationPreparer @Inject constructor(
         val imageBase64s = when (snapshot.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_DIRECT -> {
                 if (attachments.isEmpty()) {
-                    return failure(owner, "原附件路径没有随本轮记录保存，无法带上原图重试；请重新发送这道题")
+                    return failure(owner, "原附件路径没有随本轮记录保存，无法带上原图重试；请重新发送本次消息")
                 }
                 val encoded = encodeAll(attachments)
                 if (encoded.failure != null) return failure(owner, encoded.failure)
@@ -352,20 +357,25 @@ class GenerationPreparer @Inject constructor(
         source: List<com.moge.app.data.db.MessageEntity>,
         userMessageId: String,
         answerMessageId: String,
+        conversationMode: ConversationMode,
     ): List<SnapshotHistoryMessage> {
         val merged = mutableListOf<SnapshotHistoryMessage>()
+        fun answerText(message: com.moge.app.data.db.MessageEntity): String {
+            val text = message.displayContent ?: message.content
+            return if (conversationMode == ConversationMode.CHAT) text else historyAnswerText(text, message.finalAnswer)
+        }
         source
             .filterNot { it.id == userMessageId || it.id == answerMessageId }
             .filterNot { it.role == "assistant" && it.content.isBlank() }
             .forEach { message ->
                 val previous = merged.lastOrNull()
                 if (previous != null && previous.role == "assistant" && message.role == "assistant") {
-                    merged[merged.lastIndex] = previous.copy(text = previous.text + "\n\n" + historyAnswerText(message.displayContent ?: message.content, message.finalAnswer))
+                    merged[merged.lastIndex] = previous.copy(text = previous.text + "\n\n" + answerText(message))
                 } else {
                     merged += SnapshotHistoryMessage(
                         id = message.id,
                         role = message.role,
-                        text = if (message.role == "assistant") historyAnswerText(message.displayContent ?: message.content, message.finalAnswer) else message.content,
+                        text = if (message.role == "assistant") answerText(message) else message.content,
                         // 助手消息的 imagePaths 是渲染出的图表，不回传给模型。
                         documentPaths = if (message.role == "user") RequestRepository.decodePathList(message.documentPaths) else emptyList(),
                         imagePaths = if (message.role == "user") {
@@ -413,7 +423,7 @@ class GenerationPreparer @Inject constructor(
                 }
                 // Photo-only messages retain the user's empty original text in Room.
                 // Restore the same instruction used for the first request, also on retry.
-                message.text.isBlank() -> DEFAULT_VISION_PROMPT
+                message.text.isBlank() -> defaultImagePrompt(snapshot)
                 else -> message.text
             }
             ChatMessage(message.role, text, imageBase64s = images, documentPaths = message.documentPaths)
@@ -421,6 +431,10 @@ class GenerationPreparer @Inject constructor(
     }
 
     companion object {
+        private fun defaultImagePrompt(snapshot: RequestSnapshot): String =
+            if (ConversationMode.fromName(snapshot.conversationMode) == ConversationMode.CHAT)
+                "请描述这些图片。" else DEFAULT_VISION_PROMPT
+
         const val DEFAULT_VISION_PROMPT =
             "请先准确识别图片中的题目，再给出细致解答。数学公式使用 LaTeX，并写出完整推导过程。"
 

@@ -1,5 +1,7 @@
 package com.moge.app.data.llm
 
+import com.moge.app.domain.ConversationMode
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import com.moge.app.data.credential.migrateRetiredProtocols
@@ -54,6 +56,7 @@ data class RequestSnapshot(
     val documentPaths: List<String> = emptyList(),
     val documentReadRequired: Boolean = false,
     val apiProtocol: String = "",
+    val conversationMode: String = ConversationMode.SOLVE.name,
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean
@@ -81,6 +84,7 @@ data class RequestSnapshot(
         effectiveWebSearchEnabled = effectiveWebSearchEnabled,
         apiProtocol = apiProtocol,
         visionEnabled = primaryVisionEnabled,
+        conversationMode = ConversationMode.fromName(conversationMode),
     )
 
     companion object {
@@ -117,6 +121,7 @@ data class RequestPolicy(
     val effectiveWebSearchEnabled: Boolean = false,
     val apiProtocol: String = "",
     val visionEnabled: Boolean? = null,
+    val conversationMode: ConversationMode = ConversationMode.SOLVE,
 )
 
 /** 快照的序列化；坏快照解码成 null，调用方按「不可重试」处理。 */

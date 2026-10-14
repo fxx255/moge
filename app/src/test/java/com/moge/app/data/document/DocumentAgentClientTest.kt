@@ -26,6 +26,22 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class, shadows = [PosixAtomicFileShadow::class])
 class DocumentAgentClientTest {
+
+    @Test fun ordinaryChatDocumentPathPreservesJsonExamplesAndUsesGeneralOutputRules() = runBlocking {
+        val doc = document()
+        val literal = """{"reply":"JSON 示例"}"""
+        val final = buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("message", buildJsonObject { put("role", "assistant"); put("content", literal) })
+        }) }) }.toString()
+        val reply = DocumentAgentClient(context, store).run(client(final), "https://gateway.example/v1", "test", "test-key",
+            AiApiProtocol.CHAT_COMPLETIONS, false, listOf(ChatMessage("user", "给个例子", documentPaths = listOf(doc.path))),
+            emptyList(), "自然回答", false, false, {}, {}, requireRead = false,
+            conversationMode = com.moge.app.domain.ConversationMode.CHAT)
+        assertEquals(literal, reply.reply)
+        assertEquals("", reply.finalAnswer)
+        val system = payloads.first()["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
+        assertFalse(system.contains("JSON 输出格式"))
+    }
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val store = DocumentStore(context)
     private val requests = mutableListOf<Request>()

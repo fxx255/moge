@@ -69,6 +69,28 @@ import java.util.UUID
 @Config(application = android.app.Application::class, shadows = [PosixAtomicFileShadow::class])
 class SolveViewModelTest {
 
+    @Test fun `chat choice persists with draft and stays fixed when history is reopened`() = runBlocking {
+        drafts.clear(null)
+        val first = vm()
+        first.awaitState { it.modeSelectable }
+        first.selectConversationMode(com.moge.app.domain.ConversationMode.CHAT)
+        first.onInputChange("周末有什么好玩的")
+        first.awaitState { it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        withTimeout(3_000) { while (drafts.load(null)?.text != "周末有什么好玩的") { dispatcher.scheduler.runCurrent(); delay(10) } }
+        val restored = vm()
+        restored.awaitState { it.input == "周末有什么好玩的" && it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        restored.send()
+        val sent = restored.awaitState { it.items.size == 2 && !it.submitting }
+        assertEquals("CHAT", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
+        assertFalse(sent.modeSelectable)
+        restored.selectConversationMode(com.moge.app.domain.ConversationMode.SOLVE)
+        restored.awaitState { it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        val reopened = vm(sent.conversationId)
+        reopened.awaitState { it.items.size == 2 && it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        assertFalse(reopened.uiState.value.modeSelectable)
+        assertNull(drafts.load(null))
+    }
+
     // Keep Main continuations serialized, as on a device; IO may only enqueue them.
     private val dispatcher = StandardTestDispatcher()
     private val models = ViewModelStore()
@@ -393,7 +415,7 @@ class SolveViewModelTest {
         val after = requests.get(record.requestId)!!
         assertEquals("不能卡在 PREPARING", RequestStatus.INTERRUPTED.name, after.status)
         assertEquals("半截", after.partialText)
-        assertTrue(state.notice!!.contains("另一道题"))
+        assertTrue(state.notice!!.contains("另一段对话"))
     }
 
     @Test

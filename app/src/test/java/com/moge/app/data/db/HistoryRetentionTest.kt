@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.prefs.UserSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -57,6 +58,18 @@ class HistoryRetentionTest {
         db.requestDao().touchConversation("updated", cutoff.plusMillis(1))
         assertEquals(setOf("older", "boundary"), history.deleteExpired(now).toSet())
         assertEquals(setOf("recent", "updated"), history.allIds())
+        assertTrue(history.deleteExpired(now).isEmpty())
+    }
+
+    @Test fun `history countdown projects the same latest activity used by cleanup`() = runBlocking {
+        conversation("recent-request")
+        request("recent-request", "INTERRUPTED", now.minusSeconds(86_400))
+        conversation("recent-message")
+        db.requestDao().insertMessage(MessageEntity(id = "new-question", conversationId = "recent-message",
+            role = "user", content = "追问", createdAt = now))
+        val entries = history.observeHistory().first().associateBy { it.conversation.id }
+        assertEquals(now.minusSeconds(86_400), entries.getValue("recent-request").retentionUpdatedAt)
+        assertEquals(now, entries.getValue("recent-message").retentionUpdatedAt)
         assertTrue(history.deleteExpired(now).isEmpty())
     }
 

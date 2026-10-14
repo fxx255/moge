@@ -112,7 +112,7 @@ class DocumentTools(private val context: Context, attachments: List<DocumentAtta
 read_document/read_table 的 next_offset 非 -1 时，继续读取该位置的剩余内容；inspect/search 的 offset 是目录索引。
 全文摘要必须遍历全部相关分段；只读部分时明确说明范围。不能仅根据文件名猜内容，不能声称读完未访问的页。
 Word 没有稳定物理页码，使用章节定位；PPT 完整排版没有转换时只分析结构与内嵌图片。
-在回答中注明文件名与 page/section/slide 位置。最终答案遵守系统 JSON 输出格式。
+在回答中注明文件名与 page/section/slide 位置。最终回答遵守系统指定的输出格式。
 """
         val definitions: List<JsonObject> = listOf(
             "inspect_document" to "查看文档目录、总页数/章节数和图像列表",

@@ -31,6 +31,17 @@ import org.robolectric.annotation.Config
 @Config(application = android.app.Application::class, shadows = [PosixAtomicFileShadow::class])
 class DraftStoreTest {
 
+    @Test fun `new chat mode survives restart without becoming an attachment and clearing removes it`() = runBlocking {
+        val reservation = store.reserveSave(null, "", emptyList(), conversationMode = com.moge.app.domain.ConversationMode.CHAT)
+        store.persist(reservation)
+        val draft = freshStore().load(null)!!
+        assertEquals(com.moge.app.domain.ConversationMode.CHAT, draft.conversationMode)
+        assertTrue(draft.photoPaths.isEmpty())
+        assertFalse(store.referencedPhotoPaths().contains("mode:CHAT"))
+        store.clear(null)
+        assertNull(freshStore().load(null))
+    }
+
     private val context: Context = ApplicationProvider.getApplicationContext()
     private lateinit var store: DraftStore
     private val tempFiles = mutableListOf<File>()

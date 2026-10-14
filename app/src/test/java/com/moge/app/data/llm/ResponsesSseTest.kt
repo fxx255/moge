@@ -45,6 +45,25 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = Application::class)
 class ResponsesSseTest {
 
+    @Test fun `ordinary responses chat preserves JSON content and has no solving instructions`() = runBlocking {
+        val literal = """{"reply":"原样 JSON 示例"}"""
+        val delta = kotlinx.serialization.json.buildJsonObject {
+            put("type", kotlinx.serialization.json.JsonPrimitive("response.output_text.delta"))
+            put("delta", kotlinx.serialization.json.JsonPrimitive(literal))
+        }
+        val body = "data: $delta\n\n" + respEvent("response.completed", ""","response":{}""")
+        val result = client(200 to body).chatStreaming(listOf(ChatMessage("user", "给个 JSON 示例")),
+            webSearchEnabled = true, policy = RequestPolicy(effectiveWebSearchEnabled = true,
+                conversationMode = com.moge.app.domain.ConversationMode.CHAT)) {}
+        assertEquals(literal, result.reply)
+        assertEquals("", result.finalAnswer)
+        assertEquals(1, requests.size)
+        val payload = Json.parseToJsonElement(requests.single()).jsonObject
+        val system = payload["instructions"]!!.jsonPrimitive.content
+        assertFalse(system.contains("解题"))
+        assertFalse(system.contains("JSON"))
+    }
+
     private val requests = mutableListOf<String>()
     private val bodies = mutableListOf<String>()
 

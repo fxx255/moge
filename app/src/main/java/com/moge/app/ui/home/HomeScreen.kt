@@ -204,7 +204,7 @@ fun HomeScreen(
             }
             if (useViewfinder && state.message == null) {
                 Text(
-                    "对准题目拍照",
+                    "拍摄照片",
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
@@ -334,7 +334,7 @@ internal fun CameraUnavailable(cameraFailed: Boolean, onGrant: () -> Unit, onSys
             textAlign = TextAlign.Center,
         )
         if (!cameraFailed) {
-            OutlinedButton(onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text("去授权相机") }
+            OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text("去授权相机") }
         }
         TextButton(onClick = onSystemCamera, modifier = Modifier.heightIn(min = 48.dp)) {
             Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.padding(end = 8.dp))

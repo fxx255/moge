@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.withFrameNanos
@@ -40,6 +42,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -48,11 +54,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
+import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
 import com.moge.app.ui.export.AnswerExportContent
 import com.moge.app.ui.export.AnswerExportDialog
 import com.moge.app.ui.photo.PhotoCropDialog
 import com.moge.app.ui.viewer.PhotoViewer
+import com.moge.app.ui.markdown.LocalSelectionScrollHost
+import com.moge.app.ui.markdown.SelectionScrollHost
 import kotlinx.coroutines.delay
 
 /** 首页与历史会话共用的文字/图像对话页。拍照只回传附件，不自动发送。 */
@@ -107,7 +116,8 @@ fun SolveScreen(
     fun chooseQuestion(answer: SolveItem.Answer, collect: Boolean) {
         val current = questionForAnswer(state.items, answer) ?: return
         val before = state.items.takeWhile { it.id != answer.id }.filterIsInstance<SolveItem.Question>()
-        val alternatives = before.filter { it.id != current.id && it.photoPaths.isNotEmpty() }.takeLast(5).asReversed()
+        val alternatives = if (state.conversationMode == ConversationMode.CHAT) emptyList()
+            else before.filter { it.id != current.id && it.photoPaths.isNotEmpty() }.takeLast(5).asReversed()
         if (current.photoPaths.isNotEmpty() || alternatives.isEmpty()) performAction(answer, current, collect)
         else selection = AnswerSelection(answer, current, alternatives, collect)
     }
@@ -131,6 +141,7 @@ fun SolveScreen(
         leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
         rightLabel = if (existing) "开始新对话" else "前往历史对话") {
         ConversationScaffold(title = title, onBack = onBack,
+            conversationMode = state.conversationMode.takeIf { existing },
             onDismissEditing = dismissEditing.takeIf { state.editingQuestionId != null }, actions = {
             ConversationActions(
                 existingConversation = state.conversationId != null || conversationId != null,
@@ -174,7 +185,7 @@ fun SolveScreen(
                 saveBranchViewport = { key, viewport -> observedId?.let { saveViewport(it + "__path__" + key, viewport) } },
                 conversationId = observedId, initialViewport = initialViewport,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
-                contentPadding = padding)
+                contentPadding = padding, onSelectMode = vm::selectConversationMode)
         }
     }
     cropQueue.firstOrNull()?.let { path ->
@@ -252,8 +263,16 @@ internal fun SolveList(
     onSwitchVersion: (String) -> Unit = {},
     readBranchViewport: (String) -> ConversationViewport? = { null },
     saveBranchViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
+    onSelectMode: (ConversationMode) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val nativeView = LocalView.current
+    val selectionScrollHost = remember(listState, conversationId, density.density) {
+        SelectionScrollHost(scope, density.density) { priority, block -> listState.scroll(priority, block) }
+    }
+    DisposableEffect(selectionScrollHost) { onDispose { selectionScrollHost.dispose() } }
     var restored by remember(conversationId) { mutableStateOf(false) }
     var questionIds by remember(conversationId) { mutableStateOf<List<String>?>(null) }
     val currentItems by rememberUpdatedState(state.items)
@@ -305,31 +324,55 @@ internal fun SolveList(
         onDispose { recordViewport() }
     }
     if (state.items.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(contentPadding).padding(16.dp), contentAlignment = Alignment.Center) {
-            Text("输入问题，或拍照、选图开始对话", style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Box(Modifier.fillMaxSize().padding(contentPadding).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            if (state.conversationId == null) {
+                NewConversationPlaceholder(state.conversationMode, state.modeSelectable, onSelectMode)
+            }
         }
         return
     }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("conversation-list"),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        items(state.items, key = { it.id }) { item ->
-            when (item) {
-                is SolveItem.Question -> if (item.isFirst) QuestionCard(item, onOpenImages) else FollowUpNote(item, onOpenImages = onOpenImages,
-                    onEdit = onEdit, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos && state.editingQuestionId == null,
-                    onSwitchVersion = { target ->
-                        recordViewport()
-                        pendingVersion = target
-                        pendingAnchor = currentItems.getOrNull(listState.firstVisibleItemIndex)?.id
-                        pendingOffset = listState.firstVisibleItemScrollOffset
-                        onSwitchVersion(target)
-                    })
-                is SolveItem.Answer -> AnswerSheet(item, onRetry, onRegenerate,
-                    actionsEnabled = !state.generating && !state.busyElsewhere && !state.submitting,
-                    onOpenImages = onOpenImages, answerFirst = state.answerFirst,
-                    onResume = onResume,
-                    onShare = { onShare(item) }, onSave = { onSave(item) })
+    CompositionLocalProvider(LocalSelectionScrollHost provides selectionScrollHost) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("conversation-list")
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                val screen = IntArray(2)
+                val window = IntArray(2)
+                nativeView.getLocationOnScreen(screen)
+                nativeView.getLocationInWindow(window)
+                val originX = screen[0] - window[0]
+                val originY = screen[1] - window[1]
+                // Overlay padding marks the unobscured reading area, rather than
+                // the full list which extends behind the title and floating input.
+                with(density) {
+                    selectionScrollHost.viewport = android.graphics.RectF(
+                        bounds.left + originX,
+                        bounds.top + originY + contentPadding.calculateTopPadding().toPx(),
+                        bounds.right + originX,
+                        bounds.bottom + originY - contentPadding.calculateBottomPadding().toPx())
+                }
+            },
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(state.items, key = { it.id }) { item ->
+                when (item) {
+                    is SolveItem.Question -> if (item.isFirst && state.conversationMode == ConversationMode.SOLVE)
+                        QuestionCard(item, onOpenImages) else FollowUpNote(item, onOpenImages = onOpenImages,
+                        onEdit = onEdit, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos && state.editingQuestionId == null,
+                        onSwitchVersion = { target ->
+                            recordViewport()
+                            pendingVersion = target
+                            pendingAnchor = currentItems.getOrNull(listState.firstVisibleItemIndex)?.id
+                            pendingOffset = listState.firstVisibleItemScrollOffset
+                            onSwitchVersion(target)
+                        })
+                    is SolveItem.Answer -> AnswerSheet(item, onRetry, onRegenerate,
+                        actionsEnabled = !state.generating && !state.busyElsewhere && !state.submitting,
+                        onOpenImages = onOpenImages,
+                        answerFirst = state.answerFirst && state.conversationMode == ConversationMode.SOLVE,
+                        conversationMode = state.conversationMode,
+                        onResume = onResume,
+                        onShare = { onShare(item) }, onSave = { onSave(item) })
+                }
             }
         }
     }

@@ -41,8 +41,7 @@ import androidx.compose.ui.zIndex
 import com.moge.app.R
 import com.moge.app.data.llm.isPlaceholderReply
 import com.moge.app.data.parse.findFigureAnchors
-import com.moge.app.data.parse.normalizeReplyMarkdown
-import com.moge.app.data.parse.sanitizeReplyLatex
+import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.data.parse.wrapLongFormulas
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.delay
@@ -118,16 +117,18 @@ private data class StreamingMarkdownRenderCache(
 
 @Composable
 internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
+    val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, fontSizePx) {
+        key(textColor, linkColor, fontSizePx, selectionScrollHost) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
-                    createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx).also { view ->
+                    createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
+                        selectionScrollHost = selectionScrollHost).also { view ->
                         // LazyColumn can measure a View before its first attached update.
                         renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
                     }
@@ -167,7 +168,7 @@ internal fun renderStreamingMarkdown(
     val prefix = cached?.renderedPrefix ?: runCatching {
         val source = snapshot.tail.substring(0, prefixLength)
         val prepared = wrapLongFormulas(
-            sanitizeReplyLatex(normalizeReplyMarkdown(source)),
+            prepareReplyMarkdown(source),
             formulaMaxWidthPx(view, widthPx),
             formulaWidthMeasurer(view),
         )
@@ -572,6 +573,7 @@ internal fun MarkdownChunk(
     fixedWidthPx: Int?,
     selectable: Boolean = true,
 ) {
+    val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val density = LocalDensity.current
@@ -586,12 +588,13 @@ internal fun MarkdownChunk(
     // detached/premeasured items could keep that single-line slot until another scroll.
     BoxWithConstraints(widthModifier) {
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, fontSizePx, selectable) {
+        key(textColor, linkColor, fontSizePx, selectable, selectionScrollHost) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor,
-                        selectable = selectable, fontSizePx = fontSizePx).also { view ->
+                        selectable = selectable, fontSizePx = fontSizePx,
+                        selectionScrollHost = selectionScrollHost).also { view ->
                         renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
                     }
                 },

@@ -192,11 +192,11 @@ class HistoryCardPresentationTest {
 
     @Test fun `favorite badge shows the count independently of pin state and disappears at zero`() {
         render(entry(favorites = 3))
-        compose.onNodeWithText("已收藏 3 条解答", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("已收藏 3 条回答", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("已置顶", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { state.value = state.value.copy(entries = listOf(entry(isPinned = true))) }
-        compose.onNodeWithText("已收藏 3 条解答", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithText("已收藏 0 条解答", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("已收藏 3 条回答", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("已收藏 0 条回答", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("已置顶", useUnmergedTree = true).assertIsDisplayed()
     }
 
@@ -204,13 +204,13 @@ class HistoryCardPresentationTest {
         val entry = entry(favorites = 2, isPinned = true, title = "需要换行的原始历史题目标题保留完整排版")
         render(entry)
         assertLiftKeepsPresentation(entry, listOf(entry.conversation.title, firstQuestion, category.name, date,
-            "已收藏 2 条解答", "已置顶"), thumbnailCount = 0)
+            "已收藏 2 条回答", "已置顶"), thumbnailCount = 0)
     }
 
     @Test fun `live history updates cannot rewrite the lifted card snapshot`() {
         val original = entry(favorites = 1)
         render(original)
-        val texts = listOf(original.conversation.title, firstQuestion, category.name, date, "已收藏 1 条解答")
+        val texts = listOf(original.conversation.title, firstQuestion, category.name, date, "已收藏 1 条回答")
         val baseline = CardPresentationAssertions.capture(compose, "history-card-history", texts)
         hold("history-card-history")
         compose.runOnIdle {
@@ -230,7 +230,7 @@ class HistoryCardPresentationTest {
         compose.onNodeWithContentDescription("题目照片", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText(firstQuestion, useUnmergedTree = true).assertDoesNotExist()
         assertLiftKeepsPresentation(entry, listOf(entry.conversation.title, category.name, date,
-            "已收藏 1 条解答"), thumbnailCount = 1)
+            "已收藏 1 条回答"), thumbnailCount = 1)
         compose.onNodeWithText(firstQuestion, useUnmergedTree = true).assertDoesNotExist()
     }
 }

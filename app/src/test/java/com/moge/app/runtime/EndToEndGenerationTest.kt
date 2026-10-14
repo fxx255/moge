@@ -57,6 +57,125 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = Application::class)
 class EndToEndGenerationTest {
 
+    @Test fun `chat resume restores partial prose without adding solving instructions`() = runBlocking {
+        db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "续写", conversationMode = "CHAT"))
+        val prefix = "我会先从时间安排说起。"
+        val delta = buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("delta", buildJsonObject { put("content", prefix) })
+        }) }) }
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: $delta\n\n"))
+        val record = manager.submit(GenerationManager.Submission("chat", "帮我规划一天", emptyList()))
+        val interrupted = awaitTerminal(record.requestId)
+        assertEquals(RequestStatus.INTERRUPTED.name, interrupted.status)
+        assertEquals(prefix, interrupted.partialText)
+        withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+        val initial = manager.captureRetrySnapshot(interrupted).copy(continuationText = prefix)
+        assertEquals("CHAT", initial.conversationMode)
+        val retry = repository.beginRetry(record.requestId, "chat-resume",
+            com.moge.app.data.llm.SnapshotCodec.encode(initial), null)!!
+        server.enqueue(sse("上午专注工作，下午安排休息。", "stop"))
+        manager.submitRetry(retry.requestId, retry.attemptId)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+        assertEquals(prefix + "上午专注工作，下午安排休息。", db.requestDao().getMessage(record.answerMessageId)!!.content)
+        server.takeRequest()
+        val payload = server.takeRequest().body.readUtf8()
+        assertFalse(payload.contains("完整 JSON 对象"))
+        assertFalse(payload.contains("解题模式"))
+        assertEquals(2, db.conversationDao().getMessages("chat").size)
+    }
+
+    @Test fun `chat images go directly to primary vision model and followups use general image context`() = runBlocking {
+        db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "相片", conversationMode = "CHAT"))
+        val identity = credentials.resolveActiveIdentity()!!.copy(visionEnabled = true)
+        every { credentials.resolveActiveIdentity() } returns identity
+        every { credentials.resolveIdentityFor("p1") } returns identity
+        val photo = java.io.File.createTempFile("chat-image", ".png")
+        try {
+            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            server.enqueue(sse("这是一张风景照。", "stop"))
+            val first = manager.submit(GenerationManager.Submission("chat", "", listOf(photo.absolutePath)))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId).status)
+            withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+            server.enqueue(sse("可以提高亮度。", "stop"))
+            val second = manager.submit(GenerationManager.Submission("chat", "怎么调整亮度", emptyList()))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(second.requestId).status)
+            val initialPayload = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            val followupPayload = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            for (body in listOf(initialPayload, followupPayload)) {
+                val parts = body["messages"]!!.jsonArray.map { it.jsonObject }
+                    .first { it["role"]!!.jsonPrimitive.content == "user" }["content"]!!.jsonArray
+                assertEquals("请描述这些图片。", parts.first().jsonObject["text"]!!.jsonPrimitive.content)
+                assertEquals("image_url", parts[1].jsonObject["type"]!!.jsonPrimitive.content)
+                assertFalse(body.toString().contains("完整推导过程"))
+            }
+            assertEquals("", db.requestDao().getMessage(first.userMessageId)!!.transcript)
+            assertEquals(2, server.requestCount)
+        } finally { photo.delete() }
+    }
+
+    @Test fun `ordinary chat preserves literal output and only includes its own conversation history`() = runBlocking {
+        db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "周末安排", conversationMode = "CHAT"))
+        db.conversationDao().insertConversation(ConversationEntity(id = "other", title = "另一个对话", conversationMode = "CHAT"))
+        val literal = """{"reply":"JSON 示例保留原样","answer":"普通字段"}"""
+        server.enqueue(sse(literal, "stop", chunk = 3))
+        val first = manager.submit(GenerationManager.Submission("chat", "给我一个 JSON 示例", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId).status)
+        assertEquals(literal, db.requestDao().getMessage(first.answerMessageId)!!.content)
+        assertEquals("", db.requestDao().getMessage(first.answerMessageId)!!.finalAnswer)
+        assertEquals("CHAT", com.moge.app.data.llm.SnapshotCodec.decode(first.snapshotJson)!!.conversationMode)
+        withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+        server.enqueue(sse("当然可以。", "stop"))
+        val followup = manager.submit(GenerationManager.Submission("chat", "解释它", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(followup.requestId).status)
+        withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+        server.enqueue(sse("你好。", "stop"))
+        val other = manager.submit(GenerationManager.Submission("other", "你好", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(other.requestId).status)
+        val firstPayload = server.takeRequest().body.readUtf8()
+        val secondPayload = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val otherPayload = server.takeRequest().body.readUtf8()
+        assertFalse(firstPayload.contains("拍题解题老师"))
+        assertFalse(firstPayload.contains("解题模式"))
+        assertFalse(firstPayload.contains("只输出完整 JSON"))
+        assertFalse(firstPayload.contains("response_format"))
+        val history = secondPayload["messages"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(history.any { it["role"]!!.jsonPrimitive.content == "assistant" && it["content"]!!.jsonPrimitive.content == literal })
+        assertFalse(otherPayload.contains("JSON 示例保留原样"))
+        assertFalse(otherPayload.contains("给我一个 JSON 示例"))
+    }
+
+    @Test fun `ordinary chat continuation keeps prose and requests Markdown instead of solving JSON`() = runBlocking {
+        db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "故事", conversationMode = "CHAT"))
+        val prefix = "清晨的风穿过窗户。".repeat(32)
+        server.enqueue(sse(prefix, "length"))
+        server.enqueue(sse("她合上书，走进阳光。", "stop"))
+        val record = manager.submit(GenerationManager.Submission("chat", "写个故事", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+        assertEquals(prefix + "她合上书，走进阳光。", db.requestDao().getMessage(record.answerMessageId)!!.content)
+        assertEquals(2, server.requestCount)
+        server.takeRequest()
+        val body = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val last = body["messages"]!!.jsonArray.last().jsonObject["content"]!!.jsonPrimitive.content
+        assertFalse(last.contains("JSON"))
+        assertTrue(last.contains("直接输出正文"))
+    }
+
+    @Test fun `ordinary chat never uses the question recognizer for a text-only primary model`() = runBlocking {
+        db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "图片", conversationMode = "CHAT"))
+        every { credentials.questionVisionProfileId() } returns "vision"
+        every { credentials.resolveIdentityFor("vision") } returns credentials.resolveActiveIdentity()!!.copy(profileId = "vision", visionEnabled = true)
+        val error = runCatching {
+            manager.submit(GenerationManager.Submission("chat", "这张照片好看吗", listOf("/photo.png")))
+        }.exceptionOrNull()
+        assertTrue(error is ModelException)
+        assertTrue(error!!.message!!.contains("切换到支持看图"))
+        assertFalse(error.message!!.contains("识题"))
+        assertEquals(0, server.requestCount)
+        assertTrue(db.conversationDao().getMessages("chat").isEmpty())
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var db: MogeDatabase
     private lateinit var repository: RequestRepository

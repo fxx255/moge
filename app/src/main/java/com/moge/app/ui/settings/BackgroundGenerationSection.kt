@@ -55,15 +55,19 @@ internal fun BackgroundGenerationSection() {
     }
     SettingsSection("后台生成") {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("生成期间保持后台通知和 CPU 唤醒，减少息屏后的中断。", style = MaterialTheme.typography.bodyMedium)
+            Text("生成期间启用后台通知、CPU 唤醒与可用的 Wi-Fi 保护，减少息屏后的中断。", style = MaterialTheme.typography.bodyMedium)
             Text("通知：${if (notifications) "已允许" else "未允许"} · 电池优化：${if (battery) "不受限" else "受系统管理"}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("建议允许不受限后台运行。若鸿蒙提供应用启动管理，请开启“允许后台活动”。",
+            Text("电池优化可能在息屏后暂停网络，请允许不受限后台运行。若系统提供应用启动管理，也请开启“允许后台活动”。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("通知设置") }
-                TextButton(onClick = { open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("后台运行保护") }
+                TextButton(onClick = {
+                    open(if (battery) Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}")))
+                }) { Text(if (battery) "后台运行设置" else "允许息屏联网") }
             }
         }
     }

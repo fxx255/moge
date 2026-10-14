@@ -370,6 +370,7 @@ class SubmitPathTest {
     @Test
     fun `failed history read stops submission before a request is stored`() = runBlocking {
         val brokenDao = mockk<com.moge.app.data.db.ConversationDao> {
+            coEvery { getConversation("c1") } returns ConversationEntity(id = "c1", title = "原对话")
             coEvery { getMessages("c1") } throws IllegalStateException("history unavailable")
         }
         val brokenPreparer = GenerationPreparer(

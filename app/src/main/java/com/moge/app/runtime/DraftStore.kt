@@ -2,6 +2,7 @@ package com.moge.app.runtime
 
 import android.content.Context
 import android.util.AtomicFile
+import com.moge.app.domain.ConversationMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,7 +39,8 @@ open class DraftStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     /** 一条草稿。[photoPaths] 是已固定在私有持久目录里的绝对路径。 */
-    data class Draft(val text: String, val photoPaths: List<String>, val documentPaths: List<String> = emptyList())
+    data class Draft(val text: String, val photoPaths: List<String>, val documentPaths: List<String> = emptyList(),
+        val conversationMode: ConversationMode = ConversationMode.SOLVE)
 
     /**
      * [reserveSave] 返回的句柄。只有当它仍是该会话**最新** revision 时，
@@ -161,9 +163,12 @@ open class DraftStore @Inject constructor(
      * ```
      * 同一会话更新的 reserve 会让更早的 reservation 过期（[persist] 只认最新）。
      */
-    fun reserveSave(conversationId: String?, text: String, photoPaths: List<String>, documentPaths: List<String> = emptyList()): Reservation =
+    fun reserveSave(conversationId: String?, text: String, photoPaths: List<String>, documentPaths: List<String> = emptyList(),
+        conversationMode: ConversationMode = ConversationMode.SOLVE): Reservation =
         withLock(conversationId) { state ->
-            val revision = reserveLocked(state, text, photoPaths + documentPaths.map { DOCUMENT_PREFIX + it })
+            // Only the unsent new-page draft needs a mode; saved conversations own it in Room.
+            val modeMarker = if (conversationId == null && conversationMode == ConversationMode.CHAT) listOf(CHAT_MODE_MARKER) else emptyList()
+            val revision = reserveLocked(state, text, photoPaths + documentPaths.map { DOCUMENT_PREFIX + it } + modeMarker)
             Reservation(conversationId, revision)
         }
 
@@ -190,7 +195,7 @@ open class DraftStore @Inject constructor(
         files.filter { it.name.startsWith("draft_") }.forEach { file ->
             result += file.readText(Charsets.UTF_8).split(DRAFT_SEPARATOR).drop(1)
         }
-        result.filter { it.isNotBlank() }.map { it.removePrefix(DOCUMENT_PREFIX) }.toSet()
+        result.filter { it.isNotBlank() && it != CHAT_MODE_MARKER }.map { it.removePrefix(DOCUMENT_PREFIX) }.toSet()
     }
 
     // ── 内部实现：每键串行 + revision + AtomicFile 原子写 ──
@@ -226,10 +231,11 @@ open class DraftStore @Inject constructor(
 
     /** 空草稿读成 null；只剔除空串段（格式噪声），**不**剔除已不存在的文件引用。 */
     private fun normalize(text: String, photoPaths: List<String>): Draft? {
-        val paths = photoPaths.filter { it.isNotBlank() }
+        val mode = if (CHAT_MODE_MARKER in photoPaths) ConversationMode.CHAT else ConversationMode.SOLVE
+        val paths = photoPaths.filter { it.isNotBlank() && it != CHAT_MODE_MARKER }
         val photos = paths.filterNot { it.startsWith(DOCUMENT_PREFIX) }
         val documents = paths.filter { it.startsWith(DOCUMENT_PREFIX) }.map { it.removePrefix(DOCUMENT_PREFIX) }
-        return if (text.isEmpty() && paths.isEmpty()) null else Draft(text, photos, documents)
+        return if (text.isEmpty() && paths.isEmpty() && mode == ConversationMode.SOLVE) null else Draft(text, photos, documents, mode)
     }
 
     /**
@@ -389,6 +395,7 @@ open class DraftStore @Inject constructor(
         const val ATTACHMENTS_DIR = "attachments"
 
         private const val DOCUMENT_PREFIX = "document:"
+        private const val CHAT_MODE_MARKER = "mode:CHAT"
         private const val DRAFT_SEPARATOR = "\u0000"
     }
 }

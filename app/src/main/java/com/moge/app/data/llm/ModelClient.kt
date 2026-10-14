@@ -8,10 +8,9 @@ import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.document.DocumentAgentClient
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.parse.ParsedReply
-import com.moge.app.data.parse.ReplyParser
-import com.moge.app.data.parse.decodeReplyIncremental
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -90,6 +89,11 @@ class ModelClient @Inject constructor(
         .callTimeout(30, TimeUnit.MINUTES)
         .build()
 
+    /** Model operations share the IO dispatcher and classify failures throughout body consumption. */
+    private suspend fun <T> modelRequest(block: suspend () -> T): T = withContext(io) {
+        withModelNetworkErrors { block() }
+    }
+
     suspend fun isConfigured(): Boolean = withContext(io) { credentialStore.resolveActiveIdentity() != null }
 
     suspend fun isVisionEnabled(): Boolean = withContext(io) {
@@ -124,13 +128,15 @@ class ModelClient @Inject constructor(
          */
         policy: RequestPolicy? = null,
         onEvent: suspend (StreamEvent) -> Unit,
-    ): ParsedReply = withContext(io) {
+    ): ParsedReply = modelRequest {
         val configured = resolveConfigured(policy)
+        val response = ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE)
         val prompt = PromptAssembler.assemble(
             protocol = SYSTEM_PROMPT,
             nickname = settings.current().nickname,
             reasoningEffort = configured.reasoningEffort,
             solveMode = solveMode,
+            conversationMode = response.mode,
         )
         val searchProtocol = effectiveSearchProtocol(configured.baseUrl, configured.searchProtocol)
         // 联网开关用**本轮生效值**（重试时来自快照，不是当前设置）。
@@ -142,20 +148,21 @@ class ModelClient @Inject constructor(
             else -> AiApiProtocol.CHAT_COMPLETIONS
         }
         if (messages.any { it.documentPaths.isNotEmpty() }) {
-            return@withContext withTimeoutOrNull(10 * 60 * 1000L) {
+            return@modelRequest withTimeoutOrNull(10 * 60 * 1000L) {
                 (documentAgent ?: throw ModelException(ModelException.Kind.CONFIG_INVALID, "文档分析模块不可用"))
                     .run(client, configured.baseUrl, configured.model, configured.apiKey, apiProtocol,
                     configured.visionEnabled, messages, imageBase64s,
                     listOf(prompt.stableSystem, prompt.volatileSystem).joinToString("\n\n"),
                     webSearchOn, forceWebSearch, onUsage, onEvent,
-                    requireRead = messages.lastOrNull { it.role == "user" }?.documentReadRequired == true)
+                    requireRead = messages.lastOrNull { it.role == "user" }?.documentReadRequired == true,
+                    conversationMode = response.mode)
             } ?: throw ModelException(ModelException.Kind.NETWORK, "文档分析超过 10 分钟，请缩小范围后重试；原件已保留")
         }
         var searchNote: String? = null
         if (apiProtocol == AiApiProtocol.RESPONSES) {
             try {
-                return@withContext chatDeepSeekNativeResponses(
-                    configured, messages, imageBase64s, prompt, forceWebSearch, onUsage, onEvent, webSearchOn,
+                return@modelRequest chatDeepSeekNativeResponses(
+                    configured, messages, imageBase64s, prompt, forceWebSearch, onUsage, onEvent, webSearchOn, response,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -184,10 +191,10 @@ class ModelClient @Inject constructor(
             .build()
 
         val firstOutput = executeStreaming(request, onEvent, onUsage)
-        val firstParsed = ReplyParser.parse(firstOutput.answer.trim(), normalizeMarkdown = false)
-        val firstStreamedReply = decodeReplyIncremental(firstOutput.answer)
+        val firstParsed = response.parse(firstOutput.answer)
+        val firstStreamedReply = response.visible(firstOutput.answer)
         val needsAnswer = firstOutput.answer.isBlank() && firstOutput.reasoning.isNotBlank() ||
-            isPlaceholderReply(firstParsed.reply) && firstStreamedReply.length < MIN_MEANINGFUL_CHARS
+            response.mode == ConversationMode.SOLVE && isPlaceholderReply(firstParsed.reply) && firstStreamedReply.length < MIN_MEANINGFUL_CHARS
         val output = if (needsAnswer) {
             onEvent(StreamEvent.ReasoningDelta("\n\n…正在补全最终回答…\n"))
             onEvent(StreamEvent.AnswerReset)
@@ -200,8 +207,7 @@ class ModelClient @Inject constructor(
                     previous = firstOutput,
                     onUsage = onUsage,
                     onEvent = onEvent,
-                    instruction = "请重新给出对原问题独立、完整的最终回答。不得只写‘见上’、‘如上’或引用内部思考。" +
-                        "正文保留必要的讲解、公式与推导。严格遵守系统要求，只输出完整 JSON 对象。",
+                    instruction = response.recoveryInstruction,
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -225,9 +231,9 @@ class ModelClient @Inject constructor(
                 if (output.finishReason == "length") "模型输出达到长度上限，未生成最终答案" else "模型未返回有效内容",
             )
         }
-        val parsedAnswer = ReplyParser.parse(answer, normalizeMarkdown = false)
-        val visibleAnswer = reconcileStreamedReply(decodeReplyIncremental(answer), parsedAnswer.reply)
-        if (isPlaceholderReply(visibleAnswer)) {
+        val parsedAnswer = response.parse(answer)
+        val visibleAnswer = response.reconcile(response.visible(answer), parsedAnswer.reply)
+        if (response.mode == ConversationMode.SOLVE && isPlaceholderReply(visibleAnswer)) {
             throw ModelException(
                 ModelException.Kind.INVALID_RESPONSE,
                 "模型未返回完整正文，请重试；简短的引用说明未作为回答保存",
@@ -561,7 +567,7 @@ class ModelClient @Inject constructor(
         userText: String,
         imageBase64s: List<String> = emptyList(),
         maxTokens: Int = 2048,
-    ): String = withContext(io) {
+    ): String = modelRequest {
         val credentials = credentialStore.credentialsFor(profileId)
             ?: throw ModelException(
                 ModelException.Kind.NOT_CONFIGURED,
@@ -591,7 +597,7 @@ class ModelClient @Inject constructor(
                 )
                 body
             }
-            return@withContext parseDeepSeekResponses(raw).text.trim().ifEmpty {
+            return@modelRequest parseDeepSeekResponses(raw).text.trim().ifEmpty {
                 throw ModelException(ModelException.Kind.INVALID_RESPONSE, "多模态模型未返回有效内容")
             }
         }
@@ -1093,6 +1099,7 @@ class ModelClient @Inject constructor(
         onUsage: (UsageSample?) -> Unit,
         onEvent: suspend (StreamEvent) -> Unit,
         webSearchEnabled: Boolean = true,
+        responseFormat: ConversationResponse = ConversationResponse(ConversationMode.SOLVE),
     ): ParsedReply {
         val configured = configured.copy(requestWebSearch = webSearchEnabled)
         // 先尝试**真正的逐片流式**：Responses 端点支持 stream 时，
@@ -1116,6 +1123,7 @@ class ModelClient @Inject constructor(
             // 等于白花一次计费请求。
             return finalizeResponsesReply(
                 e.parsed,
+                response = responseFormat,
                 webSearchRequested = webSearchEnabled,
                 extraWarning = "联网搜索走了 Responses 完整响应读取（该端点未启用流式），本次正文在生成结束后才展示",
             )
@@ -1123,6 +1131,7 @@ class ModelClient @Inject constructor(
         if (streamed != null) {
             return finalizeResponsesReply(
                 streamed.output,
+                response = responseFormat,
                 webSearchRequested = webSearchEnabled,
             )
         }
@@ -1167,6 +1176,7 @@ class ModelClient @Inject constructor(
             val output = parseDeepSeekResponses(text)
             finalizeResponsesReply(
                 output,
+                response = responseFormat,
                 webSearchRequested = webSearchEnabled,
                 extraWarning = "联网搜索走了 Responses 完整响应读取（该端点未启用流式），本次正文在生成结束后才展示",
             )
@@ -1435,6 +1445,7 @@ class ModelClient @Inject constructor(
         output: DeepSeekResponsesOutput,
         extraWarning: String? = null,
         webSearchRequested: Boolean = true,
+        response: ConversationResponse = ConversationResponse(ConversationMode.SOLVE),
     ): ParsedReply {
         val answer = output.text.trim()
         if (answer.isEmpty()) {
@@ -1444,7 +1455,7 @@ class ModelClient @Inject constructor(
             )
         }
         val parsed = try {
-            ReplyParser.parse(answer, normalizeMarkdown = false)
+            response.parse(answer)
         } catch (e: Exception) {
             throw ModelException(
                 ModelException.Kind.INVALID_RESPONSE,

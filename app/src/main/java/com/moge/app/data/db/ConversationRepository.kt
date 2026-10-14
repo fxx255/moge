@@ -2,6 +2,7 @@ package com.moge.app.data.db
 
 import com.moge.app.core.IoDispatcher
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import com.moge.app.data.prefs.UserSettings
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -101,12 +102,14 @@ class ConversationRepository @Inject constructor(
      * 的提交锁里，且要先读会话历史钉快照；把建会话塞进那把锁会改动已验证的运行时。
      * 代价是提交被拒时会留下空会话，由调用方用 [discardIfEmpty] 回收。
      */
-    suspend fun createConversation(firstQuestion: String, solveMode: SolveMode): ConversationEntity =
+    suspend fun createConversation(firstQuestion: String, solveMode: SolveMode,
+        conversationMode: ConversationMode = ConversationMode.SOLVE): ConversationEntity =
         withContext(io) {
             val now = Instant.now()
             val conversation = ConversationEntity(
                 title = initialTitle(firstQuestion),
                 solveMode = solveMode.name,
+                conversationMode = conversationMode.name,
                 createdAt = now,
                 updatedAt = now,
             )

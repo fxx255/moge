@@ -9,7 +9,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
@@ -75,7 +74,7 @@ internal fun ComposerAttachmentMenu(
                 actions.forEachIndexed { index, (icon, label, action) ->
                     val available = enabled && expanded && (index == 2 || photosEnabled)
                     Surface(onClick = { expanded = false; action() }, enabled = available,
-                        shape = CircleShape, shadowElevation = 6.dp, tonalElevation = 3.dp,
+                        shape = MaterialTheme.shapes.small, shadowElevation = 6.dp, tonalElevation = 3.dp,
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.size(48.dp).graphicsLayer {
@@ -108,7 +107,7 @@ private fun AttachmentToggle(expanded: Boolean, enabled: Boolean,
     progress: Animatable<Float, AnimationVector1D>, onClick: () -> Unit, modifier: Modifier = Modifier) {
     IconButton(onClick = onClick, enabled = enabled,
         modifier = modifier.size(48.dp).semantics { stateDescription = if (expanded) "已展开" else "已收起" }) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
+        Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.surfaceVariant,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.size(34.dp)) {
             Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Icon(Icons.Outlined.Add, if (expanded) "收起附件菜单" else "添加附件",

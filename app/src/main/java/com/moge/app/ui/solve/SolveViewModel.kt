@@ -17,6 +17,7 @@ import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.FailureKind
 import com.moge.app.domain.RequestStatus
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.StoredFigureRepair
@@ -72,6 +73,8 @@ data class SolveUiState(
     val editChanged: Boolean = true,
     val switchingBranch: Boolean = false,
     val branchPathKey: String = "",
+    val conversationMode: ConversationMode = ConversationMode.SOLVE,
+    val modeSelectable: Boolean = conversationId == null,
 ) {
     val canSend: Boolean
         get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting && !importingPhotos &&
@@ -111,6 +114,7 @@ class SolveViewModel @Inject constructor(
     )
 
     private val input = MutableStateFlow("")
+    private val selectedMode = MutableStateFlow(ConversationMode.fromName(savedState.get<String>("draftConversationMode")))
     private val photos = MutableStateFlow<List<String>>(emptyList())
     private val importingPhotos = MutableStateFlow(false)
     private val photoPasteMutex = Mutex()
@@ -128,6 +132,7 @@ class SolveViewModel @Inject constructor(
     private val editing = MutableStateFlow<MessageEntity?>(null)
     private val switchingBranch = MutableStateFlow(false)
     private val draftReady = CompletableDeferred<Unit>()
+    private val draftLoaded = MutableStateFlow(false)
 
     private data class RoomSnapshot(
         val conversation: ConversationEntity?,
@@ -179,14 +184,21 @@ class SolveViewModel @Inject constructor(
                 documentPaths = local.documents,
                 answerFirst = prefs.answerFirst,
                 branchPathKey = path.lastOrNull()?.id.orEmpty(),
+                conversationMode = room.conversation?.let { ConversationMode.fromName(it.conversationMode) } ?: selectedMode.value,
+                modeSelectable = id == null && !local.submitting,
             )
-        }.combine(importingPhotos) { state, importing -> state.copy(importingPhotos = importing) }
+        }.combine(selectedMode) { state, mode ->
+            if (state.conversationId == null) state.copy(conversationMode = mode) else state
+        }.combine(importingPhotos) { state, importing -> state.copy(importingPhotos = importing,
+            modeSelectable = state.modeSelectable && !importing) }
             .combine(editing) { state, original -> state.copy(editingQuestionId = original?.id,
                 editChanged = original == null || state.input.trim() != original.content.trim() ||
                     state.photos != RequestRepository.decodePathList(original.imagePaths) ||
                     state.documentPaths != RequestRepository.decodePathList(original.documentPaths)) }
             .combine(switchingBranch) { state, switching -> state.copy(switchingBranch = switching) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SolveUiState(conversationId.value))
+            .combine(draftLoaded) { state, loaded -> state.copy(modeSelectable = state.modeSelectable && loaded) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
+                SolveUiState(conversationId.value, conversationMode = selectedMode.value, modeSelectable = false))
 
     init {
         restoreDraft()
@@ -239,10 +251,13 @@ class SolveViewModel @Inject constructor(
                 // 缺图引用照样恢复：发送时 persistAttachments 会明确报错，而不是悄悄丢图。
                 photos.value = draft?.photoPaths.orEmpty().take(CaptureStore.MAX_PHOTOS)
                 documents.value = draft?.documentPaths.orEmpty()
+                if (key == null && !savedState.contains("draftConversationMode")) {
+                    selectedMode.value = draft?.conversationMode ?: ConversationMode.SOLVE
+                }
             } else if (conversationId.value == key && draftSlot == initialSlot) {
                 // Early typing belongs to the ordinary selected branch and supersedes recovery.
                 draftSlot = normalSlot
-                val reservation = draftStore.reserveSave(normalSlot, input.value, photos.value, documents.value)
+                val reservation = draftStore.reserveSave(normalSlot, input.value, photos.value, documents.value, selectedMode.value)
                 val clearOld = if (initialSlot != normalSlot) draftStore.reserveSave(initialSlot, "", emptyList()) else null
                 runCatching {
                     draftStore.persist(reservation)
@@ -251,6 +266,7 @@ class SolveViewModel @Inject constructor(
                 }
             }
             draftRestored = true
+            draftLoaded.value = true
             draftReady.complete(Unit)
         }
     }
@@ -258,6 +274,13 @@ class SolveViewModel @Inject constructor(
     fun onInputChange(text: String) {
         if (switchingBranch.value) return
         input.value = text
+        saveDraft()
+    }
+
+    fun selectConversationMode(mode: ConversationMode) {
+        if (!draftLoaded.value || conversationId.value != null || submitting.value || importingPhotos.value) return
+        selectedMode.value = mode
+        savedState["draftConversationMode"] = mode.name
         saveDraft()
     }
 
@@ -488,7 +511,7 @@ class SolveViewModel @Inject constructor(
     private fun saveDraft() {
         draftRestored = true
         editRevision++
-        val reservation = draftStore.reserveSave(draftSlot, input.value, photos.value, documents.value)
+        val reservation = draftStore.reserveSave(draftSlot, input.value, photos.value, documents.value, selectedMode.value)
         viewModelScope.launch {
             try {
                 draftStore.persist(reservation)
@@ -529,9 +552,9 @@ class SolveViewModel @Inject constructor(
         val active = generationManager.active.value
         if (active.isRunning) {
             notice.value = if (active.conversationId == conversationId.value) {
-                "这一题还在生成，等它结束或先停止"
+                "当前回答还在生成，等它结束或先停止"
             } else {
-                "另一道题正在生成回答，请等它结束后再发送"
+                "另一段对话正在生成回答，请等它结束后再发送"
             }
             return
         }
@@ -589,11 +612,14 @@ class SolveViewModel @Inject constructor(
         val created = existingId == null
         val targetId = existingId ?: try {
             // 纯照片题没有文字：先用「图片题目」占位，首次有效回答后由模型概括的主题替换。
-            conversationRepository.createConversation(text.ifBlank { documentPaths.firstOrNull()?.let { "文档分析" } ?: PHOTO_PLACEHOLDER_TITLE }, mode).id
+            conversationRepository.createConversation(text.ifBlank {
+                if (documentPaths.isNotEmpty()) "文档分析"
+                else if (selectedMode.value == ConversationMode.CHAT) "图片对话" else PHOTO_PLACEHOLDER_TITLE
+            }, mode, selectedMode.value).id
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            notice.value = "这道题没能保存到本地（${e.message ?: "存储异常"}），内容已保留在输入框"
+            notice.value = "对话没能保存到本地（${e.message ?: "存储异常"}），内容已保留在输入框"
             return
         }
         try {
@@ -609,7 +635,7 @@ class SolveViewModel @Inject constructor(
             )
         } catch (e: GenerationManager.AlreadyRunningException) {
             if (created) discardQuietly(targetId)
-            notice.value = "另一道题正在生成回答，请等它结束后再发送"
+            notice.value = "另一段对话正在生成回答，请等它结束后再发送"
             return
         } catch (e: ModelException) {
             if (created) discardQuietly(targetId)
@@ -698,7 +724,7 @@ class SolveViewModel @Inject constructor(
     private fun recoverInterrupted(requestId: String, continueAnswer: Boolean) {
         if (submitting.value) return
         if (generationManager.active.value.isRunning) {
-            notice.value = "另一道题正在生成回答，请稍后再重发"
+            notice.value = "另一段对话正在生成回答，请稍后再重发"
             return
         }
         submitting.value = true
@@ -731,7 +757,7 @@ class SolveViewModel @Inject constructor(
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
-                    notice.value = "原题目里有 $missing 张图片已被清理，无法重发，请重新拍题"
+                    notice.value = "有 $missing 张原图片已被清理，无法重发，请重新添加图片"
                     return@launch
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments).copy(
@@ -748,7 +774,7 @@ class SolveViewModel @Inject constructor(
                     }
                 generationManager.submitRetry(requestId, attempt)
             } catch (e: GenerationManager.AlreadyRunningException) {
-                notice.value = "另一道题正在生成回答，请稍后再重发"
+                notice.value = "另一段对话正在生成回答，请稍后再重发"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -771,7 +797,7 @@ class SolveViewModel @Inject constructor(
     fun regenerate(requestId: String) {
         if (submitting.value) return
         if (generationManager.active.value.isRunning) {
-            notice.value = "另一道题正在生成回答，请稍后再重新生成"
+            notice.value = "另一段对话正在生成回答，请稍后再重新生成"
             return
         }
         submitting.value = true
@@ -795,7 +821,7 @@ class SolveViewModel @Inject constructor(
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
-                    notice.value = "原题目里有 $missing 张图片已被清理，无法重新生成，请重新拍题"
+                    notice.value = "有 $missing 张原图片已被清理，无法重新生成，请重新添加图片"
                     return@launch
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments)
@@ -808,7 +834,7 @@ class SolveViewModel @Inject constructor(
                     }
                 generationManager.submitRetry(requestId, attempt)
             } catch (e: GenerationManager.AlreadyRunningException) {
-                notice.value = "另一道题正在生成回答，请稍后再重新生成"
+                notice.value = "另一段对话正在生成回答，请稍后再重新生成"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -52,7 +52,8 @@ class ConversationBranchMigrationTest {
             assertEquals(listOf(null, "q1", "a1", "q2"), messages.map { it.parentMessageId })
             assertNull(db.conversationDao().getMessages("d").single().parentMessageId)
             val sqlite = db.openHelper.writableDatabase
-            assertEquals(5, sqlite.version)
+            assertEquals(6, sqlite.version)
+            assertEquals("SOLVE", db.conversationDao().getConversation("c")!!.conversationMode)
             sqlite.query("SELECT * FROM message ORDER BY rowid").use { cursor ->
                 while (cursor.moveToNext()) assertEquals(before[cursor.getString(0)], (0 until cursor.columnCount - 1).map {
                     if (cursor.isNull(it)) null else cursor.getString(it)

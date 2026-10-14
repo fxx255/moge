@@ -110,7 +110,7 @@ class HomeViewModel @Inject constructor(
     fun onCaptured(path: String) {
         if (!state.value.canAddMore) {
             File(path).delete()
-            showMessage("一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片")
             return
         }
         update { it.copy(cropQueue = it.cropQueue + path) }
@@ -120,7 +120,7 @@ class HomeViewModel @Inject constructor(
         if (uris.isEmpty()) return
         val room = CaptureStore.MAX_PHOTOS - state.value.count
         if (room <= 0) {
-            showMessage("一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片")
             return
         }
         viewModelScope.launch {
@@ -132,7 +132,7 @@ class HomeViewModel @Inject constructor(
                 showMessage(e.message ?: "照片导入失败")
                 return@launch
             }
-            if (uris.size > room) showMessage("一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入")
+            if (uris.size > room) showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入")
             update { it.copy(cropQueue = it.cropQueue + imported) }
         }
     }

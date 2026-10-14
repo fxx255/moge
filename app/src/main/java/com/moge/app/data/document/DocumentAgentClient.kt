@@ -4,7 +4,7 @@ import android.content.Context
 import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.llm.*
 import com.moge.app.data.parse.ParsedReply
-import com.moge.app.data.parse.ReplyParser
+import com.moge.app.domain.ConversationMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -28,6 +28,7 @@ class DocumentAgentClient @Inject constructor(
         webSearch: Boolean, forceWebSearch: Boolean,
         onUsage: (UsageSample?) -> Unit, onEvent: suspend (StreamEvent) -> Unit,
         requireRead: Boolean = true,
+        conversationMode: ConversationMode = ConversationMode.SOLVE,
     ): ParsedReply {
         val attachments = messages.flatMap { it.documentPaths }.distinct().map { store.attachment(it, verifyHash = true) }
         if (requireRead && attachments.all { File(it.path).extension.lowercase() in setOf("doc", "ppt", "xls") })
@@ -119,7 +120,7 @@ class DocumentAgentClient @Inject constructor(
                 if (visible.isBlank()) throw ModelException(ModelException.Kind.INVALID_RESPONSE, "文档模型没有返回有效答案")
                 if (requireRead && session.sources.isEmpty())
                     throw ModelException(ModelException.Kind.INVALID_RESPONSE, "模型没有读取附件内容，请使用支持工具调用的模型")
-                val parsed = ReplyParser.parse(visible.toString())
+                val parsed = ConversationResponse(conversationMode).parse(visible.toString(), normalizeMarkdown = true)
                 val references = session.sources.map { (id, locator) ->
                     val document = session.attachments.getValue(id)
                     "[${document.name.replace("[", "").replace("]", "")} · $locator](moge-document://$id?locator=${android.net.Uri.encode(locator)})"

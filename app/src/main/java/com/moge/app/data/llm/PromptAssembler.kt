@@ -2,6 +2,7 @@ package com.moge.app.data.llm
 
 import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import java.time.Clock
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -51,24 +52,32 @@ object PromptAssembler {
         reasoningEffort: AiReasoningEffort,
         solveMode: SolveMode,
         clock: Clock = Clock.systemDefaultZone(),
+        conversationMode: ConversationMode = ConversationMode.SOLVE,
     ): PromptSegments {
         val stableSystem = buildString {
-            append(protocol)
+            append(if (conversationMode == ConversationMode.CHAT) CHAT_PROMPT else protocol)
             val name = nickname.trim()
             if (name.isNotEmpty()) {
                 append("\n\n## 称呼\n")
                 append("用「").append(name).append("」称呼用户，自然使用即可，不要每段都叫。")
             }
-            append("\n\n## 推理设定\n").append(reasoningInstruction(reasoningEffort))
+            if (conversationMode == ConversationMode.SOLVE) {
+                append("\n\n## 推理设定\n").append(reasoningInstruction(reasoningEffort))
+            }
         }
         val volatileSystem = buildString {
             append("## 当前时间\n")
             val now = LocalDateTime.now(clock)
             val weekday = now.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.CHINESE)
             append("现在是 ").append(now.format(TIME_FORMAT)).append("（").append(weekday).append("）。")
-            append("\n\n## 解题模式\n").append(solveMode.instruction)
-            append("\n\n").append(SYSTEM_RULE_NOTE)
+            if (conversationMode == ConversationMode.SOLVE) {
+                append("\n\n## 解题模式\n").append(solveMode.instruction)
+                append("\n\n").append(SYSTEM_RULE_NOTE)
+            }
         }
         return PromptSegments(stableSystem, volatileSystem)
     }
+
+    private const val CHAT_PROMPT = "你是墨格中的对话助手。根据用户的意图自然、准确地回答；" +
+        "不确定时坦诚说明，信息不足时适当澄清。默认使用用户的语言，直接输出正文，按需使用 Markdown。"
 }

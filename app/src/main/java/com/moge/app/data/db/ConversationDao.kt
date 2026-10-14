@@ -86,7 +86,11 @@ interface ConversationDao {
                       WHERE m.conversation_id = c.id AND m.role = 'user'
                       ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1), '') AS question_preview,
             (SELECT COUNT(*) FROM notebook_entry n
-             WHERE n.source_conversation_id = c.id) AS favorite_count
+             WHERE n.source_conversation_id = c.id) AS favorite_count,
+            MAX(c.updated_at,
+                COALESCE((SELECT MAX(m.created_at) FROM message m WHERE m.conversation_id = c.id), c.updated_at),
+                COALESCE((SELECT MAX(r.updated_at) FROM request r WHERE r.conversation_id = c.id), c.updated_at)
+            ) AS retention_updated_at
         FROM conversation c WHERE EXISTS
             (SELECT 1 FROM message WHERE conversation_id = c.id AND role = 'user')
         AND (:categoryId IS NULL OR c.category_id = :categoryId)
@@ -278,4 +282,5 @@ data class HistoryEntry(
     @androidx.room.ColumnInfo(name = "request_status") val requestStatus: String = "",
     @androidx.room.ColumnInfo(name = "question_preview") val questionPreview: String = "",
     @androidx.room.ColumnInfo(name = "favorite_count") val favoriteCount: Int = 0,
+    @androidx.room.ColumnInfo(name = "retention_updated_at") val retentionUpdatedAt: Instant? = null,
 )

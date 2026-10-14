@@ -7,8 +7,8 @@ import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.CONTINUATION_ECHO_CHARS
-import com.moge.app.data.llm.CONTINUE_INSTRUCTION
 import com.moge.app.data.llm.ChatMessage
+import com.moge.app.data.llm.ConversationResponse
 import com.moge.app.data.llm.GenerationDiagnostics
 import com.moge.app.data.llm.GenerationTimer
 import com.moge.app.data.llm.ModelClient
@@ -24,7 +24,6 @@ import com.moge.app.data.llm.mergeContinuation
 import com.moge.app.data.llm.offsetFigureAnchors
 import com.moge.app.data.llm.localizeFigureAnchors
 import com.moge.app.data.llm.polishTruncatedTail
-import com.moge.app.data.llm.reconcileStreamedReply
 import com.moge.app.data.llm.shouldContinueGeneration
 import com.moge.app.data.parse.IncrementalReplyDecoder
 import com.moge.app.data.parse.ParsedReply
@@ -33,6 +32,7 @@ import com.moge.app.data.parse.orderedFigures
 import com.moge.app.domain.FailureKind
 import com.moge.app.domain.RequestStatus
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -1148,7 +1148,8 @@ class GenerationManager @Inject constructor(
         var partial = request.continuationText
         var extraRequests = 0
         var confirmedText = request.continuationText
-        val decoder = IncrementalReplyDecoder()
+        val response = ConversationResponse(request.policy?.conversationMode ?: ConversationMode.SOLVE)
+        val decoder = response.streamDecoder()
         val answerDecoder = IncrementalReplyDecoder("answer")
         var lastFlushAt = 0L
 
@@ -1210,7 +1211,7 @@ class GenerationManager @Inject constructor(
             // 表现为正文写着「见下图」而图整个消失。
             // Interrupted figure specs are not persisted; reserve their slots so fresh figures
             // cannot silently replace an earlier figure referenced by the saved prefix.
-            val prefixFigureCount = com.moge.app.data.parse.findFigureAnchors(request.continuationText)
+            val prefixFigureCount = if (response.mode == ConversationMode.CHAT) 0 else com.moge.app.data.parse.findFigureAnchors(request.continuationText)
                 .mapNotNull { it.number }.maxOrNull()?.coerceIn(0, 512) ?: 0
             val accumulatedFigures = MutableList<ReplyFigure>(prefixFigureCount) { ReplyFigure.Missing }
 
@@ -1228,7 +1229,7 @@ class GenerationManager @Inject constructor(
                     } else request.history
                     base +
                         ChatMessage("assistant", confirmedText.takeLast(CONTINUATION_ECHO_CHARS)) +
-                        ChatMessage("user", CONTINUE_INSTRUCTION)
+                        ChatMessage("user", response.continuationInstruction)
                 }
                 decoder.reset()
                 answerDecoder.reset()
@@ -1269,7 +1270,7 @@ class GenerationManager @Inject constructor(
                         }
                         is StreamEvent.AnswerDelta -> {
                             timer.markAnswerByte()
-                            answerDecoder.append(event.text)
+                            if (response.mode == ConversationMode.SOLVE) answerDecoder.append(event.text)
                             if (firstRound && answerDecoder.valueComplete && answerDecoder.text.isNotBlank()) {
                                 finalAnswer = answerDecoder.text.trim()
                                 updateActive(owner) { it.copy(finalAnswer = finalAnswer) }
@@ -1321,8 +1322,8 @@ class GenerationManager @Inject constructor(
 
                 lastResult = reply
                 val streamedReply = decoder.finish()
-                var part = reconcileStreamedReply(streamedReply, reply.reply)
-                part = localizeFigureAnchors(part, reply.orderedFigures().size)
+                var part = response.reconcile(streamedReply, reply.reply)
+                if (response.mode == ConversationMode.SOLVE) part = localizeFigureAnchors(part, reply.orderedFigures().size)
                 // 续写轮里模型不知道前面已画过几张图，锚点通常从 1 重新编号：
                 // 按已累积数量平移，保证 [[FIGURE:n]] 始终指向合并列表里的正确下标。
                 if (accumulatedFigures.isNotEmpty()) {

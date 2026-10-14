@@ -19,16 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,13 +44,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.moge.app.data.credential.AiModelProfile
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
@@ -156,127 +148,6 @@ fun SettingsScreen(
     }
     if (updating) AppUpdateDialog(onDismiss = { updating = false })
 }
-@Composable
-private fun ModelsSection(
-    state: ModelsUiState,
-    onSelect: (String) -> Unit,
-    onEdit: (String) -> Unit,
-    onAdd: () -> Unit,
-    onDelete: (String) -> Unit,
-    onTest: () -> Unit,
-) {
-    var pendingDelete by remember { mutableStateOf<AiModelProfile?>(null) }
-    SettingsSection("模型") {
-        Hint("填任意 OpenAI 兼容接口。密钥由本机密钥库加密，不进系统备份。")
-        if (state.profiles.isEmpty()) {
-            Text(
-                "还没有模型，先添加一个。",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
-        Column(Modifier.selectableGroup()) {
-            state.profiles.forEach { profile ->
-                ProfileRow(
-                    profile = profile,
-                    active = profile.id == state.activeId,
-                    enabled = !state.testing,
-                    onSelect = { onSelect(profile.id) },
-                    onEdit = { onEdit(profile.id) },
-                    onDelete = { pendingDelete = profile },
-                )
-            }
-        }
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(onClick = onAdd, enabled = !state.testing) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("添加模型")
-            }
-            if (state.activeId != null) {
-                OutlinedButton(onClick = onTest, enabled = !state.testing) {
-                    Text(if (state.testing) "测试中…" else "测试连接")
-                }
-            }
-        }
-        state.message?.let { StatusText(it) }
-    }
-
-    pendingDelete?.let { profile ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("删除模型配置？") },
-            text = { Text("将删除「${profile.name}」和它在本机保存的 API 密钥。") },
-            confirmButton = {
-                TextButton(onClick = { onDelete(profile.id); pendingDelete = null }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
-        )
-    }
-}
-
-@Composable
-private fun ProfileRow(
-    profile: AiModelProfile,
-    active: Boolean,
-    enabled: Boolean,
-    onSelect: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .selectable(selected = active, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
-            .padding(start = 8.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = active, onClick = null, enabled = enabled, modifier = Modifier.padding(12.dp))
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-            Text(profile.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-            Text(
-                profileSummary(profile),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-            )
-        }
-        IconButton(onClick = onEdit, enabled = enabled) {
-            Icon(Icons.Outlined.Edit, contentDescription = "编辑「${profile.name}」")
-        }
-        IconButton(onClick = onDelete, enabled = enabled) {
-            Icon(
-                Icons.Outlined.Delete,
-                contentDescription = "删除「${profile.name}」",
-                tint = MaterialTheme.colorScheme.error,
-            )
-        }
-    }
-}
-
-@Composable
-private fun VisionSection(state: ModelsUiState, onSelect: (String?) -> Unit) {
-    val candidates = state.profiles.filter { it.visionEnabled }
-    SettingsSection("识题模型") {
-        Hint("主模型不看图时，先由识题模型把照片转写成文字。只列出开启了「多模态」的配置。")
-        Column(Modifier.selectableGroup()) {
-            ChoiceRow("不指定", selected = state.visionProfileId == null) { onSelect(null) }
-            candidates.forEach { profile ->
-                ChoiceRow(
-                    "${profile.name}（${profile.model}）",
-                    selected = profile.id == state.visionProfileId,
-                ) { onSelect(profile.id) }
-            }
-        }
-        StatusText(photoRouteHint(state.profiles, state.activeId, state.visionProfileId))
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PreferencesSection(
@@ -385,18 +256,18 @@ private fun DataSection(
     SettingsSection("数据") {
         HistoryRetentionControls(prefs, onAutoCleanup, onRetentionDays)
         DataRow("图表缓存", cacheBytes?.let(::formatBytes) ?: "计算中…") {
-            OutlinedButton(onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
+            OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
         }
         Hint("只删渲染出的图片，题目里的图表下次打开时会重新画。")
         DataRow("未使用的照片和图表", orphanBytes?.let { "可释放 ${formatBytes(it)}" } ?: "计算中…") {
-            OutlinedButton(
+            OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
                 onClick = { pending = DataAction.ORPHANS },
                 enabled = !busy && (orphanBytes ?: 0L) > 0L,
             ) { Text("清理") }
         }
         Hint("已删除的题目留下的文件。最近 24 小时内拍的照片不会动。")
         DataRow("清空题册", "移除全部收藏，保留历史对话和分类") {
-            OutlinedButton(
+            OutlinedButton(shape = MaterialTheme.shapes.extraSmall,
                 onClick = { pending = DataAction.NOTEBOOK },
                 enabled = !busy,
             ) { Text("清空", color = if (busy) Color.Unspecified else MaterialTheme.colorScheme.error) }
@@ -432,7 +303,7 @@ internal fun HistoryRetentionControls(
     var editing by rememberSaveable { mutableStateOf(false) }
     SwitchRow("自动清理历史对话", "仅清理未收藏、未分类的过期对话", prefs.historyAutoCleanupEnabled, onAutoCleanup)
     DataRow("保留期限", "从最近一次更新起计算；收藏或分类后长期保留") {
-        OutlinedButton(onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
+        OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
             Text("${prefs.historyRetentionDays} 天")
         }
     }

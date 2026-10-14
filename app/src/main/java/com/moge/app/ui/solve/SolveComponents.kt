@@ -1,5 +1,7 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.domain.ConversationMode
+
 import androidx.compose.ui.draw.shadow
 
 import android.content.ClipData
@@ -131,7 +133,7 @@ private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int
         paths.forEachIndexed { index, path ->
             key(path) {
             PhotoArrival(path, surface = "question", Modifier.size(width = 160.dp, height = 120.dp)) {
-                PhotoThumb(path, "题目照片 ${index + 1}", onClick = { onOpenImages(paths, index) }, modifier = Modifier.matchParentSize())
+                PhotoThumb(path, "照片 ${index + 1}", onClick = { onOpenImages(paths, index) }, modifier = Modifier.matchParentSize())
             }
             }
         }
@@ -210,6 +212,7 @@ internal fun AnswerSheet(
     onShare: () -> Unit = {},
     onSave: () -> Unit = {},
     onResume: (String) -> Unit = {},
+    conversationMode: ConversationMode = ConversationMode.SOLVE,
 ) {
     val paper = MogeTheme.paper
     val motion = MogeTheme.motionEnabled
@@ -229,7 +232,7 @@ internal fun AnswerSheet(
             .padding(start = 40.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        AnswerHeader(item)
+        AnswerHeader(item, conversationMode)
         if (item.reasoning.isNotBlank() && generating) {
             ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty())
         }
@@ -252,7 +255,8 @@ internal fun AnswerSheet(
             if (generating && !expanded) GeneratingHint("正在整理完整解答…")
         } else when (item.state) {
             AnswerState.COMPLETED -> AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) "正在思考…" else "正在读题…")
+            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) "正在思考…"
+                else if (conversationMode == ConversationMode.CHAT) "正在准备…" else "正在读题…")
             AnswerState.STREAMING -> when {
                 answerFirst && !hasAnswer -> GeneratingHint("正在生成答案…")
                 item.text.isEmpty() -> GeneratingHint("正在思考…")
@@ -266,9 +270,9 @@ internal fun AnswerSheet(
 }
 
 @Composable
-private fun AnswerHeader(item: SolveItem.Answer) {
+private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationMode) {
     val parts = buildList {
-        add("解答")
+        add(if (conversationMode == ConversationMode.CHAT) "回答" else "解答")
         if (item.modelLabel.isNotBlank()) add(item.modelLabel)
         if (item.durationMs > 0) add("${(item.durationMs + 500) / 1000}s")
     }
@@ -363,10 +367,10 @@ private fun AnswerFooter(
             item.retryRequestId?.let { requestId ->
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item.resumeRequestId?.let { resumeId ->
-                        OutlinedButton(onClick = { onResume(resumeId) }, enabled = actionsEnabled,
+                        OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { onResume(resumeId) }, enabled = actionsEnabled,
                             modifier = Modifier.heightIn(min = 48.dp)) { Text("接着生成") }
                     }
-                    OutlinedButton(onClick = { onRetry(requestId) }, enabled = actionsEnabled,
+                    OutlinedButton(shape = MaterialTheme.shapes.extraSmall, onClick = { onRetry(requestId) }, enabled = actionsEnabled,
                         modifier = Modifier.heightIn(min = 48.dp)) { Text("重新发送") }
                 }
             }
@@ -402,13 +406,13 @@ private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val copied = if (item.finalAnswer.isBlank() || item.text.contains(item.finalAnswer)) item.text
                     else "${item.finalAnswer}\n\n${item.text}"
-                clipboard.setPrimaryClip(ClipData.newPlainText("解答", copied))
+                clipboard.setPrimaryClip(ClipData.newPlainText("回答", copied))
                 // Android 13 起系统自己会弹复制提示，再弹一次就重复了。
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                     Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
                 }
             }) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = "复制解答")
+                Icon(Icons.Outlined.ContentCopy, contentDescription = "复制回答")
             }
         }
         item.regenerateRequestId?.let { requestId ->
@@ -419,7 +423,7 @@ private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit
                 Icon(Icons.Outlined.BookmarkBorder, contentDescription = "收藏到题册")
             }
             IconButton(onClick = onShare) {
-                Icon(Icons.Outlined.Share, contentDescription = "分享题目与解答图片")
+                Icon(Icons.Outlined.Share, contentDescription = "分享对话图片")
             }
         }
     }
@@ -487,8 +491,8 @@ internal fun FollowUpBar(
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
-            Modifier.fillMaxWidth().testTag("composer-capsule").shadow(8.dp, RoundedCornerShape(32.dp))
-                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
+            Modifier.fillMaxWidth().testTag("composer-surface").shadow(4.dp, MaterialTheme.shapes.small)
+                .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 10.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
@@ -498,7 +502,9 @@ internal fun FollowUpBar(
                     value = state.input,
                     onValueChange = onInputChange,
                     modifier = Modifier.weight(1f).testTag("conversation-input"),
-                    placeholder = if (state.editingQuestionId != null) "修改这次输入" else if (state.conversationId == null) "输入问题" else "继续对话",
+                    placeholder = if (state.editingQuestionId != null) "修改这次输入"
+                        else if (state.conversationMode == ConversationMode.CHAT) "发送消息"
+                        else if (state.conversationId == null) "输入问题" else "继续对话",
                     enabled = !state.switchingBranch,
                     editFocusKey = state.editingQuestionId,
                     onPasteImages = onPasteImages,
@@ -511,14 +517,14 @@ internal fun FollowUpBar(
                     onPickDocument = onPickDocument,
                 )
                 if (state.generating) {
-                    FilledIconButton(onClick = onStop,
+                    FilledIconButton(shape = MaterialTheme.shapes.extraSmall, onClick = onStop,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.tertiary,
                             contentColor = MaterialTheme.colorScheme.onTertiary,
                         ),
                     ) { Icon(Icons.Outlined.Stop, contentDescription = "停止生成") }
                 } else {
-                    FilledIconButton(onClick = onSend, enabled = state.canSend) {
+                    FilledIconButton(shape = MaterialTheme.shapes.extraSmall, onClick = onSend, enabled = state.canSend) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                     }
                 }
@@ -531,7 +537,7 @@ internal fun FollowUpBar(
     }
 }
 
-/** 待随下一问发出的照片：输入胶囊上方一行小缩略图，每张可点开查看、可删。 */
+/** 待随下一问发出的照片：输入框上方一行小缩略图，每张可点开查看、可删。 */
 @Composable
 private fun PendingPhotos(paths: List<String>, onOpen: (Int) -> Unit, onRemove: (String) -> Unit) {
     Row(

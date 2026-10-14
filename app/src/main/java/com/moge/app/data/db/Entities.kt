@@ -37,6 +37,9 @@ data class ConversationEntity(
     /** 历史分类；已有题册快照会在历史分类同步时跟随，删除分类时仅清空归属。 */
     @ColumnInfo(name = "category_id")
     val categoryId: String? = null,
+    /** [com.moge.app.domain.ConversationMode.name]; immutable after the first send. */
+    @ColumnInfo(name = "conversation_mode", defaultValue = "'SOLVE'")
+    val conversationMode: String = "SOLVE",
 )
 
 /** 会话里的一条消息。会话删除时级联删除。 */

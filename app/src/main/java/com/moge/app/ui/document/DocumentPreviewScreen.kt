@@ -172,7 +172,7 @@ private fun PreviewReadingArea(
                 }
             }
             state.error != null -> PreviewMessage("暂时无法预览", state.error, error = true,
-                button = { FilledTonalButton(onClick = onRetry) { Text("重新加载") } })
+                button = { FilledTonalButton(shape = MaterialTheme.shapes.extraSmall, onClick = onRetry) { Text("重新加载") } })
             state.image != null || state.text.isNotBlank() -> key(state.locator) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     if (title.isNotBlank()) {
@@ -195,7 +195,7 @@ private fun PreviewReadingArea(
                 }
             }
             state.index?.sections.isNullOrEmpty() -> PreviewMessage("此格式暂不支持预览", "可以打开原件查看完整内容。",
-                button = { FilledTonalButton(onClick = onOpenOriginal, enabled = state.attachment != null) { Text("打开原件") } })
+                button = { FilledTonalButton(shape = MaterialTheme.shapes.extraSmall, onClick = onOpenOriginal, enabled = state.attachment != null) { Text("打开原件") } })
             else -> PreviewMessage("这里没有可显示的内容", "可查看文件中的图片，或打开原件。")
         }
     }

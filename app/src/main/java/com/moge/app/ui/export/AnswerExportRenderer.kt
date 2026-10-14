@@ -17,8 +17,7 @@ import com.moge.app.ui.theme.Highlighter
 import com.moge.app.ui.theme.PaperExtras
 import android.view.View
 import android.widget.TextView
-import com.moge.app.data.parse.normalizeReplyMarkdown
-import com.moge.app.data.parse.sanitizeReplyLatex
+import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.data.parse.wrapLongFormulas
 import com.moge.app.ui.markdown.FigurePathResolver
 import com.moge.app.ui.markdown.BaselineLatexSpan
@@ -95,7 +94,7 @@ internal fun exportTextView(
     if (!markdown) view.text = source
     else {
         try {
-            val normalized = sanitizeReplyLatex(normalizeReplyMarkdown(source))
+            val normalized = prepareReplyMarkdown(source)
             val wrapped = wrapLongFormulas(normalized, width - 8 * ExportLimits.SCALE) { latex ->
                 require(latex.length <= ExportLimits.FORMULA_CHARS) { "公式过长" }
                 JLatexMathDrawable.builder(latex).textSize(view.textSize).build().intrinsicWidth
@@ -233,7 +232,7 @@ private class NativeExportRenderer(
     }
 
     suspend fun text(part: ExportPart.Text) {
-        val sections = if (part.markdown) splitMarkdownTableBlocks(normalizeReplyMarkdown(part.source))
+        val sections = if (part.markdown) splitMarkdownTableBlocks(prepareReplyMarkdown(part.source))
             else listOf(com.moge.app.ui.markdown.MarkdownChunkSpec(part.source, false))
         for (section in sections) {
             currentCoroutineContext().ensureActive()

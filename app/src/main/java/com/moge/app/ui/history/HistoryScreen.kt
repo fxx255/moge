@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
@@ -48,7 +49,9 @@ import com.moge.app.ui.photo.Thumbnail
 import com.moge.app.ui.photo.rememberThumbnail
 import com.moge.app.ui.theme.MogeTheme
 import java.time.ZoneId
+import java.time.Instant
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 @Composable
 fun HistoryScreen(
@@ -179,21 +182,11 @@ internal fun HistoryContent(
                         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
                         TextButton(onRetry) { Text("重试读取分类") }
                     }
-                    if (!state.selecting) {
-                        Text(if (state.autoCleanupEnabled) "未收藏且未分类的对话保留 ${state.retentionDays} 天；收藏或分类后长期保留"
-                            else "自动清理已关闭，历史对话将持续保留",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    }
                     if (state.selecting) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
                             TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
                         }
-                    } else if (state.error == null && state.entries.isNotEmpty()) {
-                        Text("${state.entries.size} 个对话 · 长按选择，上拖分组，下拖删除", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     }
                     when {
                         state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.weight(1f))
@@ -260,6 +253,13 @@ private fun HistoryGrid(
 ) {
     // 常规字号两列瀑布流；辅助大字号改一列，为正文留出足够宽度。
     val columns = if (LocalDensity.current.fontScale > 1.5f) 1 else 2
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            now = Instant.now()
+        }
+    }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(columns), modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
@@ -273,17 +273,18 @@ private fun HistoryGrid(
             val selected = id in state.selectedIds
             val selecting = state.selecting
             val generating = id == state.activeConversationId
+            val retention = historyRetentionLabel(entry, state.autoCleanupEnabled, state.retentionDays, now, generating)
             // Allocate a new immutable preview when data changes; a live composable lambda
             // would otherwise update the lifted card during later recompositions.
-            val preview: @Composable () -> Unit = remember(entry, selected, selecting, generating, category, thumbnail) {
-                @Composable { HistoryCard(entry, selected, selecting, true, generating, {}, category, Modifier, thumbnail) }
+            val preview: @Composable () -> Unit = remember(entry, selected, selecting, generating, category, thumbnail, retention) {
+                @Composable { HistoryCard(entry, selected, selecting, true, generating, {}, category, Modifier, thumbnail, retention) }
             }
             HistoryCard(entry, selected, selecting, state.busy, generating,
                 onClick = { if (drag.visual == null) { if (state.selecting) onToggle(id) else onOpen(id) } },
                 category = category,
                 modifier = Modifier.animateItem().testTag("history-card-$id")
                     .paperDragSource(drag, id, entry.conversation.title, state.selectedIds, !state.busy, onToggle, onDrop, preview),
-                thumbnail = thumbnail)
+                thumbnail = thumbnail, retention = retention)
         }
     }
 }
@@ -293,6 +294,7 @@ private fun HistoryGrid(
 private fun HistoryCard(
     entry: HistoryEntry, selected: Boolean, selecting: Boolean, busy: Boolean,
     generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier, thumbnail: Thumbnail,
+    retention: String,
 ) {
     val shape = RoundedCornerShape(6.dp)
     val conversation = entry.conversation
@@ -313,27 +315,37 @@ private fun HistoryCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (conversation.conversationMode == "CHAT") {
+                Icon(Icons.AutoMirrored.Outlined.Chat, "普通对话",
+                    Modifier.padding(end = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            }
             Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 3,
                 overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f))
             Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                 null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp).alpha(if (selecting) 1f else 0f))
         }
-        Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(retention, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (entry.favoriteCount > 0) Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("已收藏 ${entry.favoriteCount} 条解答", style = MaterialTheme.typography.labelMedium,
+            Text("已收藏 ${entry.favoriteCount} 条回答", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary)
         }
         if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!generating && entry.requestStatus in setOf("INTERRUPTED", "CANCELLED")) {
-            Text("解答未完成 · 打开后可重试", style = MaterialTheme.typography.labelMedium,
+            Text("回答未完成 · 打开后可重试", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.error)
         }
-        if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text("正在解答", style = MaterialTheme.typography.labelMedium,
+        if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text("正在生成", style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
     }
 }

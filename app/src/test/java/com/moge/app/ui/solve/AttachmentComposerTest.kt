@@ -33,7 +33,7 @@ import java.io.File
 class AttachmentComposerTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test fun `attachment upload and send keep capsule and editor geometry stable`() {
+    @Test fun `attachment upload and send keep surface and editor geometry stable`() {
         val state = mutableStateOf(SolveUiState())
         compose.setContent { MogeTheme {
             Box(Modifier.width(360.dp).height(500.dp), contentAlignment = Alignment.BottomCenter) {
@@ -42,14 +42,14 @@ class AttachmentComposerTest {
                     {}, {}, {}, {}, {})
             }
         } }
-        val capsule = compose.onNodeWithTag("composer-capsule").fetchSemanticsNode().boundsInRoot
+        val surface = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot
         val editor = compose.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot
         compose.runOnIdle { state.value = state.value.copy(documentPaths = listOf("/long/document.docx")) }
-        val attached = compose.onNodeWithTag("composer-capsule").fetchSemanticsNode().boundsInRoot
-        assertEquals(capsule.size, attached.size)
+        val attached = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot
+        assertEquals(surface.size, attached.size)
         assertEquals(editor.width, compose.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot.width, .1f)
         compose.onNodeWithContentDescription("发送").performClick()
-        assertEquals(capsule.size, compose.onNodeWithTag("composer-capsule").fetchSemanticsNode().boundsInRoot.size)
+        assertEquals(surface.size, compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot.size)
         assertEquals(editor.width, compose.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot.width, .1f)
         compose.onNodeWithContentDescription("停止生成").assertExists()
     }
@@ -66,7 +66,7 @@ class AttachmentComposerTest {
             }
         } }
         compose.onNodeWithContentDescription("拍照").assertDoesNotExist()
-        val bounds = compose.onNodeWithTag("composer-capsule").fetchSemanticsNode().boundsInWindow
+        val bounds = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInWindow
         listOf("拍照", "从相册选图", "上传文档").forEach { description ->
             compose.onNodeWithContentDescription("添加附件").performClick()
             val action = compose.onNodeWithContentDescription(description)

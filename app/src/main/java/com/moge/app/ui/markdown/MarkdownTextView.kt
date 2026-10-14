@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.text.Spannable
@@ -23,8 +24,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.widget.TextView
 import com.moge.app.core.LatexEngine
-import com.moge.app.data.parse.normalizeReplyMarkdown
-import com.moge.app.data.parse.sanitizeReplyLatex
+import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.data.parse.wrapLongFormulas
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.latex.JLatexAsyncDrawableSpan
@@ -43,7 +43,11 @@ private data class MarkdownRenderSource(val markdown: String, val formulaWidthPx
 private interface MarkdownRenderSourceOwner {
     var renderSource: MarkdownRenderSource?
     var onTextTap: (() -> Unit)?
+    val selectionController: MarkdownSelectionController?
 }
+
+internal fun markdownSelectionController(view: TextView): MarkdownSelectionController? =
+    (view as? MarkdownRenderSourceOwner)?.selectionController
 
 /** Native selectable TextViews handle taps themselves, so an OnClickListener is insufficient. */
 internal fun setMarkdownTextTap(view: TextView, onTap: (() -> Unit)?) {
@@ -61,6 +65,7 @@ internal fun createMarkdownTextView(
     linkColor: Int,
     selectable: Boolean = true,
     fontSizePx: Float? = null,
+    selectionScrollHost: SelectionScrollHost? = null,
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         @Volatile override var renderSource: MarkdownRenderSource? = null
@@ -69,6 +74,9 @@ internal fun createMarkdownTextView(
         private var selectionActionMode: ActionMode? = null
         private var handlingNativeTouch = false
         private var tapStartedWithSelection = false
+        override val selectionController = if (selectable && selectionScrollHost != null)
+            MarkdownSelectionController(this, selectionScrollHost, linkColor) else null
+        private val conversationSelection = selectionController
         private val tapDetector by lazy {
             GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(event: MotionEvent) = true
@@ -86,6 +94,20 @@ internal fun createMarkdownTextView(
             super.performClick()
             onTap()
             return true
+        }
+
+        override fun performLongClick(): Boolean = conversationSelection?.longClick() ?: super.performLongClick()
+
+        override fun requestRectangleOnScreen(rectangle: Rect, immediate: Boolean): Boolean {
+            // The selection drag owns scrolling. Editor's automatic reveal of
+            // the opposite endpoint would pull the list back to its anchor.
+            if (conversationSelection?.selecting == true) return false
+            return super.requestRectangleOnScreen(rectangle, immediate)
+        }
+
+        override fun onDetachedFromWindow() {
+            conversationSelection?.finish()
+            super.onDetachedFromWindow()
         }
 
         init {
@@ -118,7 +140,8 @@ internal fun createMarkdownTextView(
                 val selected = selectedMarkdownText(text, selectionStart, selectionEnd)
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("选中的文字", selected))
-                selectionActionMode?.finish()
+                if (conversationSelection?.selecting == true) conversationSelection.finish()
+                else selectionActionMode?.finish()
                     ?: (text as? Spannable)?.let { Selection.setSelection(it, selectionEnd) }
                 return true
             }
@@ -136,6 +159,7 @@ internal fun createMarkdownTextView(
             // 如果公式异步加载导致原生 View 比 Compose 格位更高，超出实际文字行的
             // ACTION_DOWN 仍要放行，避免把下方图片的点击区域吃掉。
             if (selectable) {
+                if (conversationSelection?.touch(event) == true) return true
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && !isPointInsideText(event)) {
                     return false
                 }
@@ -332,7 +356,7 @@ internal fun renderMarkdown(
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
     val rendered = wrapLongFormulas(
-        sanitizeReplyLatex(normalizeReplyMarkdown(content)),
+        prepareReplyMarkdown(content),
         formulaMaxWidthPx(view, widthPx),
         formulaWidthMeasurer(view),
     )

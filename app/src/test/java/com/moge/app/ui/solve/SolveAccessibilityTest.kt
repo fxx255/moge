@@ -27,7 +27,7 @@ class SolveAccessibilityTest {
                     {}, { regenerated = it }, true, { _, _ -> })
             }
         }
-        compose.onNodeWithContentDescription("复制解答").performClick()
+        compose.onNodeWithContentDescription("复制回答").performClick()
         val clipboard = ApplicationProvider.getApplicationContext<Context>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         assertEquals("答案为 1", clipboard.primaryClip!!.getItemAt(0).text.toString())
         compose.onNodeWithContentDescription("重新生成").performClick()
@@ -57,7 +57,7 @@ class SolveAccessibilityTest {
         }
         compose.onNodeWithText("展开解答").assertExists()
         compose.onNodeWithText("完整推导过程").assertDoesNotExist()
-        compose.onNodeWithContentDescription("分享题目与解答图片").performClick()
+        compose.onNodeWithContentDescription("分享对话图片").performClick()
         compose.onNodeWithContentDescription("收藏到题册").performClick()
         assertEquals(1, shared)
         assertEquals(1, saved)
