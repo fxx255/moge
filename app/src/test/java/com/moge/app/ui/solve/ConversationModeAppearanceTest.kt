@@ -30,25 +30,25 @@ import java.io.File
 class ConversationModeAppearanceTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun paperChatKeepsOnlyGreetingSelectorAndComposer() = preview(Appearance.PAPER, "chat-paper")
-    @Test fun chalkChatKeepsOnlyGreetingSelectorAndComposer() = preview(Appearance.CHALK, "chat-chalk")
-    @Test fun largeFontKeepsBothModeButtonsAndComposerReachable() = preview(Appearance.PAPER, "chat-large-font", 1.6f)
+    @Test fun paperChatKeepsOnlyHeaderGreetingAndComposer() = preview(Appearance.PAPER, "chat-paper")
+    @Test fun chalkChatKeepsOnlyHeaderGreetingAndComposer() = preview(Appearance.CHALK, "chat-chalk")
+    @Test fun largeFontKeepsTitleSwitchAndComposerReachable() = preview(Appearance.PAPER, "chat-large-font", 1.6f)
 
     @Test
     @Config(qualifiers = "w698dp-h360dp-land")
     fun landscapeAttachmentsKeepModeControlsAboveComposer() {
         compose.setContent { MogeTheme(Appearance.CHALK) {
             val state = SolveUiState(conversationMode = ConversationMode.CHAT, photos = listOf("/one", "/two", "/three"))
-            ConversationScaffold("新对话", null, actions = { ConversationActions(false, {}, {}, {}) }, footer = {
+            ConversationScaffold("", null, newConversationMode = state.conversationMode,
+                actions = { ConversationActions(false, {}, {}, {}) }, footer = {
                 FollowUpBar(state, {}, {}, {}, {}, {}, {}, {})
             }) { padding -> SolveList(state, {}, {}, { _, _ -> }, {}, {}, contentPadding = padding) }
         } }
-        compose.onNodeWithText("解题").assertIsDisplayed()
-        compose.onNodeWithText("对话").assertIsDisplayed()
-        val picker = compose.onNodeWithTag("conversation-mode-picker").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText("新对话").assertIsDisplayed()
+        val picker = compose.onNodeWithTag("conversation-mode-switch").fetchSemanticsNode().boundsInRoot
         val composer = compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot
         assertTrue("Mode controls must fit above the attachment composer", picker.bottom <= composer.top)
-        val label = compose.onNodeWithText("对话").fetchSemanticsNode().boundsInRoot
+        val label = compose.onNodeWithText("新对话").fetchSemanticsNode().boundsInRoot
         assertTrue("The label must retain its full line height", label.height >= 18f)
     }
 
@@ -60,14 +60,17 @@ class ConversationModeAppearanceTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 val state = SolveUiState(conversationMode = mode)
-                ConversationScaffold("新对话", null, actions = { ConversationActions(false, {}, {}, {}) }, footer = {
+                ConversationScaffold("", null, newConversationMode = mode, onSelectMode = { mode = it },
+                    actions = { ConversationActions(false, {}, {}, {}) }, footer = {
                     FollowUpBar(state, {}, {}, {}, {}, {}, {}, {})
-                }) { padding -> SolveList(state, {}, {}, { _, _ -> }, {}, {}, contentPadding = padding, onSelectMode = { mode = it }) }
+                }) { padding -> SolveList(state, {}, {}, { _, _ -> }, {}, {}, contentPadding = padding) }
             }
         } }
         compose.onNodeWithText("今天聊点什么？").assertIsDisplayed()
-        compose.onNodeWithText("解题").assertIsDisplayed()
-        compose.onNodeWithText("对话").assertIsSelected()
+        compose.onNodeWithText("新对话").assertIsDisplayed()
+        compose.onNodeWithTag("conversation-mode-switch").assertIsEnabled()
+        compose.onNodeWithText("解题").assertDoesNotExist()
+        compose.onNodeWithText("对话").assertDoesNotExist()
         compose.onNodeWithText("发送消息").assertIsDisplayed()
         compose.onNodeWithText("输入问题，或拍照、选图开始对话").assertDoesNotExist()
         compose.runOnIdle {
@@ -80,7 +83,8 @@ class ConversationModeAppearanceTest {
                 output.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             } finally { bitmap.recycle() }
         }
-        compose.onNodeWithText("解题").performClick()
+        compose.onNodeWithTag("conversation-mode-switch").performClick()
+        compose.onNodeWithText("新题目").assertIsDisplayed()
         compose.onNodeWithText("有什么题目要解？").assertIsDisplayed()
         compose.onNodeWithText("输入问题").assertIsDisplayed()
     }

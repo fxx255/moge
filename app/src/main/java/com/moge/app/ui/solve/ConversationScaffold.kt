@@ -25,7 +25,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.components.GridPaper
-import com.moge.app.ui.components.HighlightedTitle
 import com.moge.app.domain.ConversationMode
 
 /** The list continues beneath both overlays; padding keeps its first and last items reachable. */
@@ -34,6 +33,9 @@ internal fun ConversationScaffold(
     title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit,
     footer: @Composable () -> Unit, onDismissEditing: (() -> Unit)? = null,
     conversationMode: ConversationMode? = null,
+    newConversationMode: ConversationMode? = null,
+    modeSelectable: Boolean = true,
+    onSelectMode: (ConversationMode) -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -71,7 +73,9 @@ internal fun ConversationScaffold(
                         Icon(if (mode == ConversationMode.CHAT) Icons.AutoMirrored.Outlined.Chat else Icons.Outlined.School,
                             mode.label, Modifier.padding(end = 4.dp).size(20.dp), tint = MaterialTheme.colorScheme.primary)
                     }
-                    Box(Modifier.weight(1f)) { HighlightedTitle(title, maxLines = 1) }
+                    Box(Modifier.weight(1f)) {
+                        ConversationTitle(title, newConversationMode, modeSelectable, onSelectMode)
+                    }
                     actions()
                 }
                 if (onDismissEditing != null) {

@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
 import android.view.InputDevice
+import android.view.Display
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -36,10 +37,12 @@ class SelectionAutoScrollDeviceTest {
     private fun inject(action: Int, x: Float, y: Float, downTime: Long) {
         val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
         event.source = InputDevice.SOURCE_TOUCHSCREEN
-        // Instrumentation can launch on a dedicated virtual display. InputEvent's
-        // display setter is a test API, used only here to reach the actual test window.
-        android.view.InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
-            .invoke(event, displayId)
+        // Android 12 injects default-display events without a display setter.
+        // Newer test runners may launch on a virtual display and need explicit routing.
+        if (displayId != Display.DEFAULT_DISPLAY) {
+            android.view.InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
+                .invoke(event, displayId)
+        }
         try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) }
         finally { event.recycle() }
     }

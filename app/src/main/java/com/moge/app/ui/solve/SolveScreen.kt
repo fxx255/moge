@@ -96,7 +96,6 @@ fun SolveScreen(
     LaunchedEffect(state.notice) {
         if (state.notice != "已保存到题册") savedFavoriteId = null
     }
-    val title = if (state.conversationId == null && conversationId == null) "新对话" else state.title
     var cropQueue by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     val pickPhotos = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(CaptureStore.MAX_PHOTOS),
@@ -140,8 +139,10 @@ fun SolveScreen(
         onRight = if (existing) onSwipeNewConversation else onSwipeHistory,
         leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
         rightLabel = if (existing) "开始新对话" else "前往历史对话") {
-        ConversationScaffold(title = title, onBack = onBack,
+        ConversationScaffold(title = state.title, onBack = onBack,
             conversationMode = state.conversationMode.takeIf { existing },
+            newConversationMode = state.conversationMode.takeUnless { existing },
+            modeSelectable = state.modeSelectable, onSelectMode = vm::selectConversationMode,
             onDismissEditing = dismissEditing.takeIf { state.editingQuestionId != null }, actions = {
             ConversationActions(
                 existingConversation = state.conversationId != null || conversationId != null,
@@ -185,7 +186,7 @@ fun SolveScreen(
                 saveBranchViewport = { key, viewport -> observedId?.let { saveViewport(it + "__path__" + key, viewport) } },
                 conversationId = observedId, initialViewport = initialViewport,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
-                contentPadding = padding, onSelectMode = vm::selectConversationMode)
+                contentPadding = padding)
         }
     }
     cropQueue.firstOrNull()?.let { path ->
@@ -263,7 +264,6 @@ internal fun SolveList(
     onSwitchVersion: (String) -> Unit = {},
     readBranchViewport: (String) -> ConversationViewport? = { null },
     saveBranchViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
-    onSelectMode: (ConversationMode) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -326,7 +326,7 @@ internal fun SolveList(
     if (state.items.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(contentPadding).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             if (state.conversationId == null) {
-                NewConversationPlaceholder(state.conversationMode, state.modeSelectable, onSelectMode)
+                NewConversationPlaceholder(state.conversationMode)
             }
         }
         return
