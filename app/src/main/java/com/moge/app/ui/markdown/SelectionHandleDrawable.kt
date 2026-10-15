@@ -11,7 +11,7 @@ import androidx.core.graphics.ColorUtils
 
 /** The square upper corner is the precise selection anchor; the round body sits outside the range. */
 internal class SelectionHandleDrawable(color: Int, private val start: Boolean, density: Float) : Drawable() {
-    private val size = (28f * density).toInt().coerceAtLeast(1)
+    private val size = (21f * density).toInt().coerceAtLeast(1)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = ColorUtils.setAlphaComponent(color, 255) }
     private val path = Path()
     private val shapeBounds = RectF()

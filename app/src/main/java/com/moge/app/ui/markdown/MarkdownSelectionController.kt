@@ -86,6 +86,10 @@ internal class MarkdownSelectionController(
 
     internal fun begin(start: Int, end: Int) {
         if (start == end || view.text !is Spannable) return
+        // Finish the old menu before establishing the replacement range. Its
+        // destruction callback must never clear a newly created selection or
+        // leave a second pre-draw listener registered on the same TextView.
+        finish()
         host.claim(this)
         active = true
         view.requestFocus()
@@ -208,17 +212,9 @@ internal class MarkdownSelectionController(
 
     private fun updateMagnifier() {
         if (!dragging || !active) return
-        val layout = view.layout ?: return
-        view.getLocationOnScreen(location)
-        val bounds = host.viewport
-        // Follow the text point corresponding to the dragged handle, retaining
-        // the initial grab offset without snapping Y back to the row's center.
-        val localY = (pointerY - fingerOffsetY).coerceIn(bounds.top, maxOf(bounds.top, bounds.bottom - 1)) - location[1]
-        val line = layout.getLineForVertical((localY - view.totalPaddingTop + view.scrollY).roundToInt())
-        val left = layout.getLineLeft(line) + view.totalPaddingLeft - view.scrollX
-        val right = layout.getLineRight(line) + view.totalPaddingLeft - view.scrollX
-        val localX = (pointerX - fingerOffsetX - location[0]).coerceIn(minOf(left, right), maxOf(left, right))
-        magnifier.show(localX, localY, pointerY, bounds)
+        // Sampling follows the finger. The grab offset belongs only to selection
+        // adjustment; line wrapping or a moving handle must not move the lens.
+        magnifier.show(pointerX, pointerY, host.viewport)
     }
 
     internal fun canExtend(speed: Float): Boolean {

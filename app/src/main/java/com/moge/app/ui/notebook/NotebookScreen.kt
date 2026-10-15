@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -76,6 +77,7 @@ internal fun NotebookContent(
     onReturnToConversation: (() -> Unit)? = null,
 ) {
     val drag = rememberPaperDragState()
+    val paperScroll = rememberPaperScrollState()
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
         PaperDropTarget.Delete -> onDeleteItems(action.ids)
         is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
@@ -97,6 +99,7 @@ internal fun NotebookContent(
             title = if (detail) state.detailEntry?.title ?: "收藏详情"
                 else if (state.selecting) "已选 ${state.selectedIds.size} 条" else "我的题册",
             onBack = back,
+            backgroundOffsetY = { if (detail) 0f else paperScroll.offsetY },
             actions = {
                 if (detail && state.detailEntry != null) {
                     IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
@@ -164,7 +167,7 @@ internal fun NotebookContent(
                             if (state.filtered) "没有找到匹配的收藏" else "还没有收藏，解答完成后可通过“收藏到题册”保存题目与解答",
                             if (state.filtered) "清除筛选" else "去提问",
                             { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets))
-                        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                        else -> LazyColumn(Modifier.fillMaxSize().nestedScroll(paperScroll), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                             top = insets.calculateTopPadding() + 16.dp, bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(state.entries, key = { it.id }) { entry ->

@@ -161,9 +161,8 @@ class PaperDragInteractionTest {
         moveTo("history-card-a", "history-category-filters")
         compose.onNodeWithTag("drop-category-grid").assertIsDisplayed()
         val zone = compose.onNodeWithTag("drop-delete").fetchSemanticsNode().boundsInRoot
-        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        assertTrue(zone.height > root.height * 0.2f)
-        assertTrue(zone.height < root.height * 0.34f)
+        val root = compose.onNodeWithTag("paper-drag-overlay").fetchSemanticsNode().boundsInRoot
+        assertEquals("The visible and active delete region shrink together by 20 percent", root.height * .24f, zone.height, 1f)
         compose.onNodeWithTag("history-card-a").performTouchInput { cancel() }
         assertFalse(deleted)
     }

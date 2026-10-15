@@ -46,19 +46,24 @@ internal class SelectionMagnifier(
     internal var screenBounds = RectF()
         private set
 
-    fun show(x: Float, y: Float, pointerY: Float, viewport: RectF) {
+    fun show(pointerX: Float, pointerY: Float, viewport: RectF) {
         if (!source.isAttachedToWindow || !source.isShown || viewport.width() <= 0 || viewport.height() <= 0) {
             dismiss()
             return
         }
-        sourcePoint = x to y
         val width = minOf(152f * density, viewport.width()).toInt().coerceAtLeast(1)
         // Keep enlarged accessibility fonts readable without magnifying several unrelated lines.
         val height = maxOf(56f * density, source.textSize * ZOOM + 16f * density)
             .coerceAtMost(minOf(96f * density, viewport.height())).roundToInt().coerceAtLeast(1)
         val screen = IntArray(2).also { source.getLocationOnScreen(it) }
-        val centerX = (screen[0] + x).coerceIn(viewport.left + width / 2f, viewport.right - width / 2f)
-        val top = (minOf(screen[1] + y, pointerY) - 24f * density - height)
+        sourcePoint = (pointerX.coerceIn(viewport.left, viewport.right) - screen[0]) to
+            (pointerY.coerceIn(viewport.top, viewport.bottom) - screen[1])
+        val centerX = pointerX.coerceIn(viewport.left + width / 2f, viewport.right - width / 2f)
+        val gap = 24f * density
+        val above = pointerY - gap - height
+        // At the upper auto-scroll edge the lens must move below the finger,
+        // rather than being pinned over the text the user is trying to select.
+        val top = (if (above >= viewport.top) above else pointerY + gap)
             .coerceIn(viewport.top, maxOf(viewport.top, viewport.bottom - height))
         screenBounds = RectF(centerX - width / 2f, top, centerX + width / 2f, top + height)
         val rootScreen = IntArray(2).also { source.rootView.getLocationOnScreen(it) }
@@ -155,10 +160,13 @@ internal class SelectionMagnifier(
             val end = source.selectionEnd
             selectionPath.reset()
             if (start >= 0 && end >= 0 && start != end) layout.getSelectionPath(minOf(start, end), maxOf(start, end), selectionPath)
-            selectionPaint.color = source.highlightColor
+            selectionPaint.color = ColorUtils.setAlphaComponent(accent, 96)
             // Render text/spans above the glass. Drawing the TextView background
             // here would turn the lens opaque and hide all of its glass treatment.
-            layout.draw(canvas, selectionPath, selectionPaint, 0)
+            // Draw explicitly: Layout's optional highlight path is not rendered
+            // consistently without the TextView editor's focus/selection state.
+            canvas.drawPath(selectionPath, selectionPaint)
+            layout.draw(canvas)
         }
 
         override fun onDraw(canvas: Canvas) {

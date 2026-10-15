@@ -169,4 +169,38 @@ class SelectionAutoScrollUiTest {
         compose.runOnUiThread { assertEquals(after, saved) }
         compose.mainClock.autoAdvance = true
     }
+
+    @Test fun `lens stays with the finger at both horizontal edges and below the upper scroll edge`() {
+        show(offset = 2600)
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread {
+            val view = body()
+            selectVisibleWord(view)
+            val controller = requireNotNull(markdownSelectionController(view))
+            val point = endpoint(view, true)
+            // Grab away from the anchor: this offset must never influence sampling.
+            controller.beginDrag(true, point.first - 17f, point.second + 12f)
+            val location = IntArray(2).also { view.getLocationOnScreen(it) }
+            val y = (edge(false) + edge(true)) / 2f
+            for (x in listOf(1f, view.rootView.width - 1f)) {
+                controller.moveDrag(x, y)
+                assertEquals(x - location[0], controller.magnifier.sourcePoint.first, .01f)
+                assertEquals(y - location[1], controller.magnifier.sourcePoint.second, .01f)
+                if (x < view.rootView.width / 2f) assertTrue(controller.magnifier.screenBounds.centerX() < view.rootView.width / 2f)
+                else assertTrue(controller.magnifier.screenBounds.centerX() > view.rootView.width / 2f)
+            }
+            controller.moveDrag(point.first, edge(false))
+            assertTrue(controller.magnifier.screenBounds.top > edge(false))
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.runOnUiThread {
+            val view = body()
+            val controller = requireNotNull(markdownSelectionController(view))
+            val location = IntArray(2).also { view.getLocationOnScreen(it) }
+            assertEquals("Stationary finger samples the newly scrolled content", edge(false) - location[1], controller.magnifier.sourcePoint.second, .01f)
+            assertTrue(controller.magnifier.screenBounds.top > edge(false))
+            controller.endDrag()
+        }
+        compose.mainClock.autoAdvance = true
+    }
 }

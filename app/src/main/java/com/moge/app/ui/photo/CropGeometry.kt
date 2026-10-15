@@ -84,8 +84,10 @@ internal fun constrainImageOffset(
     val scale = coverScale(previewSize, viewport) * zoom
     if (!scale.isFinite()) return Offset.Zero
     fun axis(value: Float, image: Float, start: Float, end: Float, center: Float): Float {
-        if (image < end - start) return (start + end) / 2f - center
-        return value.coerceIn(end - image / 2f - center, start + image / 2f - center)
+        val lower = end - image / 2f - center
+        val upper = start + image / 2f - center
+        if (lower >= upper) return (start + end) / 2f - center
+        return value.coerceIn(lower, upper)
     }
     return Offset(
         axis(requested.x, previewSize.width * scale, frame.left, frame.right, viewport.width / 2f),
@@ -113,18 +115,20 @@ internal fun constrainCropRectToBounds(rect: Rect, bounds: Rect): Rect {
     if (rect == Rect.Zero || bounds.width <= 0f || bounds.height <= 0f) return rect
     val width = min(rect.width, bounds.width)
     val height = min(rect.height, bounds.height)
-    val left = (rect.center.x - width / 2f).coerceIn(bounds.left, bounds.right - width)
-    val top = (rect.center.y - height / 2f).coerceIn(bounds.top, bounds.bottom - height)
+    val left = (rect.center.x - width / 2f).coerceIn(bounds.left, max(bounds.left, bounds.right - width))
+    val top = (rect.center.y - height / 2f).coerceIn(bounds.top, max(bounds.top, bounds.bottom - height))
     return Rect(left, top, left + width, top + height)
 }
 
 internal fun moveCropRect(rect: Rect, delta: Offset, bounds: Rect): Rect {
     if (bounds.width <= 0f || bounds.height <= 0f) return rect
-    val dx = delta.x.coerceIn(bounds.left - rect.left, bounds.right - rect.right)
-    val dy = delta.y.coerceIn(bounds.top - rect.top, bounds.bottom - rect.bottom)
-    return rect.translate(Offset(dx, dy))
+    val fitted = constrainCropRectToBounds(rect, bounds)
+    val dx = delta.x.coerceIn(bounds.left - fitted.left, max(bounds.left - fitted.left, bounds.right - fitted.right))
+    val dy = delta.y.coerceIn(bounds.top - fitted.top, max(bounds.top - fitted.top, bounds.bottom - fitted.bottom))
+    return fitted.translate(Offset(dx, dy))
 }
 
+/** Work in float coordinates: truncating image bounds to IntSize loses fractional edge pixels. */
 internal fun resizeCropRectWithinBounds(
     rect: Rect,
     mode: CropDragMode,
@@ -133,72 +137,32 @@ internal fun resizeCropRectWithinBounds(
     minimumSize: Float,
 ): Rect {
     if (bounds.width <= 0f || bounds.height <= 0f) return rect
-    val localRect = rect.translate(-bounds.topLeft)
-    val localViewport = IntSize(bounds.width.toInt().coerceAtLeast(1), bounds.height.toInt().coerceAtLeast(1))
-    val effectiveMinimum = min(minimumSize, min(bounds.width, bounds.height)).coerceAtLeast(1f)
-    val resized = resizeCropRect(localRect, mode, delta, localViewport, effectiveMinimum)
-        .translate(bounds.topLeft)
-    return constrainCropRectToBounds(resized, bounds)
-}
-
-private fun resizeCropRect(
-    rect: Rect,
-    mode: CropDragMode,
-    delta: Offset,
-    viewport: IntSize,
-    minimumSize: Float,
-): Rect {
-    return when (mode) {
-        CropDragMode.TOP_LEFT -> Rect(
-            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-            rect.right,
-            rect.bottom,
-        )
-        CropDragMode.TOP_RIGHT -> Rect(
-            rect.left,
-            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-            rect.bottom,
-        )
-        CropDragMode.BOTTOM_LEFT -> Rect(
-            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-            rect.top,
-            rect.right,
-            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-        )
-        CropDragMode.BOTTOM_RIGHT -> Rect(
-            rect.left,
-            rect.top,
-            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-        )
-        CropDragMode.TOP_EDGE -> Rect(
-            rect.left,
-            (rect.top + delta.y).coerceIn(0f, rect.bottom - minimumSize),
-            rect.right,
-            rect.bottom,
-        )
-        CropDragMode.RIGHT_EDGE -> Rect(
-            rect.left,
-            rect.top,
-            (rect.right + delta.x).coerceIn(rect.left + minimumSize, viewport.width.toFloat()),
-            rect.bottom,
-        )
-        CropDragMode.BOTTOM_EDGE -> Rect(
-            rect.left,
-            rect.top,
-            rect.right,
-            (rect.bottom + delta.y).coerceIn(rect.top + minimumSize, viewport.height.toFloat()),
-        )
-        CropDragMode.LEFT_EDGE -> Rect(
-            (rect.left + delta.x).coerceIn(0f, rect.right - minimumSize),
-            rect.top,
-            rect.right,
-            rect.bottom,
-        )
-        else -> rect
+    val fitted = constrainCropRectToBounds(rect, bounds)
+    // Pinching or interrupting a reframe can make an axis smaller than the
+    // normal handle minimum. Keep that size until the user expands it again.
+    val minimumWidth = min(minimumSize, fitted.width)
+    val minimumHeight = min(minimumSize, fitted.height)
+    val left = when (mode) {
+        CropDragMode.TOP_LEFT, CropDragMode.BOTTOM_LEFT, CropDragMode.LEFT_EDGE ->
+            (fitted.left + delta.x).coerceIn(bounds.left, max(bounds.left, fitted.right - minimumWidth))
+        else -> fitted.left
     }
+    val right = when (mode) {
+        CropDragMode.TOP_RIGHT, CropDragMode.BOTTOM_RIGHT, CropDragMode.RIGHT_EDGE ->
+            (fitted.right + delta.x).coerceIn(min(bounds.right, fitted.left + minimumWidth), bounds.right)
+        else -> fitted.right
+    }
+    val top = when (mode) {
+        CropDragMode.TOP_LEFT, CropDragMode.TOP_RIGHT, CropDragMode.TOP_EDGE ->
+            (fitted.top + delta.y).coerceIn(bounds.top, max(bounds.top, fitted.bottom - minimumHeight))
+        else -> fitted.top
+    }
+    val bottom = when (mode) {
+        CropDragMode.BOTTOM_LEFT, CropDragMode.BOTTOM_RIGHT, CropDragMode.BOTTOM_EDGE ->
+            (fitted.bottom + delta.y).coerceIn(min(bounds.bottom, fitted.top + minimumHeight), bounds.bottom)
+        else -> fitted.bottom
+    }
+    return Rect(left, top, right, bottom)
 }
 
 /** 屏幕选框映射回原图像素。 */

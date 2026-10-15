@@ -5,26 +5,18 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -278,53 +270,15 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
         if (state.settling) { if (motion) delay(280); state.finishSettling() }
         if (state.held) scroll.scrollTo(0)
     }
-    BoxWithConstraints(modifier.onGloballyPositioned { state.rootBounds = it.boundsInRoot() }) {
-        val deleteHeight = maxHeight * 0.3f
-        val categoryWidth = ((maxWidth - 32.dp) / 2).coerceIn(80.dp, 160.dp)
+    BoxWithConstraints(modifier.testTag("paper-drag-overlay").onGloballyPositioned { state.rootBounds = it.boundsInRoot() }) {
+        val deleteHeight = maxHeight * 0.24f
+        val categoryWidth = ((maxWidth - 64.dp) / 2).coerceIn(80.dp, 160.dp)
         val categoryTop = with(density) { (state.categoryActivationBounds.top - state.rootBounds.top).coerceAtLeast(0f).toDp() }
         val gridMaxHeight = (maxHeight - deleteHeight - categoryTop - 52.dp).coerceAtLeast(0.dp)
         AnimatedVisibility(state.held, Modifier.align(Alignment.TopCenter).padding(top = categoryTop),
             enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { -it / 3 },
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { -it / 3 }) {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Text(if (state.categoriesExpanded) "松手放入分组" else "向上拖入分组，展开全部分组",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.fillMaxWidth().testTag("drop-category-prompt")
-                            .onGloballyPositioned { state.categoryPromptBounds = it.boundsInRoot() }
-                            .padding(horizontal = 16.dp, vertical = 12.dp))
-                    // This outer box follows the animated height, so unrevealed rows cannot
-                    // receive drops even though AnimatedVisibility has already composed them.
-                    Box(Modifier.fillMaxWidth().clipToBounds()
-                        .onGloballyPositioned { state.categoryBounds = it.boundsInRoot() }) {
-                        androidx.compose.animation.AnimatedVisibility(state.categoriesExpanded,
-                            enter = expandVertically(tween(if (motion) 220 else 0), expandFrom = Alignment.Top) + fadeIn(tween(if (motion) 160 else 0)),
-                            exit = shrinkVertically(tween(if (motion) 160 else 0), shrinkTowards = Alignment.Top) + fadeOut(tween(if (motion) 120 else 0))) {
-                            FlowRow(Modifier.fillMaxWidth().heightIn(max = gridMaxHeight).verticalScroll(scroll)
-                                .testTag("drop-category-grid").padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val choices = listOf(PaperDropTarget.Category(null, "未分类")) + categories.map { PaperDropTarget.Category(it.id, it.name) }
-                                choices.forEach { target ->
-                                    key(target.id) {
-                                        DisposableEffect(state, target) { onDispose { state.removeTarget(target) } }
-                                        val highlighted = state.hovered == target
-                                        Surface(color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                            border = BorderStroke(if (highlighted) 2.dp else 1.dp, if (highlighted) MaterialTheme.colorScheme.primary else MogeTheme.paper.cardStroke),
-                                            shape = MaterialTheme.shapes.small,
-                                            modifier = Modifier.width(categoryWidth).heightIn(min = 64.dp).testTag("drop-category-${target.id ?: "none"}")
-                                                .onGloballyPositioned { state.targetBounds(target, it) }) {
-                                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Icon(Icons.Outlined.FolderOpen, null, Modifier.size(20.dp))
-                                                Text(target.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            PaperCategoryDropPanel(state, categories, scroll, categoryWidth, gridMaxHeight)
         }
         AnimatedVisibility(state.held, Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { it / 3 },

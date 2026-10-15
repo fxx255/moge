@@ -7,7 +7,7 @@ import android.view.View
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -32,6 +32,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.time.Instant
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class, qualifiers = "w393dp-h820dp")
@@ -92,15 +93,49 @@ class FloatingPaperStyleTest {
         assertTrue("Tape must fit inside the item", cardBefore.contains(tapeBefore.topLeft) && cardBefore.contains(tapeBefore.bottomRight))
         assertTrue("Tape must not cover text", tapeBefore.bottom < firstText.top)
         export(view, "$page-${appearance.name.lowercase()}${if (fontScale > 1f) "-large" else ""}")
+        val before = snapshot(view)
         val list = compose.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag(cardTag)))
-        list.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 90f) }
+        list.performTouchInput {
+            down(center)
+            moveBy(Offset(0f, -45f), delayMillis = 100)
+            moveBy(Offset(0f, -45f), delayMillis = 100)
+            advanceEventTime(200)
+            up()
+        }
         compose.waitForIdle()
         val cardAfter = card.fetchSemanticsNode().boundsInRoot
         val tapeAfter = tape.fetchSemanticsNode().boundsInRoot
         assertTrue("Cards must scroll", cardAfter.top < cardBefore.top - 40f)
         assertEquals("Tape must travel with its card", cardAfter.top - cardBefore.top, tapeAfter.top - tapeBefore.top, 1f)
         assertEquals("Filters must stay above the scrolling cards", filterBefore, filters.fetchSemanticsNode().boundsInRoot)
+        val after = snapshot(view)
+        try {
+            val shift = (cardAfter.top - cardBefore.top).roundToInt()
+            val x = (8 * view.resources.displayMetrics.density).roundToInt()
+            val start = filterBefore.bottom.roundToInt() + 40
+            val end = minOf(after.height - 40, before.height + shift - 1)
+            var changed = 0
+            var matches = 0
+            for (y in start until end) {
+                if (before.getPixel(x, y) != after.getPixel(x, y)) changed++
+                if ((-1..1).any { error ->
+                    val oldY = y - shift + error
+                    oldY in 0 until before.height && before.getPixel(x, oldY) == after.getPixel(x, y)
+                }) matches++
+            }
+            assertTrue("Background grid must move while browsing $page", changed > 8)
+            assertTrue("Background must move by the same distance as its cards", matches > (end - start) * .95f)
+        } finally { before.recycle(); after.recycle() }
         export(view, "$page-${appearance.name.lowercase()}${if (fontScale > 1f) "-large" else ""}-scrolled")
+    }
+
+    private fun snapshot(view: View): Bitmap {
+        lateinit var bitmap: Bitmap
+        compose.runOnIdle {
+            bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+        }
+        return bitmap
     }
 
     private fun export(view: View, name: String) {

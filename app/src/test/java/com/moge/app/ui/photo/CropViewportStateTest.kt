@@ -84,4 +84,24 @@ class CropViewportStateTest {
     }
 
     private fun pixels() = cropBoundsInSource(image, image, state.viewport, state.zoom, state.imageOffset, state.cropRect)
+
+    @Test fun `auto fitted crop survives repeated pinch out and edge drags on fractional bounds`() {
+        mount()
+        compose.runOnIdle {
+            val source = IntSize(733, 1599)
+            state.reset(source)
+            state.resize(IntSize(1001, 1001))
+            repeat(8) {
+                state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-400f, -900f), 24f)
+                state.fitSelection(false)
+                state.transform(.01f, Offset(70f, -60f), state.cropRect.center)
+                for (mode in listOf(CropDragMode.LEFT_EDGE, CropDragMode.TOP_LEFT, CropDragMode.BOTTOM_RIGHT, CropDragMode.MOVE_CROP)) {
+                    state.drag(mode, Offset(1000f, -1000f), 24f)
+                }
+                val crop = cropBoundsInSource(source, source, state.viewport, state.zoom, state.imageOffset, state.cropRect)
+                assertTrue(crop.width > 0 && crop.height > 0)
+                assertTrue(crop.left + crop.width <= source.width && crop.top + crop.height <= source.height)
+            }
+        }
+    }
 }

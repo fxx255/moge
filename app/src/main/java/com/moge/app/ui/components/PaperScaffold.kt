@@ -30,10 +30,11 @@ fun PaperScaffold(
     title: String,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    backgroundOffsetY: () -> Float = { 0f },
     actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    GridPaper(modifier = modifier.fillMaxSize()) {
+    GridPaper(modifier = modifier.fillMaxSize(), offsetY = backgroundOffsetY) {
         // 没有 Surface 托底，默认内容色是黑的；黑板主题下要显式换成墨色
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {

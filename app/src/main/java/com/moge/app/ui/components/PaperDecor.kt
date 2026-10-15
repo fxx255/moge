@@ -30,12 +30,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moge.app.ui.theme.MogeTheme
 
-/** 方格纸背景：只铺在页面最底层，格子随屏幕固定，不跟随内容滚动。 */
+/** 方格纸背景；滚动页面通过延迟读取的偏移让格子和纸上卡片一起移动。 */
 fun Modifier.gridPaper(
     background: Color,
     line: Color,
     cell: Dp = 24.dp,
     stroke: Dp = 0.5.dp,
+    offsetY: () -> Float = { 0f },
 ): Modifier = this
     .background(background)
     .drawBehind {
@@ -46,7 +47,7 @@ fun Modifier.gridPaper(
             drawLine(line, Offset(x, 0f), Offset(x, size.height), width)
             x += step
         }
-        var y = step
+        var y = ((offsetY() % step) + step) % step
         while (y < size.height) {
             drawLine(line, Offset(0f, y), Offset(size.width, y), width)
             y += step
@@ -56,12 +57,14 @@ fun Modifier.gridPaper(
 @Composable
 fun GridPaper(
     modifier: Modifier = Modifier,
+    offsetY: () -> Float = { 0f },
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
         modifier = modifier.gridPaper(
             background = MaterialTheme.colorScheme.background,
             line = MogeTheme.paper.grid,
+            offsetY = offsetY,
         ),
         content = content,
     )

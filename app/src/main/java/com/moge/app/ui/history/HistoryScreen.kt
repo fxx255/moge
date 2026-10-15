@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
@@ -100,6 +101,7 @@ internal fun HistoryContent(
     onDismissSavedFavorite: () -> Unit = {},
 ) {
     val drag = rememberPaperDragState()
+    val paperScroll = rememberPaperScrollState()
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
         PaperDropTarget.Delete -> onDeleteItems(action.ids)
         is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
@@ -126,6 +128,7 @@ internal fun HistoryContent(
         onLeft = onNewConversation, leftLabel = "前往新对话") {
         PaperScaffold(
             title = if (state.selecting) "已选 ${state.selectedIds.size} 个" else "历史对话",
+            backgroundOffsetY = { paperScroll.offsetY },
             onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
             actions = {
                 if (!state.selecting) {
@@ -194,7 +197,7 @@ internal fun HistoryContent(
                             { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets),
                         )
                         else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop,
-                            Modifier.fillMaxSize(), insets)
+                            Modifier.fillMaxSize().nestedScroll(paperScroll), insets)
                     }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))

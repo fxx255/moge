@@ -34,7 +34,8 @@ class SelectionAppearanceTest {
         for ((_, accent, _) in themes) for (density in listOf(1f, 2f)) {
             val start = SelectionHandleDrawable(accent, true, density)
             val end = SelectionHandleDrawable(accent, false, density)
-            val size = (28 * density).toInt()
+            val size = (21 * density).toInt()
+            assertTrue(start.intrinsicWidth <= (21 * density).toInt())
             val a = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             try {
@@ -64,19 +65,20 @@ class SelectionAppearanceTest {
         }
     }
 
-    @Test fun `lens enlarges selected text above the finger with themed border and dismisses`() {
+    @Test fun `lens renders selection highlight with themed glass and dismisses`() {
         for ((name, accent, surface) in themes) {
             val controller = Robolectric.buildActivity(Activity::class.java).setup()
             val body = attachedBody(controller.get(), accent, surface)
             val magnifier = SelectionMagnifier(body, accent, surface)
             try {
                 body.requestFocus()
+                body.highlightColor = Color.TRANSPARENT
                 Selection.setSelection(body.text as Spannable, 2, 8)
                 val lineY = (body.layout.getLineTop(0) + body.layout.getLineBottom(0)) / 2f
                 val x = body.totalPaddingLeft + body.layout.getPrimaryHorizontal(8)
-                magnifier.show(x, lineY, 250f, RectF(0f, 0f, 760f, 520f))
+                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f))
                 assertTrue(magnifier.isShowing)
-                assertTrue(magnifier.screenBounds.bottom < 250f)
+                assertTrue("At the upper edge the lens belongs below the finger", magnifier.screenBounds.top > lineY)
                 val popup = requireNotNull(shadowOf(RuntimeEnvironment.getApplication()).latestPopupWindow)
                 assertFalse("The magnifier must never intercept handle events", popup.isTouchable)
                 val lens = popup.contentView
@@ -102,6 +104,17 @@ class SelectionAppearanceTest {
                     }
                     assertTrue("The lens must draw the underlying text", inkPixels > 20)
                     assertTrue("The lens border must follow the active theme", accentPixels > 20)
+                    val unselected = Bitmap.createBitmap(popup.width, popup.height, Bitmap.Config.ARGB_8888)
+                    try {
+                        Selection.removeSelection(body.text as Spannable)
+                        lens.draw(Canvas(unselected))
+                        var highlighted = 0
+                        for (y in 8 until bitmap.height - 8) for (pixelX in 8 until bitmap.width - 8) {
+                            if (bitmap.getPixel(pixelX, y) != unselected.getPixel(pixelX, y)) highlighted++
+                        }
+                        assertTrue("Selected text needs a visible highlight inside the lens", highlighted > 30)
+                        Selection.setSelection(body.text as Spannable, 2, 8)
+                    } finally { unselected.recycle() }
                     if (System.getenv("SELECTION_EXPORT_SAMPLES") == "1") {
                         val preview = Bitmap.createBitmap(760, 240, Bitmap.Config.ARGB_8888)
                         try {
@@ -112,9 +125,9 @@ class SelectionAppearanceTest {
                             for (start in listOf(true, false)) {
                                 val drawable = SelectionHandleDrawable(accent, start, 1f)
                                 val anchor = body.totalPaddingLeft + body.layout.getPrimaryHorizontal(if (start) 2 else 8)
-                                val left = (if (start) anchor - 28 else anchor).toInt()
+                                val left = (if (start) anchor - 21 else anchor).toInt()
                                 val top = 150 + body.layout.getLineBottom(0)
-                                drawable.setBounds(left, top, left + 28, top + 28)
+                                drawable.setBounds(left, top, left + 21, top + 21)
                                 drawable.draw(canvas)
                             }
                             val file = File("build/selection-samples/$name.png").apply { requireNotNull(parentFile).mkdirs() }
@@ -125,7 +138,7 @@ class SelectionAppearanceTest {
                 magnifier.dismiss()
                 assertFalse(magnifier.isShowing)
                 // Reopening at the same size must recreate the released glass backdrop.
-                magnifier.show(x, lineY, 250f, RectF(0f, 0f, 760f, 520f))
+                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f))
                 assertTrue(magnifier.isShowing)
             } finally { magnifier.dismiss(); controller.pause().stop().destroy() }
         }
@@ -138,12 +151,12 @@ class SelectionAppearanceTest {
         try {
             body.textSize = 40f
             val viewport = RectF(12f, 24f, 102.5f, 300f)
-            magnifier.show(750f, 220f, 280f, viewport)
+            magnifier.show(750f, 220f, viewport)
             assertTrue(magnifier.isShowing)
             assertTrue(viewport.contains(magnifier.screenBounds))
             assertTrue(magnifier.screenBounds.height() > 56f * body.resources.displayMetrics.density)
             controller.pause().stop().destroy()
-            magnifier.show(10f, 10f, 30f, viewport)
+            magnifier.show(10f, 10f, viewport)
             assertFalse("A detached answer cannot retain the lens", magnifier.isShowing)
         } finally { magnifier.dismiss() }
     }
@@ -154,10 +167,12 @@ class SelectionAppearanceTest {
         val magnifier = SelectionMagnifier(body, Color.BLUE, Color.WHITE)
         try {
             val viewport = RectF(0f, 0f, 760f, 520f)
-            magnifier.show(73.25f, 19.5f, 220f, viewport)
+            magnifier.show(73.25f, 19.5f, viewport)
             assertEquals(73.25f, magnifier.sourcePoint.first, 0.001f)
             assertEquals(19.5f, magnifier.sourcePoint.second, 0.001f)
-            assertTrue("The lens belongs above the current finger position", magnifier.screenBounds.bottom <= 220f)
+            assertTrue("The lens flips below a finger at the top", magnifier.screenBounds.top > 19.5f)
+            magnifier.show(73.25f, 320f, viewport)
+            assertTrue("With enough room the lens belongs above the finger", magnifier.screenBounds.bottom < 320f)
         } finally {
             magnifier.dismiss()
             controller.pause().stop().destroy()
@@ -182,6 +197,28 @@ class SelectionAppearanceTest {
             }
             assertFalse(selection.selecting)
             assertEquals(0, edits)
+        } finally { host.dispose(); activity.pause().stop().destroy() }
+    }
+
+    @Test fun `replacing an active selection keeps the new range and copies it`() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+        val host = SelectionScrollHost(scope, 1f) { _, _ -> }
+        val body = attachedBody(activity.get(), Color.BLUE, Color.WHITE, host)
+        host.viewport = RectF(0f, 0f, 760f, 520f)
+        try {
+            val selection = requireNotNull(markdownSelectionController(body))
+            selection.begin(2, 8)
+            selection.begin(12, 16)
+            body.viewTreeObserver.dispatchOnPreDraw()
+            assertTrue(selection.selecting)
+            assertEquals(12, body.selectionStart)
+            assertEquals(16, body.selectionEnd)
+            val expected = body.text.subSequence(12, 16).toString()
+            body.onTextContextMenuItem(android.R.id.copy)
+            val clipboard = activity.get().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            assertEquals(expected, clipboard.primaryClip!!.getItemAt(0).text.toString())
+            assertFalse(selection.selecting)
         } finally { host.dispose(); activity.pause().stop().destroy() }
     }
 }

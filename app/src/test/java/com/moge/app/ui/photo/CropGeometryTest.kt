@@ -8,6 +8,19 @@ import org.junit.Test
 
 class CropGeometryTest {
 
+    @Test fun `pinched narrow frames and fractional image edges remain draggable`() {
+        val bounds = Rect(125.2f, 0f, 875.8f, 1000f)
+        val frames = listOf(bounds, Rect(125.2f, 10f, 135.2f, 990f), Rect(851.8f, 10f, 875.8f, 990f))
+        for (frame in frames) for (mode in CropDragMode.entries) {
+            val resized = resizeCropRectWithinBounds(frame, mode, Offset(-1000f, 1000f), bounds, 24f)
+            org.junit.Assert.assertTrue(resized.width > 0f && resized.height > 0f)
+            org.junit.Assert.assertTrue(resized.left >= bounds.left && resized.right <= bounds.right + .001f)
+            org.junit.Assert.assertTrue(resized.top >= bounds.top && resized.bottom <= bounds.bottom + .001f)
+        }
+        val moved = moveCropRect(Rect(0f, 0f, 100.00001f, 100f), Offset(5f, 0f), Rect(0f, 0f, 100f, 100f))
+        assertEquals(Rect(0f, 0f, 100f, 100f), moved)
+    }
+
     @Test fun `nonfinite gesture offsets cannot poison crop rendering`() {
         val size = IntSize(1000, 1000)
         assertEquals(Offset.Zero, constrainImageOffset(Offset(Float.NaN, 0f), size, size, 2f))
