@@ -1,0 +1,33 @@
+{
+  "title": "64QAM 调制框图",
+  "profile": "communication",
+  "nodes": [
+    {"id":"in","label":"输入 240 kbit/s","shape":"io","role":"input"},
+    {"id":"sp","label":"串并变换","subLabel":"6 bit/符号","shape":"bus","role":"serial_to_parallel"},
+    {"id":"map_i","label":"电平映射","subLabel":"3 bit→8电平","shape":"block","role":"i_mapping"},
+    {"id":"map_q","label":"电平映射","subLabel":"3 bit→8电平","shape":"block","role":"q_mapping"},
+    {"id":"filter_i","label":"根升余弦滤波","shape":"block","role":"i_filter"},
+    {"id":"filter_q","label":"根升余弦滤波","shape":"block","role":"q_filter"},
+    {"id":"mi","label":"×","shape":"mixer","role":"i_mixer"},
+    {"id":"mq","label":"×","shape":"mixer","role":"q_mixer"},
+    {"id":"carrier","label":"载波 $\\cos 2\\pi f_ct$","shape":"block","role":"local_oscillator"},
+    {"id":"phase","label":"−90° 移相","shape":"block","role":"phase_shift"},
+    {"id":"sum","label":"+","shape":"sum","role":"sum"},
+    {"id":"out","label":"64QAM 信号","shape":"io","role":"output"}
+  ],
+  "edges": [
+    {"from":"in","to":"sp"},
+    {"from":"sp","to":"map_i","label":"I 路"},
+    {"from":"sp","to":"map_q","label":"Q 路"},
+    {"from":"map_i","to":"filter_i"},
+    {"from":"map_q","to":"filter_q"},
+    {"from":"filter_i","to":"mi"},
+    {"from":"filter_q","to":"mq"},
+    {"from":"mi","to":"sum","toPort":"top","polarity":"+"},
+    {"from":"mq","to":"sum","toPort":"bottom","polarity":"+"},
+    {"from":"sum","to":"out"},
+    {"from":"carrier","to":"mi","toPort":"bottom"},
+    {"from":"carrier","to":"phase"},
+    {"from":"phase","to":"mq","toPort":"bottom"}
+  ]
+}

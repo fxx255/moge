@@ -112,4 +112,17 @@ class NotebookScreenTest {
         compose.onNodeWithText("回到原对话").performScrollTo().performClick()
         assertEquals("source", sourceOpened)
     }
+
+    @Test fun `notebook scrolls behind stationary filters instead of clipping below them`() {
+        state.value = state.value.copy(entries = (0..15).map { entry("item$it", "收藏 $it") })
+        render()
+        val filters = compose.onNodeWithTag("notebook-category-filters").fetchSemanticsNode().boundsInRoot
+        val list = compose.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag("notebook-card-item0")))
+        assertTrue(list.fetchSemanticsNode().boundsInRoot.top < filters.top)
+        assertTrue(compose.onNodeWithTag("notebook-card-item0").fetchSemanticsNode().boundsInRoot.top > filters.bottom)
+        list.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 120f) }
+        compose.waitForIdle()
+        assertEquals(filters, compose.onNodeWithTag("notebook-category-filters").fetchSemanticsNode().boundsInRoot)
+        assertTrue(compose.onNodeWithTag("notebook-card-item0").fetchSemanticsNode().boundsInRoot.top < filters.bottom)
+    }
 }

@@ -41,7 +41,7 @@ internal fun minimumCropZoom(previewSize: IntSize, viewport: IntSize): Float {
     val heightScale = viewport.height.toFloat() / previewSize.height
     val coverScale = max(widthScale, heightScale)
     val fitScale = min(widthScale, heightScale)
-    return (fitScale / coverScale).coerceIn(0.01f, 1f)
+    return (fitScale / coverScale).coerceAtMost(1f)
 }
 
 private fun coverScale(previewSize: IntSize, viewport: IntSize): Float = max(
@@ -73,36 +73,24 @@ internal fun displayedImageRect(previewSize: IntSize, viewport: IntSize, zoom: F
     return Rect(left, top, left + width, top + height)
 }
 
-/** 平移限制：放大时不能把照片拖出视口；缩小到比视口还小时居中。 */
-internal fun constrainImageOffset(requested: Offset, previewSize: IntSize, viewport: IntSize, zoom: Float): Offset {
+/** Keep the active frame covered; a photo smaller than that frame remains centered in it. */
+internal fun constrainImageOffset(
+    requested: Offset, previewSize: IntSize, viewport: IntSize, zoom: Float,
+    frame: Rect = Rect(0f, 0f, viewport.width.toFloat(), viewport.height.toFloat()),
+): Offset {
     if (viewport.width <= 0 || viewport.height <= 0 || previewSize.width <= 0 || previewSize.height <= 0 ||
         !zoom.isFinite() || zoom <= 0f || !requested.x.isFinite() || !requested.y.isFinite()
     ) return Offset.Zero
     val scale = coverScale(previewSize, viewport) * zoom
     if (!scale.isFinite()) return Offset.Zero
-    val maxX = ((previewSize.width * scale - viewport.width) / 2f).coerceAtLeast(0f)
-    val maxY = ((previewSize.height * scale - viewport.height) / 2f).coerceAtLeast(0f)
-    return Offset(requested.x.coerceIn(-maxX, maxX), requested.y.coerceIn(-maxY, maxY))
-}
-
-/** 只用原图比例初始化选框；之后拖动边角不会锁定比例。 */
-internal fun centeredCropRect(viewport: IntSize, initialRatio: Float = 1f): Rect {
-    if (viewport == IntSize.Zero) return Rect.Zero
-    val targetRatio = initialRatio.coerceIn(0.05f, 20f)
-    val maxWidth = viewport.width * 0.86f
-    val maxHeight = viewport.height * 0.86f
-    val width: Float
-    val height: Float
-    if (maxWidth / maxHeight > targetRatio) {
-        height = maxHeight
-        width = height * targetRatio
-    } else {
-        width = maxWidth
-        height = width / targetRatio
+    fun axis(value: Float, image: Float, start: Float, end: Float, center: Float): Float {
+        if (image < end - start) return (start + end) / 2f - center
+        return value.coerceIn(end - image / 2f - center, start + image / 2f - center)
     }
-    val left = (viewport.width - width) / 2f
-    val top = (viewport.height - height) / 2f
-    return Rect(left, top, left + width, top + height)
+    return Offset(
+        axis(requested.x, previewSize.width * scale, frame.left, frame.right, viewport.width / 2f),
+        axis(requested.y, previewSize.height * scale, frame.top, frame.bottom, viewport.height / 2f),
+    )
 }
 
 internal fun cropDragMode(position: Offset, rect: Rect, handleRadius: Float): CropDragMode {

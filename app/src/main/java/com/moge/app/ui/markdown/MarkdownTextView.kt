@@ -66,6 +66,7 @@ internal fun createMarkdownTextView(
     selectable: Boolean = true,
     fontSizePx: Float? = null,
     selectionScrollHost: SelectionScrollHost? = null,
+    selectionSurfaceColor: Int = android.graphics.Color.WHITE,
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         @Volatile override var renderSource: MarkdownRenderSource? = null
@@ -75,7 +76,7 @@ internal fun createMarkdownTextView(
         private var handlingNativeTouch = false
         private var tapStartedWithSelection = false
         override val selectionController = if (selectable && selectionScrollHost != null)
-            MarkdownSelectionController(this, selectionScrollHost, linkColor) else null
+            MarkdownSelectionController(this, selectionScrollHost, linkColor, selectionSurfaceColor) else null
         private val conversationSelection = selectionController
         private val tapDetector by lazy {
             GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -159,16 +160,18 @@ internal fun createMarkdownTextView(
             // 如果公式异步加载导致原生 View 比 Compose 格位更高，超出实际文字行的
             // ACTION_DOWN 仍要放行，避免把下方图片的点击区域吃掉。
             if (selectable) {
+                if (onTextTap != null && event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    val spannable = text as? Spannable
+                    // The controller dismisses selection on DOWN. Retain the
+                    // pre-dismiss state so that gesture cannot also start editing.
+                    tapStartedWithSelection = hasSelection() ||
+                        (spannable != null && isPointInsideClickableSpan(spannable, event))
+                }
                 if (conversationSelection?.touch(event) == true) return true
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && !isPointInsideText(event)) {
                     return false
                 }
                 if (onTextTap != null) {
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                        val spannable = text as? Spannable
-                        tapStartedWithSelection = hasSelection() ||
-                            (spannable != null && isPointInsideClickableSpan(spannable, event))
-                    }
                     // Let the editor process selection first. Its own click dispatch
                     // must not also invoke editing; the detector handles only short taps.
                     handlingNativeTouch = true
@@ -200,6 +203,11 @@ internal fun createMarkdownTextView(
         isSaveEnabled = false
         setTextColor(textColor)
         setLinkTextColor(linkColor)
+        highlightColor = androidx.core.graphics.ColorUtils.setAlphaComponent(linkColor, 64)
+        if (selectable && android.os.Build.VERSION.SDK_INT >= 29) {
+            setTextSelectHandleLeft(SelectionHandleDrawable(linkColor, start = true, resources.displayMetrics.density))
+            setTextSelectHandleRight(SelectionHandleDrawable(linkColor, start = false, resources.displayMetrics.density))
+        }
         // selectable=false 用于表格块：setTextIsSelectable(true) 会顺带 setClickable(true)
         // + setLongClickable(true)，把 TextView 变成一个「点击可聚焦」的 View。在真机的
         // 触摸管线上，这类 View 有可能先于父级手势吃掉触摸事件，让外层的横向滚动拖不动。

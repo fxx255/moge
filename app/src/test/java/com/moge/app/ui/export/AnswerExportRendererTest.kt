@@ -42,6 +42,31 @@ class AnswerExportRendererTest {
     }
     @After fun reset() { Dispatchers.resetMain() }
 
+    @Test fun `screenshot numeric sequences are rendered as loaded formulas instead of literal dollars`() {
+        val source = "题目按 \$00,10,11,01\$ 给度量，答案为 \$3,1,3,3\$；" +
+            "按 \$00,01,10,11\$ 时为 \$3,3,1,3\$。"
+        val warnings = mutableListOf<String>()
+        val view = exportTextView(context, source, 1800, warning = { warnings += it })
+        val text = view.text as Spanned
+        val formulas = text.getSpans(0, text.length, AsyncDrawableSpan::class.java).sortedBy { text.getSpanStart(it) }
+        assertEquals(listOf("00,10,11,01", "3,1,3,3", "00,01,10,11", "3,3,1,3"),
+            formulas.map { it.drawable.destination })
+        assertTrue(formulas.all { it.drawable.hasResult() && it.drawable.bounds.height() > 0 })
+        assertFalse(text.contains('$'))
+        assertTrue(warnings.isEmpty())
+        if (System.getenv("FORMULA_EXPORT_SAMPLES") == "1") {
+            val output = File("build/formula-samples").apply { mkdirs() }
+            val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            try {
+                image.eraseColor(EXPORT_PAPER)
+                view.draw(Canvas(image))
+                File(output, "numeric-sequences-paper.png").outputStream().use {
+                    image.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            } finally { image.recycle() }
+        }
+    }
+
     @Test fun `inline formula is loaded before measurement and produces pixels`() {
         val view = exportTextView(context, "Before \$\$\\frac{1}{2}+x^2\$\$ after", 900)
         val text = view.text as Spanned

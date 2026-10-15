@@ -47,25 +47,29 @@ class PhotoCropDialogTest {
         assertOnlyFreeCrop()
         compose.runOnIdle { path.value = photo().absolutePath }
         assertOnlyFreeCrop()
-        compose.onNodeWithText("保存裁剪").assertIsEnabled()
+        compose.onNodeWithText("确定").assertIsEnabled()
     }
 
-    @Test fun `free crop retains retake original and confirm actions`() {
-        val path = photo().absolutePath
+    @Test fun `single confirm accepts the complete original without rewriting it and retains retake`() {
+        val file = photo()
+        val path = file.absolutePath
+        val original = file.readBytes()
         var retakes = 0
-        var originals = 0
+        var accepted = 0
         compose.setContent {
             MogeTheme {
                 PhotoCropDialog(
-                    path, onCropped = {}, onDismiss = { retakes++ }, onUseOriginal = { originals++ },
-                    dismissLabel = "重拍", confirmLabel = "确定",
+                    path, onCropped = { accepted++ }, onDismiss = { retakes++ }, dismissLabel = "重拍",
                 )
             }
         }
         compose.onNodeWithText("确定").assertIsEnabled()
-        compose.onNodeWithText("使用原图").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("使用原图").assertDoesNotExist()
+        compose.onNodeWithText("保存裁剪").assertDoesNotExist()
+        compose.onNodeWithText("确定").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("重拍").performSemanticsAction(SemanticsActions.OnClick) { it() }
-        assertEquals(1, originals)
+        assertEquals(1, accepted)
+        org.junit.Assert.assertArrayEquals(original, file.readBytes())
         assertEquals(1, retakes)
     }
 }

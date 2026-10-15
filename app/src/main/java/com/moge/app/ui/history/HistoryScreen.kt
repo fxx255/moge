@@ -157,25 +157,18 @@ internal fun HistoryContent(
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                Column(Modifier.fillMaxSize()) {
-                    OutlinedTextField(
-                        value = state.query, onValueChange = onQuery, enabled = !state.busy,
-                        label = { Text("搜索标题、消息或识别文本") }, singleLine = true,
-                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                        trailingIcon = {
-                            if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }, enabled = !state.busy) {
-                                Icon(Icons.Outlined.Close, "清除搜索")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 16.dp),
-                    )
-                    Row(Modifier.fillMaxWidth().paperCategoryActivation(drag).testTag("history-category-filters")
-                        .excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(state.categoryId == null && !state.uncategorizedOnly, { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy && !drag.held)
-                        FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") }, enabled = !state.busy && !drag.held)
+                FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
+                    PaperSearchPanel(
+                        query = state.query, onQuery = onQuery, hint = "搜索标题、消息或识别文本", enabled = !state.busy,
+                        filtersModifier = Modifier.paperCategoryActivation(drag).testTag("history-category-filters"),
+                    ) {
+                        PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
+                            { onCategory(null, false) }, "全部", enabled = !state.busy && !drag.held)
+                        PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, "未分类",
+                            enabled = !state.busy && !drag.held)
                         state.categories.forEach { category ->
-                            FilterChip(state.categoryId == category.id, { onCategory(category.id, false) }, { Text(category.name) }, enabled = !state.busy && !drag.held)
+                            PaperCategoryFilter(state.categoryId == category.id, { onCategory(category.id, false) },
+                                category.name, enabled = !state.busy && !drag.held)
                         }
                     }
                     state.categoryError?.let {
@@ -188,18 +181,20 @@ internal fun HistoryContent(
                             TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
                         }
                     }
+                }) { insets ->
                     when {
-                        state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.weight(1f))
+                        state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.fillMaxSize().padding(insets))
                         // 换搜索词时保留旧结果直到新结果到达，网格不闪、滚动位置也不丢。
-                        state.loading && state.entries.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        state.loading && state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(Modifier.semantics { contentDescription = "正在读取历史" })
                         }
                         state.entries.isEmpty() -> HistoryPlaceholder(
                             if (state.filtered) "没有找到匹配的对话" else "还没有历史对话，发送问题后会自动保存",
                             if (state.filtered) "清除筛选" else "去提问",
-                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.weight(1f),
+                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets),
                         )
-                        else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop, Modifier.weight(1f))
+                        else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop,
+                            Modifier.fillMaxSize(), insets)
                     }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
@@ -250,6 +245,7 @@ private fun HistoryGrid(
     drag: PaperDragState,
     onDrop: (PaperDrop) -> Unit,
     modifier: Modifier,
+    toolbarInsets: PaddingValues,
 ) {
     // 常规字号两列瀑布流；辅助大字号改一列，为正文留出足够宽度。
     val columns = if (LocalDensity.current.fontScale > 1.5f) 1 else 2
@@ -262,7 +258,8 @@ private fun HistoryGrid(
     }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(columns), modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+            top = toolbarInsets.calculateTopPadding() + 8.dp, bottom = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalItemSpacing = 12.dp,
     ) {
         items(state.entries, key = { it.conversation.id }) { entry ->
@@ -296,57 +293,57 @@ private fun HistoryCard(
     generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier, thumbnail: Thumbnail,
     retention: String,
 ) {
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
     val conversation = entry.conversation
-    Column(
-        modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-            .border(if (selected) 2.dp else 1.dp,
-                if (selected) MaterialTheme.colorScheme.primary else MogeTheme.paper.cardStroke.copy(alpha = 0.45f), shape)
-            .clickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
-                onClickLabel = if (selecting) "切换选择" else "打开对话", onClick = onClick)
-            .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }
-            .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (conversation.coverImage.isNotBlank()) HistoryCover(thumbnail)
-        if (conversation.coverImage.isBlank() && entry.questionPreview.isNotBlank()) Text(
-            entry.questionPreview.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(),
-            style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (conversation.conversationMode == "CHAT") {
-                Icon(Icons.AutoMirrored.Outlined.Chat, "普通对话",
-                    Modifier.padding(end = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
+    TapedPaperCard(modifier.clickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
+        onClickLabel = if (selecting) "切换选择" else "打开对话", onClick = onClick)
+        .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }) { cardModifier ->
+        Column(
+            cardModifier.heightIn(min = 48.dp).clip(shape)
+                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                .then(if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
+                .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (conversation.coverImage.isNotBlank()) HistoryCover(thumbnail)
+            if (conversation.coverImage.isBlank() && entry.questionPreview.isNotBlank()) Text(
+                entry.questionPreview.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty(),
+                style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (conversation.conversationMode == "CHAT") {
+                    Icon(Icons.AutoMirrored.Outlined.Chat, "普通对话",
+                        Modifier.padding(end = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 3,
+                    overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f))
+                Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp).alpha(if (selecting) 1f else 0f))
             }
-            Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 3,
-                overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f))
-            Icon(if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).size(24.dp).alpha(if (selecting) 1f else 0f))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(retention, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (entry.favoriteCount > 0) Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Text("已收藏 ${entry.favoriteCount} 条回答", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!generating && entry.requestStatus in setOf("INTERRUPTED", "CANCELLED")) {
+                Text("回答未完成 · 打开后可重试", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error)
+            }
+            if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text("正在生成", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(retention, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (entry.favoriteCount > 0) Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("已收藏 ${entry.favoriteCount} 条回答", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary)
-        }
-        if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (!generating && entry.requestStatus in setOf("INTERRUPTED", "CANCELLED")) {
-            Text("回答未完成 · 打开后可重试", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error)
-        }
-        if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text("正在生成", style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
     }
 }
 

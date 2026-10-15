@@ -94,6 +94,7 @@ fun decodePhotoBitmap(path: String, maxEdge: Int = MAX_PHOTO_EDGE, quarterTurns:
 @Suppress("DEPRECATION")
 fun decodePhotoCrop(
     path: String, quarterTurns: Int,
+    maxEdge: Int = MAX_PHOTO_EDGE,
     cropInOrientedPixels: (width: Int, height: Int) -> Rect,
 ): Bitmap? {
     val region = runCatching {
@@ -113,7 +114,7 @@ fun decodePhotoCrop(
             raw.bottom.roundToInt().coerceIn(top + 1, info.height))
         val decoder = BitmapRegionDecoder.newInstance(path, false) ?: return@runCatching null
         try {
-            decoder.decodeRegion(rectangle, decodeOptions(rectangle.width(), rectangle.height(), MAX_PHOTO_EDGE))
+            decoder.decodeRegion(rectangle, decodeOptions(rectangle.width(), rectangle.height(), maxEdge))
                 ?.let { orientOwned(it, info.orientation, quarterTurns) }
         } finally { decoder.recycle() }
     }.onFailure { Log.w("MogePhoto", "Region decoding unavailable; using bounded photo fallback", it) }.getOrNull()

@@ -78,8 +78,9 @@ internal object DiagramText {
             .replace(sineCarrier) { "\$\\sin 2\\pi f_c t\$" }
     }
 
-    fun layout(text: String, role: DiagramTextRole, maxWidth: Float): DiagramTextBlock {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = role.fontSizePx }
+    fun layout(text: String, role: DiagramTextRole, maxWidth: Float,
+               fontSizePx: Float = role.fontSizePx, formulaColor: Int = android.graphics.Color.BLACK): DiagramTextBlock {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = fontSizePx }
         val lines = mutableListOf<DiagramTextLine>()
         var runs = mutableListOf<DiagramTextRun>()
         var width = 0f
@@ -94,7 +95,7 @@ internal object DiagramText {
             val formula = if (token.startsWith('$') && token.endsWith('$') && token.length > 2) {
                 runCatching {
                     JLatexMathDrawable.builder(token.substring(1, token.length - 1))
-                        .textSize(role.fontSizePx).build()
+                        .textSize(fontSizePx).color(formulaColor).build()
                 }.getOrNull()
             } else null
             val run = DiagramTextRun(token,

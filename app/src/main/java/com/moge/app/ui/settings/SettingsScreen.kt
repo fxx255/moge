@@ -27,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,8 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -119,7 +116,6 @@ fun SettingsScreen(
             PreferencesSection(
                 prefs = prefs,
                 onMode = vm::setDefaultSolveMode,
-                onContinuations = vm::setMaxContinuations,
                 onWebSearch = vm::setWebSearchEnabled,
                 onNickname = vm::setNickname,
                 onAnswerFirst = vm::setAnswerFirst,
@@ -156,7 +152,6 @@ fun SettingsScreen(
 private fun PreferencesSection(
     prefs: UserSettings,
     onMode: (SolveMode) -> Unit,
-    onContinuations: (Int) -> Unit,
     onWebSearch: (Boolean) -> Unit,
     onNickname: (String) -> Unit,
     onAnswerFirst: (Boolean) -> Unit,
@@ -182,27 +177,6 @@ private fun PreferencesSection(
             checked = prefs.answerFirst,
             onCheckedChange = onAnswerFirst,
         )
-
-        var continuations by remember(prefs.maxContinuations) { mutableStateOf(prefs.maxContinuations.toFloat()) }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("长回答自动续写", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            val n = continuations.toInt()
-            Text(if (n == 0) "关闭" else "最多 $n 次", style = MaterialTheme.typography.bodyMedium)
-        }
-        Slider(
-            value = continuations,
-            onValueChange = { continuations = it },
-            onValueChangeFinished = { onContinuations(continuations.toInt()) },
-            valueRange = 0f..UserSettings.MAX_CONTINUATIONS.toFloat(),
-            steps = UserSettings.MAX_CONTINUATIONS - 1,
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .semantics { contentDescription = "长回答自动续写次数" },
-        )
-        Hint("回答撞到模型输出上限时自动接着写。")
 
         SwitchRow(
             label = "联网搜索",

@@ -458,19 +458,12 @@ private fun String.runLength(startIndex: Int, char: Char): Int {
 private fun looksLikeInlineMath(raw: String): Boolean {
     val value = mathOutsideTextArguments(raw.trim()) ?: return false
     if (value.isBlank() || value.any { it in '\u3400'..'\u9fff' }) return false
-    // 这里**不能**把纯数字排除掉。
-    //
-    // 原来是 `if (value.all { it.isDigit() || it == '.' || it == ',' }) return false`，
-    // 于是 `$0$` / `$1$` 这种最简公式不会被提升成块级、独自留在行内 ——
-    // 而同一段文本里其它公式（以及 `\(...\)` 写法）都会走提升路径。
-    // 两条路径不一致，用户看到的就是「单独出现的 $0$ 渲染不出来」（v1.0.35 反馈）。
-    // 纯数字在数学语境里本来就是公式（数值 0），没有理由区别对待。
-    //
-    // 会不会误判货币写法？不会：`$5 ... $10` 这种 body 里必然含空格或字母，
-    // 仍然会被下面「数学符号 / 单变量」两条规则挡掉。
     if ('\\' in value) return true
     if (value.any { it in "=<>^_{}()[]+-*/|!≤≥≠≈∞∈∉⊂⊆⊃⊇∪∩∑∏∫√±×÷→⇒∂" }) return true
     if (value.all { it.isDigit() || it == '.' }) return true
+    // State/output sequences such as $00,10,11,01$ are math even without
+    // variables or operators. Keep prose and currency ranges outside this rule.
+    if (Regex("""\d+(?:\.\d+)?(?:\s*[,;]\s*\d+(?:\.\d+)?)+""").matches(value)) return true
     // Multi-letter symbols such as $QPSK$ or $abc$ are still explicitly
     // delimited mathematics. Leaving them untouched exposes the dollar signs
     // because the Markdown renderer only recognizes the normalized $$ form.

@@ -238,9 +238,7 @@ fun HomeScreen(
             path = path,
             onCropped = vm::onCropDone,
             onDismiss = vm::onRetake,
-            onUseOriginal = vm::onCropDone,
             dismissLabel = "重拍",
-            confirmLabel = "确定",
         )
     }
     if (state.confirmOpen && state.cropQueue.isEmpty() && state.photos.isNotEmpty() && editingPhoto == null) {

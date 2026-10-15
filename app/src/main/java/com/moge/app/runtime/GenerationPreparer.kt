@@ -57,7 +57,6 @@ class GenerationPreparer @Inject constructor(
         val solveMode: SolveMode,
         val webSearchEnabled: Boolean,
         val forceWebSearch: Boolean,
-        val maxContinuations: Int,
         val policy: RequestPolicy,
         /** 补写了准备结果的快照；主请求发出前必须先落库。 */
         val snapshot: RequestSnapshot,
@@ -107,7 +106,6 @@ class GenerationPreparer @Inject constructor(
             webSearchEnabled = shouldUseWebSearch(outgoing, initial.forceWebSearch) &&
                 policy.effectiveWebSearchEnabled,
             forceWebSearch = initial.forceWebSearch,
-            maxContinuations = initial.maxContinuations,
             policy = policy,
             snapshot = initial.copy(
                 prepared = true,
@@ -142,7 +140,7 @@ class GenerationPreparer @Inject constructor(
 
     /**
      * **网络之前**钉下的初始快照：原问题、原历史（有界）、照片路线、主/识题档案身份、
-     * 推理与联网设置、解题模式、续写上限。随 `createRequest` 一起落库，
+     * 推理与联网设置、解题模式。随 `createRequest` 一起落库，
      * 这样「准备阶段被打断」也有东西可重试。**不含**密钥与图片 base64。
      */
     suspend fun captureInitialSnapshot(
@@ -189,7 +187,6 @@ class GenerationPreparer @Inject constructor(
             prepared = false,
             forceWebSearch = submission.forceWebSearch,
             effectiveWebSearchEnabled = prefs.webSearchEnabled && (identity?.searchEnabled != false),
-            maxContinuations = prefs.maxContinuations.coerceAtLeast(0),
             primaryProfileId = identity?.profileId.orEmpty(),
             primaryVisionEnabled = visionDirect,
             visionProfileId = recognizer?.profileId.orEmpty(),
@@ -256,7 +253,6 @@ class GenerationPreparer @Inject constructor(
             webSearchEnabled = shouldUseWebSearch(outgoing, snapshot.forceWebSearch) &&
                 policy.effectiveWebSearchEnabled,
             forceWebSearch = snapshot.forceWebSearch,
-            maxContinuations = snapshot.maxContinuations,
             policy = policy,
             snapshot = snapshot,
         )
@@ -269,7 +265,6 @@ class GenerationPreparer @Inject constructor(
         solveMode = SolveMode.DETAILED,
         webSearchEnabled = false,
         forceWebSearch = false,
-        maxContinuations = 0,
         policy = RequestPolicy(),
         snapshot = RequestSnapshot(),
         failure = message,

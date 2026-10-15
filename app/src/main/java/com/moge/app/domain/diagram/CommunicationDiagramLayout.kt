@@ -18,7 +18,9 @@ internal object CommunicationDiagramLayout {
             branchRole.containsMatchIn(key(it)) }
 
     fun layoutOrNull(spec: DiagramSpec): DiagramLayoutResult? {
+        val sharedCarrier = IqCarrierBranch.find(spec)
         val controls = spec.nodes.filter { isControl(it, spec) }.mapTo(mutableSetOf()) { it.id }
+            .apply { addAll(sharedCarrier?.controlIds.orEmpty()) }
         val signal = spec.nodes.filter { it.id !in controls }
         if (signal.isEmpty()) return null
         val forward = spec.edges.filter { !it.dashed && it.from !in controls && it.to !in controls }
@@ -53,6 +55,7 @@ internal object CommunicationDiagramLayout {
             node.id to connected.ifEmpty { setOf(0) }
         }
         val laneKeys = lanes.values.flatten().distinct().sorted()
+        val centralCarrier = sharedCarrier?.takeIf { it.fits(stage, lanes) }
         val baseSizes = spec.nodes.associate { it.id to DiagramLayout.sizeOf(it) }
         val bundledBlocks = forward.filter { it.channel != null }.flatMap { listOf(it.from to it.channel, it.to to it.channel) }
             .groupBy({ it.first }, { it.second }).filterValues { it.distinct().size > 1 }.keys
@@ -64,7 +67,8 @@ internal object CommunicationDiagramLayout {
                 .maxOfOrNull { baseSizes.getValue(it.id).height } ?: 0f)
         }
         data class Control(val node: DiagramNode, val target: String, val lane: Int, val above: Boolean)
-        val feeds = spec.nodes.filter { it.id in controls }.sortedBy { it.id }.map { node ->
+        val feeds = spec.nodes.filter { it.id in controls && it.id !in centralCarrier?.controlIds.orEmpty() }
+            .sortedBy { it.id }.map { node ->
             val outgoingFeeds = spec.edges.filter { it.from == node.id }.sortedWith(
                 compareBy<DiagramEdge> { stage[it.to] ?: Int.MAX_VALUE }.thenBy { it.to }.thenBy { it.toPort.name })
             val edge = outgoingFeeds.firstOrNull { it.to !in controls } ?: outgoingFeeds.firstOrNull()
@@ -85,7 +89,9 @@ internal object CommunicationDiagramLayout {
         laneKeys.forEach { lane ->
             val previous = lastLane
             centers[lane] = if (previous == null) titleBottom + extent(lane, true) + 38f
-                else centers.getValue(previous) + extent(previous, false) + extent(lane, true) + 54f
+                else centers.getValue(previous) + maxOf(extent(previous, false) + extent(lane, true) + 54f,
+                    if (centralCarrier != null) signalHeights.getValue(previous) / 2f +
+                        signalHeights.getValue(lane) / 2f + centralCarrier.railClearance(baseSizes) else 0f)
             lastLane = lane
         }
         val maxStage = stage.values.max()
@@ -101,7 +107,9 @@ internal object CommunicationDiagramLayout {
         fun center(id: String, lane: Int) = stageCenters.getValue(stage.getValue(id)).getValue(lane)
         val columnWidths = (0..maxStage).associateWith { col ->
             maxOf(48f, signal.filter { stage[it.id] == col }.maxOfOrNull { baseSizes.getValue(it.id).width } ?: 0f,
-                feeds.filter { stage[it.target] == col }.maxOfOrNull { baseSizes.getValue(it.node.id).width } ?: 0f)
+                feeds.filter { stage[it.target] == col }.maxOfOrNull { baseSizes.getValue(it.node.id).width } ?: 0f,
+                if (centralCarrier != null && col == stage[centralCarrier.directMixer.id])
+                    centralCarrier.columnWidth(baseSizes) else 0f)
         }
         val columns = mutableMapOf<Int, Float>()
         var cursor = PADDING
@@ -118,7 +126,10 @@ internal object CommunicationDiagramLayout {
             val size = baseSizes.getValue(node.id)
             val height = if (spans(node)) maxOf(size.height, lastY - firstY + 88f) else size.height
             val col = stage.getValue(node.id)
-            NodeBox(node, columns.getValue(col) + (columnWidths.getValue(col) - size.width) / 2f,
+            val offset = if (centralCarrier != null && col == stage[centralCarrier.directMixer.id])
+                centralCarrier.mixerInset(baseSizes) - size.width / 2f
+                else (columnWidths.getValue(col) - size.width) / 2f
+            NodeBox(node, columns.getValue(col) + offset,
                 (firstY + lastY - height) / 2f, size.width, height, col, connected.min())
         }
         val signalById = signalBoxes.associateBy { it.node.id }
@@ -135,13 +146,14 @@ internal object CommunicationDiagramLayout {
             }
             placedControls += NodeBox(feed.node, x, top, size.width, size.height, target.column, feed.lane)
         }
-        val boxes = signalBoxes + placedControls
+        val boxes = signalBoxes + placedControls + centralCarrier?.place(signalBoxes, baseSizes).orEmpty()
         val boxById = boxes.associateBy { it.node.id }
         val feedbackChannels = spec.edges.filter { it.dashed && it.from !in controls && it.to !in controls &&
                 stage.getValue(it.from) >= stage.getValue(it.to) }
             .sortedWith(compareBy<DiagramEdge> { it.from }.thenBy { it.to }.thenBy { it.channel })
             .withIndex().associate { it.value to it.index }
         val routes = spec.edges.map { edge ->
+            centralCarrier?.route(edge, boxById)?.let { return@map it }
             val from = boxById.getValue(edge.from)
             val to = boxById.getValue(edge.to)
             val fromLanes = lanes[edge.from].orEmpty()

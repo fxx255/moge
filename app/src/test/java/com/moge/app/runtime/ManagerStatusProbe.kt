@@ -74,6 +74,7 @@ class ManagerStatusProbe {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repo, NoopRenderer()),
             preparer = mockk(relaxed = true),
+            figureCompleter = GenerationFigureCompleter(NoopRenderer(), model),
         )
         manager.start(
             GenerationManager.GenerationRequest(
@@ -81,7 +82,7 @@ class ManagerStatusProbe {
                 attemptId = "att1", userText = "q",
                 history = listOf(ChatMessage("user", "q")),
                 imageBase64s = emptyList(), webSearchEnabled = false,
-                forceWebSearch = false, maxContinuations = 0, modelKey = "m", protocol = "p",
+                forceWebSearch = false, modelKey = "m", protocol = "p",
             ),
             created.requestId,
         )

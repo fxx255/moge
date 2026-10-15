@@ -30,9 +30,7 @@ object CodingDiagramRenderer {
         }
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; textSize = 24f }
         fun label(value: String, x: Float, y: Float, size: Float = 24f, center: Boolean = false, color: Int = ink) {
-            text.textSize = size; text.color = color
-            text.textAlign = if (center) Paint.Align.CENTER else Paint.Align.LEFT
-            canvas.drawText(value, x, y - (text.ascent() + text.descent()) / 2, text)
+            DiagramLabelText(value, size, color).draw(canvas, x, y, centered = center)
         }
         fun line(vararg points: P, paint: Paint = stroke) {
             val path = Path().apply {
@@ -102,8 +100,8 @@ object CodingDiagramRenderer {
                 else -> "卷积码编码器 · 码率 1/" + code.generators.size + " · K=" + (code.memory + 1)
             }
         }
-        d.text.textSize = 28f
-        val titleSize = min(28f, 28f * (width - 64f) / d.text.measureText(title).coerceAtLeast(1f))
+        val titleWidth = DiagramLabelText(title, 28f, d.ink).width
+        val titleSize = min(28f, 28f * (width - 64f) / titleWidth.coerceAtLeast(1f))
         d.label(title, 32f, 36f, titleSize)
         when {
             cyclic -> cyclic(d, code, width)

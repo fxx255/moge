@@ -22,7 +22,7 @@ const val CONTINUE_INSTRUCTION =
         "不要只猜测补一个公式后缀。保留成对的公式定界符和加粗标记，不写‘接上文’。" +
         "不要重复更早已完成的段落，也不要提前收尾——除非确实已经全部写完。仍只输出独立完整的 JSON 对象。"
 
-/** 单轮「有效产出」阈值：低于它视为模型在收尾或打转。 */
+/** 识别推理后占位式短回答的阈值；不用于限制自动续写。 */
 const val MIN_MEANINGFUL_CHARS = 200
 
 /**
@@ -58,10 +58,6 @@ fun reconcileStreamedReply(streamed: String, parsed: String): String {
         else -> parsedText
     }
 }
-
-/** 累计输出绝对熔断长度。 */
-const val TOTAL_CHAR_FUSE = 240_000
-
 
 /**
  * 合并原始 reply 片段，含「续写重放了未完成段落」的情况。
@@ -139,19 +135,11 @@ fun polishTruncatedTail(text: String): String {
 /**
  * 是否应当继续自动续写。
  *
- * 三道刹车：① 模型确实被输出上限截断；② 没有连续两轮几乎没内容；
- * ③ 未超过用户的续写轮数上限与总熔断长度。[barrenRounds] 为已连续空转轮数。
+ * 模型报告输出截断时继续，不设置轮数或总字符上限。
+ * [barrenRounds] 为连续未增加正文或图的轮数；空转两轮后停止。
  */
 fun shouldContinueGeneration(
     truncated: Boolean,
     barrenRounds: Int,
-    continuation: Int,
-    maxContinuations: Int,
-    accumulatedChars: Int,
 ): Boolean = truncated &&
-    barrenRounds < 2 &&
-    continuation < maxContinuations &&
-    accumulatedChars < TOTAL_CHAR_FUSE
-
-/** 单轮产出是否算「有效内容」（低于阈值视为收尾或打转）。 */
-fun isMeaningfulRound(replyText: String): Boolean = replyText.length >= MIN_MEANINGFUL_CHARS
+    barrenRounds < 2

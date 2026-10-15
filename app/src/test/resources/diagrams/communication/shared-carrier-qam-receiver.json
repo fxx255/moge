@@ -1,0 +1,39 @@
+{
+  "title": "64QAM 相干解调框图",
+  "profile": "iq_demodulator",
+  "nodes": [
+    {"id":"in","label":"$r(t)$","shape":"io","role":"input"},
+    {"id":"split","label":"分路","shape":"junction","role":"split"},
+    {"id":"mi","label":"×","shape":"mixer","role":"i_mixer"},
+    {"id":"mq","label":"×","shape":"mixer","role":"q_mixer"},
+    {"id":"fi","label":"根升余弦匹配滤波","shape":"block","role":"i_filter"},
+    {"id":"fq","label":"根升余弦匹配滤波","shape":"block","role":"q_filter"},
+    {"id":"si","label":"抽样","subLabel":"$t=kT_s$","shape":"sampler","role":"i_sampler"},
+    {"id":"sq","label":"抽样","subLabel":"$t=kT_s$","shape":"sampler","role":"q_sampler"},
+    {"id":"di","label":"8 电平判决","shape":"block","role":"i_decision"},
+    {"id":"dq","label":"8 电平判决","shape":"block","role":"q_decision"},
+    {"id":"demap","label":"比特解映射","subLabel":"每路 3 bit","shape":"block","role":"symbol_demapper"},
+    {"id":"ps","label":"并串变换","shape":"bus","role":"parallel_to_serial"},
+    {"id":"out","label":"240 kbit/s","shape":"io","role":"output"},
+    {"id":"carrier","label":"$\\cos 2\\pi f_ct$","shape":"block","role":"local_oscillator"},
+    {"id":"phase","label":"−90° 移相","shape":"block","role":"phase_shift"}
+  ],
+  "edges": [
+    {"from":"in","to":"split"},
+    {"from":"split","to":"mi"},
+    {"from":"split","to":"mq"},
+    {"from":"mi","to":"fi"},
+    {"from":"mq","to":"fq"},
+    {"from":"fi","to":"si"},
+    {"from":"fq","to":"sq"},
+    {"from":"si","to":"di"},
+    {"from":"sq","to":"dq"},
+    {"from":"di","to":"demap"},
+    {"from":"dq","to":"demap"},
+    {"from":"demap","to":"ps"},
+    {"from":"ps","to":"out"},
+    {"from":"carrier","to":"mi"},
+    {"from":"carrier","to":"phase"},
+    {"from":"phase","to":"mq"}
+  ]
+}

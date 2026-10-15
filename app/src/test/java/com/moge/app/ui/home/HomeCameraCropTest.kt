@@ -92,14 +92,14 @@ class HomeCameraCropTest {
         verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any(), any()) }
     }
 
-    @Test fun `camera stays closed for the entire crop queue and final original opens confirmation`() {
+    @Test fun `camera stays closed for the entire crop queue and final confirm opens confirmation`() {
         state.value = HomeUiState(cropQueue = listOf(photo(), photo()))
         mount()
         verify(exactly = 0) { ProcessCameraProvider.getInstance(any()) }
-        clickText("使用原图")
+        clickText("确定")
         compose.onNodeWithText("裁剪照片").assertExists()
         verify(exactly = 0) { ProcessCameraProvider.getInstance(any()) }
-        clickText("使用原图")
+        clickText("确定")
         compose.onNodeWithText("裁剪照片").assertDoesNotExist()
         compose.onNodeWithText("使用照片").assertExists()
         verify(exactly = 2) { vm.onCropDone() }

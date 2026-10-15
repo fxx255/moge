@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -94,5 +95,20 @@ class HistoryScreenTest {
         compose.onNodeWithContentDescription("正在读取历史").assertDoesNotExist()
         state.value = state.value.copy(entries = emptyList())
         compose.onNodeWithContentDescription("正在读取历史").assertExists()
+    }
+
+    @Test fun `history scrolls behind stationary filters instead of clipping below them`() {
+        state.value = state.value.copy(entries = (0..15).map {
+            HistoryEntry(ConversationEntity(id = "item$it", title = "对话 $it"), "题目预览")
+        })
+        render()
+        val filters = compose.onNodeWithTag("history-category-filters").fetchSemanticsNode().boundsInRoot
+        val grid = compose.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag("history-card-item0")))
+        assertTrue(grid.fetchSemanticsNode().boundsInRoot.top < filters.top)
+        assertTrue(compose.onNodeWithTag("history-card-item0").fetchSemanticsNode().boundsInRoot.top > filters.bottom)
+        grid.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 90f) }
+        compose.waitForIdle()
+        assertEquals(filters, compose.onNodeWithTag("history-category-filters").fetchSemanticsNode().boundsInRoot)
+        assertTrue(compose.onNodeWithTag("history-card-item0").fetchSemanticsNode().boundsInRoot.top < filters.bottom)
     }
 }

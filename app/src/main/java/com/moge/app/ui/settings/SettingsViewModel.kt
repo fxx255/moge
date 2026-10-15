@@ -132,10 +132,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setHistoryRetentionDays(value) }
     }
 
-    fun setMaxContinuations(value: Int) {
-        viewModelScope.launch { settings.setMaxContinuations(value) }
-    }
-
     fun setWebSearchEnabled(value: Boolean) {
         viewModelScope.launch { settings.setWebSearchEnabled(value) }
     }

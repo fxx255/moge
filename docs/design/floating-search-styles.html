@@ -1,0 +1,202 @@
+<div id="moge-floating-styles">
+  <div class="viz-controls" aria-label="预览设置">
+    <label class="form-label">主题
+      <select class="form-select" data-setting="theme"><option value="auto">跟随外观</option><option value="chalk" selected>黑板</option><option value="paper">方格本</option></select>
+    </label>
+    <label class="form-label">页面
+      <select class="form-select" data-setting="page"><option value="history">历史对话</option><option value="notebook">我的题册</option></select>
+    </label>
+  </div>
+  <div class="viz-carousel viz-dotted-background" aria-label="搜索与分类样式" data-previous-label="上一款" data-next-label="下一款">
+    <section data-variant="纸页悬浮" aria-label="纸页悬浮样式">
+      <div class="mg-stage">
+        <div class="mg-phone mg-paper-float" data-theme="chalk" aria-label="纸页悬浮页面预览">
+          <header class="mg-chrome"><button type="button" class="mg-icon cursor-interaction" aria-label="返回"><i data-lucide="arrow-left" aria-hidden="true"></i></button><h2>历史对话</h2><button type="button" class="mg-icon mg-book cursor-interaction" aria-label="我的题册"><i data-lucide="book-open" aria-hidden="true"></i></button><button type="button" class="mg-icon mg-folders cursor-interaction" aria-label="管理分类"><i data-lucide="folder" aria-hidden="true"></i></button></header>
+          <div class="mg-main">
+            <div class="mg-scroll" role="region" aria-label="可滚动的对话卡片"><div class="mg-cards"></div></div>
+            <div class="mg-floating" aria-label="纸页悬浮搜索和分类">
+              <div class="mg-backboard"><div class="mg-sheet">
+                <div class="mg-search"><i data-lucide="search" aria-hidden="true"></i><input type="search" aria-label="搜索标题、消息或识别文本" placeholder="搜索标题、消息或识别文本"></div>
+                <nav class="mg-categories" aria-label="对话分类"></nav>
+              </div><div class="mg-count" hidden></div></div><div class="mg-soft-edge"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section data-variant="索引页签" aria-label="索引页签样式" hidden>
+      <div class="mg-stage">
+        <div class="mg-phone mg-index" data-theme="chalk" aria-label="索引页签页面预览">
+          <header class="mg-chrome"><button type="button" class="mg-icon cursor-interaction" aria-label="返回"><i data-lucide="arrow-left" aria-hidden="true"></i></button><h2>历史对话</h2><button type="button" class="mg-icon mg-book cursor-interaction" aria-label="我的题册"><i data-lucide="book-open" aria-hidden="true"></i></button><button type="button" class="mg-icon mg-folders cursor-interaction" aria-label="管理分类"><i data-lucide="folder" aria-hidden="true"></i></button></header>
+          <div class="mg-main">
+            <div class="mg-scroll" role="region" aria-label="可滚动的对话卡片"><div class="mg-cards"></div></div>
+            <div class="mg-floating" aria-label="索引页签搜索和分类">
+              <div class="mg-backboard"><div class="mg-sheet">
+                <div class="mg-search"><i data-lucide="search" aria-hidden="true"></i><input type="search" aria-label="搜索标题、消息或识别文本" placeholder="搜索标题、消息或识别文本"></div>
+                <nav class="mg-categories" aria-label="对话分类"></nav>
+              </div><div class="mg-count" hidden></div></div><div class="mg-soft-edge"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section data-variant="粉笔书写" aria-label="粉笔书写样式" hidden>
+      <div class="mg-stage">
+        <div class="mg-phone mg-chalk-writing" data-theme="chalk" aria-label="粉笔书写页面预览">
+          <header class="mg-chrome"><button type="button" class="mg-icon cursor-interaction" aria-label="返回"><i data-lucide="arrow-left" aria-hidden="true"></i></button><h2>历史对话</h2><button type="button" class="mg-icon mg-book cursor-interaction" aria-label="我的题册"><i data-lucide="book-open" aria-hidden="true"></i></button><button type="button" class="mg-icon mg-folders cursor-interaction" aria-label="管理分类"><i data-lucide="folder" aria-hidden="true"></i></button></header>
+          <div class="mg-main">
+            <div class="mg-scroll" role="region" aria-label="可滚动的对话卡片"><div class="mg-cards"></div></div>
+            <div class="mg-floating" aria-label="粉笔书写搜索和分类">
+              <div class="mg-backboard"><div class="mg-sheet">
+                <div class="mg-search"><i data-lucide="search" aria-hidden="true"></i><input type="search" aria-label="搜索标题、消息或识别文本" placeholder="搜索标题、消息或识别文本"></div>
+                <nav class="mg-categories" aria-label="对话分类"></nav>
+              </div><div class="mg-count" hidden></div></div><div class="mg-soft-edge"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<style>
+  #moge-floating-styles .mg-stage { min-height: 660px; display: grid; place-items: center; padding: 18px 8px 24px; }
+  #moge-floating-styles .mg-phone {
+    --mg-bg: light-dark(#f7f5ef, #1e2b26); --mg-grid: light-dark(#dde4ec, #2a3a33);
+    --mg-text: light-dark(#1a1b1e, #ecede6); --mg-muted: light-dark(#5f6570, #a9b5ad);
+    --mg-surface: light-dark(#ffffff, #24332d); --mg-scratch: light-dark(#f1efe8, #22302a);
+    --mg-line: light-dark(#d3d6db, #3b4c43); --mg-ink: light-dark(#1f3a8a, #f2d675);
+    --mg-tint: light-dark(#dce4f7, #4a4320); --mg-on-tint: light-dark(#0e1f52, #fff0b3);
+    --mg-marker: light-dark(#ffe066d9, #f2d67552); --mg-tape: light-dark(#f1e4b0c7, #c9c3a859);
+    --mg-shadow: light-dark(#0e1f5218, #06120b54); --mg-rim: light-dark(#ffffffc9, #ecede621);
+    width: min(100%, 386px); height: 610px; border-radius: 22px; overflow: hidden;
+    position: relative; color: var(--mg-text); font: 400 14px/1.55 "Microsoft YaHei", "PingFang SC", sans-serif;
+    background-color: var(--mg-bg); background-image: linear-gradient(var(--mg-grid) 1px, transparent 1px), linear-gradient(90deg, var(--mg-grid) 1px, transparent 1px);
+    background-size: 24px 24px; box-shadow: 0 18px 55px var(--mg-shadow); border: 1px solid var(--mg-line);
+  }
+  #moge-floating-styles .mg-phone[data-theme="chalk"] { color-scheme: dark; }
+  #moge-floating-styles .mg-phone[data-theme="paper"] { color-scheme: light; }
+  #moge-floating-styles .mg-phone * { box-sizing: border-box; }
+  #moge-floating-styles .mg-chrome { height: 76px; display: flex; align-items: center; padding: 8px 12px 8px 6px; gap: 2px; }
+  #moge-floating-styles .mg-chrome h2 { font: 400 25px/1.3 "Noto Serif SC", "SimSun", serif; margin: 0 auto 0 4px; position: relative; z-index: 0; white-space: nowrap; }
+  #moge-floating-styles .mg-chrome h2::before { content: ""; position: absolute; background: var(--mg-marker); left: -3px; right: -4px; bottom: 0; height: 13px; transform: rotate(-1.5deg); z-index: -1; }
+  #moge-floating-styles .mg-icon { padding: 0; width: 40px; height: 44px; flex: 0 0 40px; display: grid; place-items: center; color: var(--mg-text); background: transparent; border: 0; border-radius: 10px; }
+  #moge-floating-styles .mg-icon svg { width: 22px; height: 22px; stroke-width: 1.7; }
+  #moge-floating-styles .mg-main { position: absolute; inset: 76px 0 0; }
+  #moge-floating-styles .mg-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  #moge-floating-styles .mg-scroll::-webkit-scrollbar { display: none; }
+  #moge-floating-styles .mg-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 12px; padding: calc(var(--mg-toolbar-height, 155px) + 8px) 16px 32px; }
+  #moge-floating-styles .mg-card { min-width: 0; padding: 13px 12px; background: var(--mg-surface); border: 1px solid var(--mg-line); border-radius: 7px; display: flex; flex-direction: column; gap: 10px; }
+  #moge-floating-styles .mg-card h3 { font: 500 16px/1.5 "Microsoft YaHei", sans-serif; margin: 0; overflow-wrap: anywhere; }
+  #moge-floating-styles .mg-card p { font: inherit; margin: 0; overflow-wrap: anywhere; }
+  #moge-floating-styles .mg-card .mg-preview { color: var(--mg-muted); }
+  #moge-floating-styles .mg-card .mg-category { color: var(--mg-ink); font-size: 12px; }
+  #moge-floating-styles .mg-card time { color: var(--mg-muted); font-size: 11px; white-space: nowrap; }
+  #moge-floating-styles .mg-card .mg-saved { color: var(--mg-ink); font-size: 12px; display: flex; align-items: center; gap: 5px; }
+  #moge-floating-styles .mg-saved svg { width: 14px; height: 14px; }
+  #moge-floating-styles .mg-floating { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; z-index: 2; --mg-feather: 30px; }
+  #moge-floating-styles .mg-backboard { pointer-events: auto; background: var(--mg-bg); padding: 4px 16px 0; }
+  #moge-floating-styles .mg-sheet { position: relative; }
+  #moge-floating-styles .mg-search { display: flex; align-items: center; min-height: 52px; gap: 10px; }
+  #moge-floating-styles .mg-search > svg { width: 20px; height: 20px; color: var(--mg-muted); flex: 0 0 20px; }
+  #moge-floating-styles input { min-width: 0; width: 100%; font: inherit; font-size: 14px; color: var(--mg-text); border: 0; background: transparent; padding: 14px 0; border-radius: 4px; }
+  #moge-floating-styles input::placeholder { color: var(--mg-muted); opacity: 1; }
+  #moge-floating-styles .mg-categories { display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  #moge-floating-styles .mg-categories button { position: relative; flex: 0 0 auto; font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--mg-muted); min-height: 44px; padding: 8px 10px; white-space: nowrap; }
+  #moge-floating-styles .mg-categories button[aria-pressed="true"] { color: var(--mg-on-tint); background: var(--mg-tint); }
+  #moge-floating-styles .mg-count { color: var(--mg-muted); font-size: 12px; padding-top: 10px; }
+  #moge-floating-styles .mg-soft-edge { height: var(--mg-feather); background: linear-gradient(to bottom, var(--mg-bg), color-mix(in srgb, var(--mg-bg) 85%, transparent) 35%, transparent); }
+  #moge-floating-styles .mg-paper-float .mg-sheet { background: var(--mg-surface); border: 1px solid var(--mg-line); border-radius: 17px; box-shadow: 0 5px 12px var(--mg-shadow), inset 0 1px var(--mg-rim); padding: 7px; }
+  #moge-floating-styles .mg-paper-float .mg-search { background: var(--mg-scratch); border-radius: 11px; padding: 0 12px; }
+  #moge-floating-styles .mg-paper-float .mg-categories { margin-top: 5px; gap: 2px; }
+  #moge-floating-styles .mg-paper-float .mg-categories button { border-radius: 8px; min-height: 40px; padding: 7px 9px; }
+  #moge-floating-styles .mg-index .mg-backboard { padding: 4px 16px 0; }
+  #moge-floating-styles .mg-index .mg-sheet { padding: 12px 12px 0; border-radius: 8px 16px 0 0; background: var(--mg-surface); box-shadow: 0 8px 16px var(--mg-shadow); border-bottom: 3px solid var(--mg-line); }
+  #moge-floating-styles .mg-index .mg-sheet::before { content: ""; position: absolute; top: -5px; right: 21px; width: 48px; height: 12px; background: var(--mg-tape); transform: rotate(5deg); }
+  #moge-floating-styles .mg-index .mg-search { border-bottom: 1px solid var(--mg-line); margin-bottom: 12px; padding: 0 2px; min-height: 42px; }
+  #moge-floating-styles .mg-index .mg-categories { gap: 5px; align-items: end; }
+  #moge-floating-styles .mg-index .mg-categories button { min-height: 42px; padding: 8px 9px; background: var(--mg-scratch); border-radius: 8px 10px 0 0; border-top: 2px solid transparent; }
+  #moge-floating-styles .mg-index .mg-categories button[aria-pressed="true"] { background: var(--mg-tint); border-top-color: var(--mg-ink); }
+  #moge-floating-styles .mg-chalk-writing .mg-backboard { padding: 4px 20px 0; }
+  #moge-floating-styles .mg-chalk-writing .mg-search { border-bottom: 1px solid color-mix(in srgb, var(--mg-muted) 65%, transparent); padding: 0 5px; margin: 0 0 8px; min-height: 54px; }
+  #moge-floating-styles .mg-chalk-writing .mg-categories { gap: 7px; }
+  #moge-floating-styles .mg-chalk-writing .mg-categories button { font-family: "Noto Serif SC", "SimSun", serif; font-size: 15px; padding: 8px 8px; min-height: 46px; z-index: 0; }
+  #moge-floating-styles .mg-chalk-writing .mg-categories button[aria-pressed="true"] { background: transparent; color: var(--mg-ink); }
+  #moge-floating-styles .mg-chalk-writing .mg-categories button[aria-pressed="true"]::before { content: ""; position: absolute; left: 4px; right: 3px; bottom: 7px; height: 9px; transform: rotate(-3deg); background: var(--mg-marker); z-index: -1; }
+  #moge-floating-styles .mg-chalk-writing .mg-soft-edge { height: calc(var(--mg-feather) + 10px); }
+  #moge-floating-styles .mg-phone[data-page="notebook"] .mg-cards { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  #moge-floating-styles .mg-phone[data-page="notebook"] .mg-card { padding: 16px; border-radius: 12px; }
+  #moge-floating-styles .mg-phone[data-page="notebook"] .mg-book { display: none; }
+  #moge-floating-styles .mg-empty { grid-column: 1 / -1; color: var(--mg-muted); text-align: center; padding: 24px 0; }
+  @media(max-width: 400px) { #moge-floating-styles .mg-stage { padding-inline: 0; } #moge-floating-styles .mg-phone { border-radius: 16px; } #moge-floating-styles .mg-chrome h2 { font-size: 23px; } }
+  @media(pointer: coarse) { #moge-floating-styles input { font-size: 16px; } #moge-floating-styles .mg-categories button { min-height: 44px; } }
+  @media(prefers-reduced-motion: no-preference) { #moge-floating-styles .mg-categories button { transition: background-color 140ms, color 140ms; } }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('moge-floating-styles');
+  const phones = [...root.querySelectorAll('.mg-phone')];
+  const themeControl = root.querySelector('[data-setting="theme"]');
+  const pageControl = root.querySelector('[data-setting="page"]');
+  const saved = window.openai?.widgetState;
+  const stored = saved?.modelContent || {};
+  const config = {theme: ['auto','chalk','paper'].includes(stored.theme) ? stored.theme : 'chalk', page: stored.page === 'notebook' ? 'notebook' : 'history'};
+  const categories = ['全部', '未分类', '高数', '通信原理', '英语'];
+  const records = [
+    ['编码与量化误差计算', '均匀量化器的量化间隔与信噪比，逐步核对计算。', '通信原理', '2026.10.15 11:08'],
+    ['化工萃取分离板坐标查错', '检查平衡曲线与操作线上的坐标，重新标注关键点。', '未分类', '2026.10.15 10:42'],
+    ['含奇点曲线积分中格林公式的适用条件', '曲线内部存在奇点时，先挖去小圆，再补上边界积分。', '高数', '2026.10.15 10:26'],
+    ['64QAM 调制与解调框图订正', '每个符号 6 bit，分成 I、Q 两路，分别作 8 电平映射。', '通信原理', '2026.10.15 09:55'],
+    ['升余弦功率谱与带宽', '核对上下边带、平顶区和滚降零点，带宽为 50 kHz。', '通信原理', '2026.10.14 21:10'],
+    ['二重积分的换元方法', '极坐标换元后的积分区域与雅可比因子。', '高数', '2026.10.14 20:36'],
+    ['英语长难句结构分析', '找出句子主干，辨认定语从句与非谓语结构。', '英语', '2026.10.14 19:20'],
+    ['今天的复习计划', '整理公式、核对错题，并记录还没有理解的步骤。', '未分类', '2026.10.14 18:32']
+  ];
+  const states = phones.map((phone) => ({phone, category:'全部', query:'', feather:30, initial:true}));
+  const persist = () => { if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:config, privateContent:null}).catch(() => {}); };
+  function make(tag, className, text) { const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el; }
+  function cards(s) {
+    const {phone} = s;
+    const body = phone.querySelector('.mg-cards');
+    const results = records.filter(r => (s.category === '全部' || r[2] === s.category) && r.join(' ').toLowerCase().includes(s.query.toLowerCase()));
+    body.replaceChildren();
+    results.forEach((r) => {
+      const article = make('article','mg-card');
+      article.append(make('h3','',r[0]),make('p','mg-preview',r[1]),make('span','mg-category',r[2]));
+      if (config.page === 'history') { const status = make('span','mg-saved'); const icon = document.createElement('i'); icon.setAttribute('data-lucide','bookmark'); icon.setAttribute('aria-hidden','true'); status.append(icon, document.createTextNode('已收藏 1 条回答')); article.append(status); }
+      article.append(make('time','',r[3])); body.append(article);
+    });
+    if (!results.length) body.append(make('div','mg-empty','没有找到匹配的内容'));
+    const count = phone.querySelector('.mg-count'); count.hidden = config.page !== 'notebook'; count.textContent = `${results.length} 条收藏 · 长按可管理`;
+    if (globalThis.lucide) lucide.createIcons({attrs:{width:16,height:16}});
+  }
+  function measure(s) { const header = s.phone.querySelector('.mg-floating'); if (header.offsetHeight) s.phone.style.setProperty('--mg-toolbar-height', `${header.offsetHeight}px`); }
+  function apply() {
+    themeControl.value = config.theme; pageControl.value = config.page;
+    states.forEach(s => {
+      s.phone.dataset.theme = config.theme; s.phone.dataset.page = config.page;
+      s.phone.querySelector('h2').textContent = config.page === 'notebook' ? '我的题册' : '历史对话';
+      const placeholder = config.page === 'notebook' ? '搜索收藏标题、题目或解答' : '搜索标题、消息或识别文本';
+      const input = s.phone.querySelector('input'); input.placeholder = placeholder; input.setAttribute('aria-label',placeholder);
+      s.phone.querySelector('.mg-scroll').setAttribute('aria-label', config.page === 'notebook' ? '可滚动的收藏卡片' : '可滚动的对话卡片');
+      cards(s); measure(s);
+    });
+  }
+  states.forEach(s => {
+    const nav = s.phone.querySelector('.mg-categories');
+    categories.forEach(category => {
+      const button = make('button','cursor-interaction',category); button.type = 'button'; button.setAttribute('aria-pressed', String(category === s.category));
+      button.addEventListener('click', () => { s.category = category; [...nav.children].forEach(b => b.setAttribute('aria-pressed',String(b.textContent === category))); cards(s); measure(s); s.phone.querySelector('.mg-scroll').scrollTop = 0; }); nav.append(button);
+    });
+    s.phone.querySelector('input').addEventListener('input', e => { s.query = e.target.value; cards(s); measure(s); s.phone.querySelector('.mg-scroll').scrollTop = 0; });
+    s.phone.querySelector('.mg-book').addEventListener('click', () => { config.page = 'notebook'; apply(); persist(); });
+    s.phone.querySelector('[aria-label="返回"]').addEventListener('click', () => { config.page = 'history'; apply(); persist(); });
+    s.phone.querySelector('.mg-folders').disabled = true;
+    const observer = new ResizeObserver(() => { measure(s); if (s.initial && s.phone.offsetHeight) { s.phone.querySelector('.mg-scroll').scrollTop = 72; s.initial = false; } }); observer.observe(s.phone.querySelector('.mg-floating'));
+    if (globalThis.Tweak) { const tweak = new Tweak({container:s.phone.querySelector('.mg-floating'), onChange:() => {s.phone.querySelector('.mg-floating').style.setProperty('--mg-feather', `${s.feather}px`); measure(s);}}); tweak.addSlider(s,'feather',{label:'下缘渐隐',min:16,max:48,unit:'px'}); }
+  });
+  themeControl.addEventListener('change',() => { config.theme = themeControl.value; apply(); persist(); });
+  pageControl.addEventListener('change',() => { config.page = pageControl.value; apply(); persist(); });
+  window.addEventListener('openai:set_globals', e => { const next = e.detail?.globals?.widgetState?.modelContent; if (!next) return; if (['auto','chalk','paper'].includes(next.theme)) config.theme = next.theme; if (['history','notebook'].includes(next.page)) config.page = next.page; apply(); });
+  apply();
+})();
+</script>

@@ -205,11 +205,15 @@ class PaperDragInteractionTest {
     @Test fun `drag leaving the delete range cancels deletion on release`() {
         renderHistory()
         hold("history-card-a")
-        val destination = compose.onNodeWithTag("drop-delete").fetchSemanticsNode().boundsInRoot.center
+        val deleteBounds = compose.onNodeWithTag("drop-delete").fetchSemanticsNode().boundsInRoot
+        val destination = deleteBounds.center
+        // Leave the actual delete target, independently of the toolbar height
+        // and where the first card happens to sit on a small screen.
+        val safePoint = Offset(deleteBounds.center.x, deleteBounds.top - 24f)
         val origin = compose.onNodeWithTag("history-card-a").fetchSemanticsNode().boundsInRoot.topLeft
         compose.onNodeWithTag("history-card-a").performTouchInput {
             moveTo(destination - origin, delayMillis = 240)
-            moveTo(Offset(40f, 40f), delayMillis = 240)
+            moveTo(safePoint - origin, delayMillis = 240)
             up()
         }
         assertFalse(deleted)

@@ -22,7 +22,7 @@ class PlotImageStore @Inject constructor(
     dirName = "plots",
     prefix = "plot",
     serializer = PlotSpec.serializer(),
-    renderVersion = "p3",
+    renderVersion = "p4",
 ) {
     override fun draw(spec: PlotSpec, dark: Boolean): Bitmap {
         val metrics = context.resources.displayMetrics

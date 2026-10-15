@@ -7,6 +7,8 @@ import com.moge.app.data.llm.reconcileStreamedReply
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ContinuationTest {
@@ -14,6 +16,15 @@ class ContinuationTest {
     private fun parseFragment(text: String): String = ReplyParser.parse(
         buildJsonObject { put("reply", text) }.toString(), normalizeMarkdown = false,
     ).reply
+
+    @Test fun `legacy continuation caps are ignored when decoding saved requests`() {
+        for (cap in listOf(0, 3, 8)) {
+            val snapshot = SnapshotCodec.decode("""{"model":"m","endpointIdentity":"https://example.com/v1","maxContinuations":$cap,"continuationText":"保留的正文"}""")
+            assertNotNull(snapshot)
+            assertEquals("保留的正文", snapshot!!.continuationText)
+            assertFalse(SnapshotCodec.encode(snapshot).contains("maxContinuations"))
+        }
+    }
 
     @Test fun `formula split between JSON replies is normalized only after merging`() {
         val first = "结论：双纽线 $dollar\\rho^2=\\cos 2"

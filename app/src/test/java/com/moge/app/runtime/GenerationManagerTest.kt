@@ -129,6 +129,7 @@ class GenerationManagerTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repository, renderer),
             preparer = preparer,
+            figureCompleter = GenerationFigureCompleter(renderer, modelClient),
         )
         guard.onRelease = { manager.activeRequestId() }
         runBlocking {
@@ -152,7 +153,6 @@ class GenerationManagerTest {
         conversationId: String = "c1",
         answerMessageId: String = "a1",
         userText: String = "问题",
-        maxContinuations: Int = 0,
     ) = GenerationManager.GenerationRequest(
         conversationId = conversationId,
         userMessageId = "u1",
@@ -163,7 +163,6 @@ class GenerationManagerTest {
         imageBase64s = emptyList(),
         webSearchEnabled = false,
         forceWebSearch = false,
-        maxContinuations = maxContinuations,
         modelKey = "fake-model",
         protocol = "chat_completions",
     )
@@ -181,7 +180,7 @@ class GenerationManagerTest {
             arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(payload))
             ReplyParser.parse(payload, normalizeMarkdown = false).copy(truncated = sent.size == 1)
         }
-        manager.start(request(maxContinuations = 1).copy(continuationText = "已经生成的推导。", imageBase64s = listOf("QUESTION_IMAGE")), id)
+        manager.start(request().copy(continuationText = "已经生成的推导。", imageBase64s = listOf("QUESTION_IMAGE")), id)
         assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
         assertEquals(2, sent.size)
         sent.forEach { history ->
@@ -237,6 +236,77 @@ class GenerationManagerTest {
             }
             ReplyParser.parse(payload, normalizeMarkdown = normalizeMarkdown)
         }
+    }
+
+    @Test fun `short productive continuations pass the former eight round cap and finish normally`() = runBlocking {
+        val id = seed()
+        val pieces = (1..12).map { "第${it}段内容。" }
+        val calls = AtomicInteger()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            val index = calls.getAndIncrement()
+            check(index < pieces.size) { "Completion must stop further requests" }
+            val payload = """{"reply":"${pieces[index]}"}"""
+            arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(payload))
+            ReplyParser.parse(payload, normalizeMarkdown = false).copy(truncated = index < pieces.lastIndex)
+        }
+        manager.start(request(), id)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        assertEquals(12, calls.get())
+        assertEquals(pieces.joinToString(""), db.requestDao().getMessage("a1")!!.content)
+        assertEquals(0, guard.activeCount())
+    }
+
+    @Test fun `answers beyond the former total character fuse continue and retain every segment`() = runBlocking {
+        val id = seed()
+        val first = "长回答正文。".repeat(40_001)
+        val second = "这是越过旧字符上限后补齐的结论。"
+        stubSequence(listOf("""{"reply":"$first"}""", """{"reply":"$second"}"""),
+            chunkSize = 64_000, truncatedFlags = listOf(true, false))
+        manager.start(request(), id)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        assertEquals(first + second, db.requestDao().getMessage("a1")!!.content)
+    }
+
+    @Test fun `replayed long replies stop after two rounds without retained progress`() = runBlocking {
+        val id = seed()
+        val repeated = "已经完成的这段正文不应被反复续写。".repeat(20)
+        val calls = AtomicInteger()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            check(calls.incrementAndGet() <= 3) { "Must stop replay loops" }
+            val payload = """{"reply":"$repeated"}"""
+            arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(payload))
+            ReplyParser.parse(payload, normalizeMarkdown = false).copy(truncated = true)
+        }
+        manager.start(request(), id)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        assertEquals(3, calls.get())
+        val stored = db.requestDao().getMessage("a1")!!.content
+        assertTrue(stored.startsWith(repeated))
+        assertTrue(stored.contains("回答达到单次输出上限被截断"))
+        assertEquals(0, guard.activeCount())
+    }
+
+    @Test fun `empty continuation rounds preserve earlier text and stop without looping`() = runBlocking {
+        val id = seed()
+        val first = "已经生成并保存的正文。"
+        val calls = AtomicInteger()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            val index = calls.getAndIncrement()
+            check(index < 3) { "Must stop empty continuation loops" }
+            val payload = """{"reply":"${if (index == 0) first else ""}"}"""
+            arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(payload))
+            ReplyParser.parse(payload, normalizeMarkdown = false).copy(truncated = true)
+        }
+        manager.start(request(), id)
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(id))
+        assertEquals(3, calls.get())
+        assertTrue(db.requestDao().getMessage("a1")!!.content.startsWith(first))
     }
 
     /** 按调用次序依次返回不同 payload 的桩（用于续写/自纠正多轮）。 */
@@ -705,7 +775,7 @@ class GenerationManagerTest {
             ),
             truncatedFlags = listOf(true, false),
         )
-        manager.start(request(requestId = requestId, maxContinuations = 2), requestId)
+        manager.start(request(requestId = requestId), requestId)
         assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(requestId))
         val content = db.requestDao().getMessage("a1")!!.content
         // ① 完整正文：两轮内容都要在，不能被最后一轮覆盖。
@@ -730,7 +800,7 @@ class GenerationManagerTest {
             ),
             truncatedFlags = listOf(true, false),
         )
-        manager.start(request(requestId = requestId, maxContinuations = 2), requestId)
+        manager.start(request(requestId = requestId), requestId)
         assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(requestId))
         assertEquals("二重积分的对称性判断", db.conversationDao().getConversation("c1")!!.title)
         assertEquals("另一个会话", db.conversationDao().getConversation("c2")!!.title)
@@ -759,7 +829,7 @@ class GenerationManagerTest {
                 throw ModelException(ModelException.Kind.NETWORK, "续写时断网")
             }
         }
-        manager.start(request(requestId = requestId, maxContinuations = 2), requestId)
+        manager.start(request(requestId = requestId), requestId)
         // 续写失败 → 终态是中断，但**第一轮正文与图必须留住**。
         assertEquals(RequestStatus.INTERRUPTED.name, awaitTerminal(requestId))
         val partial = repository.get(requestId)!!.partialText
@@ -1017,7 +1087,7 @@ class GenerationManagerTest {
             ),
             truncatedFlags = listOf(true, false),
         )
-        manager.start(request(requestId = requestId, maxContinuations = 2), requestId)
+        manager.start(request(requestId = requestId), requestId)
         assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(requestId))
         val event = captured.get(2, java.util.concurrent.TimeUnit.SECONDS)
         assertTrue("完成事件必须带完整合并正文", event.mergedText.contains("上半段"))
@@ -1587,6 +1657,33 @@ class GenerationManagerTest {
         assertFalse("被取消的一轮不得广播 Completed", events.contains("Completed"))
     }
 
+    @Test fun `cancelling a missing figure request releases the guard and cannot commit completion`() = runBlocking {
+        val requestId = seed()
+        val repairStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var calls = 0
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            if (++calls == 1) {
+                val raw = """{"reply":"解调图如下。\n[[FIGURE:1]]"}"""
+                arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(raw))
+                ReplyParser.parse(raw, normalizeMarkdown = false)
+            } else {
+                repairStarted.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        manager.start(request(requestId = requestId), requestId)
+        withTimeout(5_000) { repairStarted.await() }
+        assertEquals(1, guard.activeCount())
+        manager.cancel(requestId)
+        assertEquals(RequestStatus.CANCELLED.name, awaitTerminal(requestId))
+        assertEquals(0, guard.activeCount())
+        assertEquals(2, calls)
+        assertTrue(repository.get(requestId)!!.partialText.contains("解调图如下。"))
+        assertEquals("取消补图不得提交最终回答", "", db.requestDao().getMessage("a1")!!.content)
+    }
+
     private class SlowRenderer : FigureRenderer {
         /** 进入渲染与放行渲染的两道闩，用于「绘图期间被取消」的场景。 */
         val entered = java.util.concurrent.CountDownLatch(1)
@@ -1621,6 +1718,7 @@ class GenerationManagerTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repository, slowRenderer),
             preparer = preparer,
+            figureCompleter = GenerationFigureCompleter(slowRenderer, modelClient),
         )
         stubStreaming("""{"reply":"带图的回答","plots":[{"title":"P","series":[{"expr":"x"}]}]}""")
         localManager.start(request(requestId = requestId, attemptId = "att1"), requestId)
@@ -1656,6 +1754,7 @@ class GenerationManagerTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repository, cancelRenderer),
             preparer = preparer,
+            figureCompleter = GenerationFigureCompleter(cancelRenderer, modelClient),
         )
         stubStreaming("""{"reply":"带图的回答","plots":[{"title":"P","series":[{"expr":"x"}]}]}""")
         localManager.start(request(requestId = requestId, attemptId = "att1"), requestId)
@@ -1827,6 +1926,7 @@ class GenerationManagerTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repository, renderer),
             preparer = realPreparer,
+            figureCompleter = GenerationFigureCompleter(renderer, modelClient),
         )
         return Triple(local, realPreparer, store)
     }

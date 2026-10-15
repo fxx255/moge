@@ -789,7 +789,8 @@ class PlotBitmapRenderer(
                 if (y != null && x in xLo..xHi && y in yLo..yHi) occupied += LabelRect(sx(x) - dp(4f), sy(y) - dp(4f), sx(x) + dp(4f), sy(y) + dp(4f))
             }
         }
-        // Fixed ticks/titles are drawn after geometry, with a small paper/board backing.
+        // Labels are drawn over geometry with transparent backgrounds. Their
+        // placement avoids collisions; a backing would erase axes and curves.
         for (label in labels.sortedBy { it.movable }) {
             labelBounds = label.bounds
             val w = smartTextWidth(label.raw, label.size).coerceAtMost(label.bounds.width())
@@ -814,8 +815,6 @@ class PlotBitmapRenderer(
                 canvas.restoreToCount(connectorSave)
             }
             labelBounds = RectF(0f, 0f, width, height).takeIf { label.movable } ?: label.bounds
-            fillPaint.color = theme.background
-            canvas.drawRoundRect(RectF(box.left - 2f, box.top - 1f, box.right + 2f, box.bottom + 1f), 2f, 2f, fillPaint)
             drawSmartText(canvas, label.raw, box.left, box.top + above, label.size, label.color)
             val mapped = RectF(box.left, box.top, box.right, box.bottom)
             label.matrix.mapRect(mapped)

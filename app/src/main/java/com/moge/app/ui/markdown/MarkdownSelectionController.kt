@@ -3,7 +3,6 @@ package com.moge.app.ui.markdown
 import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.text.Selection
@@ -31,6 +30,7 @@ internal class MarkdownSelectionController(
     private val view: TextView,
     private val host: SelectionScrollHost,
     private val handleColor: Int,
+    selectionSurfaceColor: Int,
 ) : ViewTreeObserver.OnPreDrawListener {
     private var actionMode: ActionMode? = null
     private var active = false
@@ -50,6 +50,7 @@ internal class MarkdownSelectionController(
     private val location = IntArray(2)
     private val startHandle by lazy { Handle(true) }
     private val endHandle by lazy { Handle(false) }
+    internal val magnifier = SelectionMagnifier(view, handleColor, selectionSurfaceColor)
 
     fun touch(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -143,6 +144,7 @@ internal class MarkdownSelectionController(
         if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnPreDrawListener(this)
         startHandle.popup.dismiss()
         endHandle.popup.dismiss()
+        magnifier.dismiss()
         (view.text as? Spannable)?.let { Selection.removeSelection(it) }
     }
 
@@ -150,6 +152,7 @@ internal class MarkdownSelectionController(
         if (!view.isAttachedToWindow || !view.hasSelection() || !view.isShown) finish()
         else {
             updateHandles()
+            if (dragging) updateMagnifier()
             if (dragging) actionMode?.hide(1_000) else actionMode?.invalidateContentRect()
         }
         return true
@@ -183,6 +186,7 @@ internal class MarkdownSelectionController(
         pointerY = y
         dragging = true
         actionMode?.hide(1_000)
+        updateMagnifier()
         host.drag(this)
     }
 
@@ -195,10 +199,26 @@ internal class MarkdownSelectionController(
 
     internal fun endDrag() {
         dragging = false
+        magnifier.dismiss()
         host.stopScrolling()
         actionMode?.hide(0)
         actionMode?.invalidateContentRect()
         updateHandles()
+    }
+
+    private fun updateMagnifier() {
+        if (!dragging || !active) return
+        val layout = view.layout ?: return
+        view.getLocationOnScreen(location)
+        val bounds = host.viewport
+        // Follow the text point corresponding to the dragged handle, retaining
+        // the initial grab offset without snapping Y back to the row's center.
+        val localY = (pointerY - fingerOffsetY).coerceIn(bounds.top, maxOf(bounds.top, bounds.bottom - 1)) - location[1]
+        val line = layout.getLineForVertical((localY - view.totalPaddingTop + view.scrollY).roundToInt())
+        val left = layout.getLineLeft(line) + view.totalPaddingLeft - view.scrollX
+        val right = layout.getLineRight(line) + view.totalPaddingLeft - view.scrollX
+        val localX = (pointerX - fingerOffsetX - location[0]).coerceIn(minOf(left, right), maxOf(left, right))
+        magnifier.show(localX, localY, pointerY, bounds)
     }
 
     internal fun canExtend(speed: Float): Boolean {
@@ -222,11 +242,14 @@ internal class MarkdownSelectionController(
         if (dragStart) Selection.setSelection(text, offset.coerceIn(0, (fixedOffset - 1).coerceAtLeast(0)), fixedOffset)
         else Selection.setSelection(text, fixedOffset, offset.coerceIn((fixedOffset + 1).coerceAtMost(text.length), text.length))
         updateHandles()
+        updateMagnifier()
     }
 
     private inner class Handle(private val start: Boolean) : View(view.context) {
         private val size = (48f * host.density).roundToInt()
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = handleColor }
+        private val drawable = SelectionHandleDrawable(handleColor, start, host.density)
+        // The touch target extends outward, so short selected words do not stack both targets.
+        private val anchorX = if (start) size - 6f * host.density else 6f * host.density
         val popup = PopupWindow(this, size, size, false).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             isClippingEnabled = false
@@ -238,9 +261,9 @@ internal class MarkdownSelectionController(
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         override fun onDraw(canvas: Canvas) {
-            val radius = 7f * host.density
-            canvas.drawRect(width / 2f - host.density, 0f, width / 2f + host.density, radius * 2, paint)
-            canvas.drawCircle(width / 2f, radius * 2, radius, paint)
+            val left = if (start) anchorX - drawable.intrinsicWidth else anchorX
+            drawable.setBounds(left.roundToInt(), 0, left.roundToInt() + drawable.intrinsicWidth, drawable.intrinsicHeight)
+            drawable.draw(canvas)
         }
         fun place(position: Pair<Float, Float>) {
             val bounds = host.viewport
@@ -258,7 +281,7 @@ internal class MarkdownSelectionController(
             val window = IntArray(2)
             view.rootView.getLocationOnScreen(screen)
             view.rootView.getLocationInWindow(window)
-            val xInWindow = (position.first - size / 2f - screen[0] + window[0]).roundToInt()
+            val xInWindow = (position.first - anchorX - screen[0] + window[0]).roundToInt()
             val yInWindow = (y - screen[1] + window[1]).roundToInt()
             if (popup.isShowing) popup.update(xInWindow, yInWindow, -1, -1)
             else if (view.isAttachedToWindow) popup.showAtLocation(view, Gravity.NO_GRAVITY, xInWindow, yInWindow)

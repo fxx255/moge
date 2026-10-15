@@ -135,6 +135,7 @@ class SubmitPathTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(requestRepository, NoopRenderer()),
             preparer = preparer,
+            figureCompleter = GenerationFigureCompleter(NoopRenderer(), modelClient),
         )
         runBlocking {
             db.conversationDao().insertConversation(ConversationEntity(id = "c1", title = "会话"))

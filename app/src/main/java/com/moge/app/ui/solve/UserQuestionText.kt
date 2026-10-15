@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.ui.markdown.MARKDOWN_TEXT_SIZE_SP
+import com.moge.app.ui.markdown.LocalSelectionScrollHost
 import com.moge.app.ui.markdown.createMarkdownTextView
 import com.moge.app.ui.markdown.formulaWidthMeasurer
 import com.moge.app.ui.markdown.renderMarkdownIfChanged
@@ -78,14 +79,17 @@ internal fun UserQuestionText(source: String, color: Color = MaterialTheme.color
 private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Unit)?) {
     val textColor = color.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
+    val selectionScrollHost = LocalSelectionScrollHost.current
     val context = LocalContext.current
     val density = LocalDensity.current
     val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds()) {
         val viewportWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        key(textColor, linkColor, fontSizePx) {
+        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
             val view = remember {
-                createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx)
+                createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
+                    selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor)
             }
             val renderWidthPx = remember(math, viewportWidthPx) {
                 val measure = formulaWidthMeasurer(view)

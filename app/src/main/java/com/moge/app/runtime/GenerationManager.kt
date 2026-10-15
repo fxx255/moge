@@ -19,7 +19,6 @@ import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.llm.StreamEvent
 import com.moge.app.data.llm.UsageSample
-import com.moge.app.data.llm.isMeaningfulRound
 import com.moge.app.data.llm.mergeContinuation
 import com.moge.app.data.llm.offsetFigureAnchors
 import com.moge.app.data.llm.localizeFigureAnchors
@@ -98,6 +97,7 @@ class GenerationManager @Inject constructor(
     private val finalizer: GenerationFinalizer,
     /** 准备阶段（照片转写、历史裁剪）——同样不依赖任何页面。 */
     private val preparer: GenerationPreparer,
+    private val figureCompleter: GenerationFigureCompleter,
 ) {
 
     /**
@@ -125,8 +125,6 @@ class GenerationManager @Inject constructor(
         val solveMode: SolveMode = SolveMode.DETAILED,
         val webSearchEnabled: Boolean,
         val forceWebSearch: Boolean,
-        /** 自动续写上限（用户设置）。 */
-        val maxContinuations: Int,
         /** 供诊断用的模型标识（不含密钥/查询参数）。 */
         val modelKey: String,
         val protocol: String,
@@ -901,7 +899,6 @@ class GenerationManager @Inject constructor(
         solveMode = prepared.solveMode,
         webSearchEnabled = prepared.webSearchEnabled,
         forceWebSearch = prepared.forceWebSearch,
-        maxContinuations = prepared.maxContinuations,
         modelKey = prepared.snapshot.model,
         protocol = prepared.snapshot.protocol,
         usageGroupKey = prepared.usageGroupKey,
@@ -1200,7 +1197,7 @@ class GenerationManager @Inject constructor(
             // The preparation phase is finished even if the model has not sent answer text yet.
             updateActive(owner) { it.copy(phase = RequestStatus.RUNNING) }
 
-            var continuation = 0
+            var firstRound = true
             var barrenRounds = 0
             var lastResult: ParsedReply? = null
             // 标题与学科取**首个**给出的轮次：续写轮的模型只看到尾部，判断不如首轮可靠。
@@ -1216,7 +1213,6 @@ class GenerationManager @Inject constructor(
             val accumulatedFigures = MutableList<ReplyFigure>(prefixFigureCount) { ReplyFigure.Missing }
 
             while (!shouldStop) {
-                val firstRound = continuation == 0
                 val resuming = firstRound && request.continuationText.isNotBlank()
                 val history = if (firstRound && !resuming) {
                     request.history
@@ -1350,25 +1346,25 @@ class GenerationManager @Inject constructor(
                     finalAnswer = offsetFigureAnchors(
                         localizeFigureAnchors(reply.finalAnswer, reply.orderedFigures().size), accumulatedFigures.size)
                 }
+                val previousLength = confirmedText.length
                 confirmedText = mergeContinuation(confirmedText, part)
                 partial = confirmedText
                 // 按轮序累积所有图的槽位（含失败槽位），失败槽位同样占号，
                 // 否则后面 [[FIGURE:n]] 的指向会整体错位。
                 accumulatedFigures += reply.orderedFigures()
                 val hitLimit = reply.truncated
-                if (isMeaningfulRound(reply.reply)) barrenRounds = 0 else barrenRounds++
+                // Count newly retained content, not replayed source length. Even a
+                // short productive round may have hit the provider's output limit.
+                val madeProgress = confirmedText.length > previousLength || reply.orderedFigures().isNotEmpty()
+                barrenRounds = if (madeProgress) 0 else barrenRounds + 1
                 shouldStop = !shouldContinueGeneration(
                     truncated = hitLimit,
                     barrenRounds = barrenRounds,
-                    continuation = continuation,
-                    maxContinuations = request.maxContinuations,
-                    accumulatedChars = confirmedText.length,
                 )
-                if (!shouldStop) continuation++
+                firstRound = false
             }
 
             // 收尾：正文与请求状态**原子提交**。
-            timer.markCompleted()
             val result = lastResult?.copy(conversationTitle = conversationTitle, finalAnswer = finalAnswer)
                 ?: throw ModelException(
                     ModelException.Kind.INVALID_RESPONSE,
@@ -1385,6 +1381,13 @@ class GenerationManager @Inject constructor(
             if (!currentJob.isActive) {
                 throw CancellationException("提交最终结果前这一轮已被取消")
             }
+            val imagePaths = figureCompleter.complete(
+                finalText, finalAnswer, accumulatedFigures,
+                if (response.mode == ConversationMode.SOLVE) FigureCompletionContext(
+                    request.history, request.imageBase64s, request.solveMode, request.policy, collectUsage,
+                ) else null,
+            )
+            timer.markCompleted()
             // ── 绘图 + 学科归档 + 最终持久化，全部在管理器内完成 ──
             // 页面此时可能已经销毁；这些工作与页面无关，所以切页回来图还在。
             //
@@ -1401,6 +1404,7 @@ class GenerationManager @Inject constructor(
                 modelLabel = request.modelLabel,
                 durationMs = timer.snapshot().completedMs ?: 0L,
                 usageJson = encodeUsage(lastUsage),
+                preparedFigurePaths = imagePaths,
             )
             // 绘图期间的取消必须在提交终态之前被看到。
             if (!currentJob.isActive) {
@@ -1619,10 +1623,11 @@ class GenerationFinalizer @Inject constructor(
         modelLabel: String = "",
         durationMs: Long = 0,
         usageJson: String = "",
+        preparedFigurePaths: List<String>? = null,
     ): Result = withContext(Dispatchers.Default) {
         // 按槽位渲染：失败槽位保留空串占位，绝不能把后面的图往前挪，
         // 否则正文里 [[FIGURE:n]] 的指向会整体错位。
-        val imagePaths = renderFigures(figures)
+        val imagePaths = preparedFigurePaths ?: renderFigures(figures)
         val saved = requestRepository.complete(
             requestId = requestId,
             attemptId = attemptId,

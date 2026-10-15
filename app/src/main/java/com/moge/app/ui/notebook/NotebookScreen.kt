@@ -10,11 +10,9 @@ import androidx.compose.animation.core.tween
 import com.moge.app.ui.theme.MogeTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.*
@@ -134,26 +132,18 @@ internal fun NotebookContent(
                             state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类",
                             onOpenConversation, Modifier.fillMaxSize())
                     } ?: NotebookPlaceholder("正在读取收藏，或收藏已移出题册", "重试", onRetry, Modifier.fillMaxSize())
-                } else Column(Modifier.fillMaxSize()) {
-                    OutlinedTextField(state.query, onQuery, enabled = !state.busy, singleLine = true,
-                        label = { Text("搜索收藏标题、题目或解答") },
-                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                        trailingIcon = {
-                            if (state.query.isNotEmpty()) IconButton(onClick = { onQuery("") }, enabled = !state.busy) {
-                                Icon(Icons.Outlined.Close, "清除搜索")
-                            }
-                        }, modifier = Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 16.dp))
-                    Row(Modifier.fillMaxWidth().paperCategoryActivation(drag).testTag("notebook-category-filters")
-                        .excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(state.categoryId == null && !state.uncategorizedOnly,
-                            { onCategory(null, false) }, { Text("全部") }, enabled = !state.busy,
-                            modifier = Modifier.heightIn(min = 48.dp))
-                        FilterChip(state.uncategorizedOnly, { onCategory(null, true) }, { Text("未分类") },
-                            enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp))
+                } else FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
+                    PaperSearchPanel(
+                        query = state.query, onQuery = onQuery, hint = "搜索收藏标题、题目或解答", enabled = !state.busy,
+                        filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),
+                    ) {
+                        PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
+                            { onCategory(null, false) }, "全部", enabled = !state.busy)
+                        PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, "未分类",
+                            enabled = !state.busy)
                         state.categories.forEach { category ->
-                            FilterChip(state.categoryId == category.id, { onCategory(category.id, false) }, { Text(category.name) },
-                                enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp))
+                            PaperCategoryFilter(state.categoryId == category.id, { onCategory(category.id, false) },
+                                category.name, enabled = !state.busy)
                         }
                     }
                     state.categoryError?.let { message ->
@@ -163,19 +153,19 @@ internal fun NotebookContent(
                     if (state.selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                         TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
                         TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
-                    } else if (state.entries.isNotEmpty()) Text("${state.entries.size} 条收藏 · 长按可管理",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    }
+                }) { insets ->
                     when {
-                        state.error != null -> NotebookPlaceholder(state.error, "重试", onRetry, Modifier.weight(1f))
-                        state.loading && state.entries.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        state.error != null -> NotebookPlaceholder(state.error, "重试", onRetry, Modifier.fillMaxSize().padding(insets))
+                        state.loading && state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                         state.entries.isEmpty() -> NotebookPlaceholder(
                             if (state.filtered) "没有找到匹配的收藏" else "还没有收藏，解答完成后可通过“收藏到题册”保存题目与解答",
                             if (state.filtered) "清除筛选" else "去提问",
-                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.weight(1f))
-                        else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
+                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets))
+                        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                            top = insets.calculateTopPadding() + 16.dp, bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(state.entries, key = { it.id }) { entry ->
                                 val category = state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类"
@@ -213,21 +203,24 @@ private fun NotebookCard(
     entry: NotebookEntryEntity, category: String, selected: Boolean, selecting: Boolean, busy: Boolean,
     onClick: () -> Unit, modifier: Modifier,
 ) {
-    OutlinedCard(modifier.fillMaxWidth().clickable(enabled = !busy,
+    TapedPaperCard(modifier.clickable(enabled = !busy,
         role = if (selecting) Role.Checkbox else Role.Button,
-        onClickLabel = if (selecting) "切换选择" else "打开收藏", onClick = onClick).semantics { this.selected = selected },
-        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(entry.title, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            Text(entry.questionText.ifBlank { entry.questionTranscript }.ifBlank { "图片题目" }, maxLines = 3,
-                overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-            Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text(entry.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(if (selected) "已选择" else "未选择", style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.alpha(if (selecting) 1f else 0f)
-                .then(if (selecting) Modifier else Modifier.clearAndSetSemantics {}))
+        onClickLabel = if (selecting) "切换选择" else "打开收藏", onClick = onClick)
+        .semantics(mergeDescendants = true) { this.selected = selected }) { cardModifier ->
+        OutlinedCard(cardModifier,
+            colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(entry.title, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(entry.questionText.ifBlank { entry.questionTranscript }.ifBlank { "图片题目" }, maxLines = 3,
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                Text(category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(entry.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (selected) "已选择" else "未选择", style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.alpha(if (selecting) 1f else 0f)
+                    .then(if (selecting) Modifier else Modifier.clearAndSetSemantics {}))
+            }
         }
     }
 }

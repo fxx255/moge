@@ -78,6 +78,7 @@ class SelectionAutoScrollUiTest {
             val controller = requireNotNull(markdownSelectionController(view))
             val point = endpoint(view, false)
             controller.beginDrag(false, point.first, point.second)
+            assertTrue("Dragging must show the magnifier", controller.magnifier.isShowing)
             controller.moveDrag(point.first, edge(true))
         }
         compose.mainClock.advanceTimeBy(1500)
@@ -85,6 +86,7 @@ class SelectionAutoScrollUiTest {
             assertEquals(start, view.selectionStart)
             assertTrue("Stationary edge drag must keep adding offscreen paragraphs", view.selectionEnd > originalEnd + 300)
             requireNotNull(markdownSelectionController(view)).endDrag()
+            assertFalse("Release must dismiss the magnifier", requireNotNull(markdownSelectionController(view)).magnifier.isShowing)
         }
         val after = saved
         var selectedEnd = 0
@@ -126,6 +128,7 @@ class SelectionAutoScrollUiTest {
             assertEquals(end, view.selectionEnd)
             val controller = requireNotNull(markdownSelectionController(view))
             controller.moveDrag(endpoint(view, true).first, (edge(false) + edge(true)) / 2)
+            assertTrue(controller.magnifier.isShowing)
         }
         // Allow the last already-dispatched scroll frame to complete.
         compose.mainClock.advanceTimeBy(32)
@@ -135,7 +138,35 @@ class SelectionAutoScrollUiTest {
             assertEquals("Moving back to the middle must stop scrolling", after, saved)
             requireNotNull(markdownSelectionController(view)).endDrag()
             requireNotNull(markdownSelectionController(view)).finish()
+            assertFalse(requireNotNull(markdownSelectionController(view)).magnifier.isShowing)
         }
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun `ending selection during a drag removes the magnifier and stops edge scrolling`() {
+        show()
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread {
+            val view = body()
+            selectVisibleWord(view)
+            val controller = requireNotNull(markdownSelectionController(view))
+            val point = endpoint(view, false)
+            controller.beginDrag(false, point.first, point.second)
+            val sampled = controller.magnifier.sourcePoint
+            controller.moveDrag(point.first + 8f, point.second + 3f)
+            assertEquals("Sample X must follow the dragged point", sampled.first + 8f, controller.magnifier.sourcePoint.first, .01f)
+            assertEquals("Sample Y must not snap to a line midpoint", sampled.second + 3f, controller.magnifier.sourcePoint.second, .01f)
+            controller.moveDrag(point.first, edge(true))
+            assertTrue(controller.magnifier.isShowing)
+            controller.finish()
+            assertFalse(controller.selecting)
+            assertFalse(controller.dragging)
+            assertFalse(controller.magnifier.isShowing)
+        }
+        compose.mainClock.advanceTimeBy(32)
+        val after = saved
+        compose.mainClock.advanceTimeBy(500)
+        compose.runOnUiThread { assertEquals(after, saved) }
         compose.mainClock.autoAdvance = true
     }
 }

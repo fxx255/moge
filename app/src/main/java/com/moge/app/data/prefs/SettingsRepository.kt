@@ -28,8 +28,6 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 data class UserSettings(
     val appearance: Appearance = Appearance.SYSTEM,
     val defaultSolveMode: SolveMode = SolveMode.DETAILED,
-    /** 长回答被截断后自动续写的次数上限（0-8）。 */
-    val maxContinuations: Int = DEFAULT_CONTINUATIONS,
     val webSearchEnabled: Boolean = false,
     /** 提示词里对用户的称呼；空串表示不称呼。 */
     val nickname: String = "",
@@ -40,8 +38,6 @@ data class UserSettings(
     val historyRetentionDays: Int = DEFAULT_HISTORY_RETENTION_DAYS,
 ) {
     companion object {
-        const val DEFAULT_CONTINUATIONS = 3
-        const val MAX_CONTINUATIONS = 8
         const val DEFAULT_HISTORY_RETENTION_DAYS = 7
         const val MAX_HISTORY_RETENTION_DAYS = 365
     }
@@ -57,8 +53,6 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
                 ?.let { name -> Appearance.entries.firstOrNull { it.name == name } }
                 ?: Appearance.SYSTEM,
             defaultSolveMode = SolveMode.fromName(prefs[KEY_SOLVE_MODE]) ?: SolveMode.DETAILED,
-            maxContinuations = (prefs[KEY_CONTINUATIONS] ?: UserSettings.DEFAULT_CONTINUATIONS)
-                .coerceIn(0, UserSettings.MAX_CONTINUATIONS),
             webSearchEnabled = prefs[KEY_WEB_SEARCH] ?: false,
             nickname = prefs[KEY_NICKNAME].orEmpty(),
             answerFirst = prefs[KEY_ANSWER_FIRST] ?: false,
@@ -80,10 +74,6 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
 
     suspend fun setDefaultSolveMode(value: SolveMode) {
         store.edit { it[KEY_SOLVE_MODE] = value.name }
-    }
-
-    suspend fun setMaxContinuations(value: Int) {
-        store.edit { it[KEY_CONTINUATIONS] = value.coerceIn(0, UserSettings.MAX_CONTINUATIONS) }
     }
 
     suspend fun setWebSearchEnabled(value: Boolean) {
@@ -115,7 +105,6 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         const val MAX_NICKNAME_CHARS = 16
         val KEY_APPEARANCE = stringPreferencesKey("appearance")
         val KEY_SOLVE_MODE = stringPreferencesKey("default_solve_mode")
-        val KEY_CONTINUATIONS = intPreferencesKey("max_continuations")
         val KEY_WEB_SEARCH = booleanPreferencesKey("web_search_enabled")
         val KEY_NICKNAME = stringPreferencesKey("nickname")
         val KEY_ANSWER_FIRST = booleanPreferencesKey("answer_first")

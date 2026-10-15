@@ -137,7 +137,7 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** 裁剪界面「确定 / 使用原图」：队首照片进入照片条；队列空了就打开确认面板。 */
+    /** 裁剪界面「确定」：队首照片进入照片条；队列空了就打开确认面板。 */
     fun onCropDone() = update { current ->
         val head = current.cropQueue.firstOrNull() ?: return@update current
         PhotoArrivals.markNew(listOf(head))

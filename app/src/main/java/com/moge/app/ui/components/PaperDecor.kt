@@ -13,12 +13,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.heading
@@ -69,13 +71,16 @@ fun GridPaper(
  * 荧光笔涂抹：在内容下半部画一道略倾斜、两端不齐的色带。
  * 只画在背后，不改变布局尺寸。
  */
-fun Modifier.highlighter(color: Color, coverage: Float = 0.46f): Modifier = drawBehind {
+fun Modifier.highlighter(color: Color, coverage: Float = 0.46f, progress: () -> Float = { 1f }): Modifier = drawBehind {
+    val fraction = progress().coerceIn(0f, 1f)
+    if (fraction == 0f) return@drawBehind
+    val width = size.width * fraction
     val h = size.height * coverage
     val top = size.height - h - size.height * 0.06f
     val path = Path().apply {
         moveTo(-4.dp.toPx(), top + h * 0.18f)
-        lineTo(size.width + 3.dp.toPx(), top)
-        lineTo(size.width + 5.dp.toPx(), top + h * 0.86f)
+        lineTo(width + 3.dp.toPx(), top)
+        lineTo(width + 5.dp.toPx(), top + h * 0.86f)
         lineTo(-2.dp.toPx(), top + h)
         close()
     }
@@ -89,15 +94,24 @@ fun HighlightedTitle(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.headlineMedium,
     maxLines: Int = Int.MAX_VALUE,
+    revealProgress: () -> Float = { 1f },
 ) {
-    Text(
-        text = text,
-        style = style,
-        maxLines = maxLines,
-        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = modifier.highlighter(MogeTheme.paper.highlighter).semantics { heading() },
-    )
+    // Fade/slide animations render into a layer bounded by this layout. Reserve
+    // the highlighter's overhang inside it so its uneven ends survive the fade.
+    Box(modifier.padding(start = 4.dp, end = 5.dp)) {
+        Text(
+            text = text,
+            style = style,
+            maxLines = maxLines,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.highlighter(MogeTheme.paper.highlighter, progress = revealProgress)
+                .drawWithContent {
+                    if (revealProgress() >= 1f) drawContent()
+                    else clipRect(right = size.width * revealProgress().coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
+                }.semantics { heading() },
+        )
+    }
 }
 
 /** 半透明胶带：斜贴在照片或卡片的边角上。 */

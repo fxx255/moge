@@ -2,6 +2,8 @@ package com.moge.app.ui.photo
 
 import android.graphics.Bitmap
 import android.util.LruCache
+import androidx.compose.ui.unit.IntSize
+import com.moge.app.data.image.decodePhotoThumbnail
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -29,16 +31,19 @@ object ThumbnailCache {
 
     private fun maxBytes(): Int = (Runtime.getRuntime().maxMemory() / 16).coerceIn(4L shl 20, 48L shl 20).toInt()
 
-    private fun keyOf(path: String, maxPx: Int, revision: Long) = "$revision|$maxPx|$path"
+    private fun keyOf(path: String, maxPx: Int, revision: Long, cropSize: IntSize) =
+        "$revision|$maxPx|${cropSize.width}x${cropSize.height}|$path"
 
-    fun peek(path: String, maxPx: Int, revision: Long = PhotoEdits.revision.value): Bitmap? =
-        cache.get(keyOf(path, maxPx, revision))
+    fun peek(path: String, maxPx: Int, revision: Long = PhotoEdits.revision.value, cropSize: IntSize = IntSize.Zero): Bitmap? =
+        cache.get(keyOf(path, maxPx, revision, cropSize))
 
     /** 在 IO 线程解码并放进缓存；读不出来返回 null，失败不缓存（文件可能稍后才写完）。 */
-    suspend fun load(path: String, maxPx: Int, revision: Long = PhotoEdits.revision.value): Bitmap? =
+    suspend fun load(path: String, maxPx: Int, revision: Long = PhotoEdits.revision.value, cropSize: IntSize = IntSize.Zero): Bitmap? =
         withContext(Dispatchers.IO) {
-            val key = keyOf(path, maxPx, revision)
-            cache.get(key) ?: decodeUprightPhoto(path, maxPx)?.also { cache.put(key, it) }
+            val key = keyOf(path, maxPx, revision, cropSize)
+            cache.get(key) ?: (if (cropSize.width > 0 && cropSize.height > 0)
+                decodePhotoThumbnail(path, cropSize.width, cropSize.height) else decodeUprightPhoto(path, maxPx))
+                ?.also { cache.put(key, it) }
         }
 
     internal fun clear() = cache.evictAll()
@@ -46,14 +51,14 @@ object ThumbnailCache {
 
 /** 读取缩略图：命中缓存时首帧就是 [Thumbnail.Ready]，没有「加载中」的闪烁。 */
 @Composable
-fun rememberThumbnail(path: String, maxPx: Int): Thumbnail {
+fun rememberThumbnail(path: String, maxPx: Int, cropSize: IntSize = IntSize.Zero): Thumbnail {
     val revision by PhotoEdits.revision.collectAsStateWithLifecycle()
-    val cached = ThumbnailCache.peek(path, maxPx, revision)
-    val state by produceState(cached?.let(Thumbnail::Ready) ?: Thumbnail.Loading, path, maxPx, revision) {
+    val cached = ThumbnailCache.peek(path, maxPx, revision, cropSize)
+    val state by produceState(cached?.let(Thumbnail::Ready) ?: Thumbnail.Loading, path, maxPx, revision, cropSize) {
         // produceState 的状态不随 key 重置：换了路径或照片被改写时要显式覆盖旧图。
         value = cached?.let(Thumbnail::Ready) ?: Thumbnail.Loading
         if (cached != null) return@produceState
-        value = ThumbnailCache.load(path, maxPx, revision)?.let(Thumbnail::Ready) ?: Thumbnail.Failed
+        value = ThumbnailCache.load(path, maxPx, revision, cropSize)?.let(Thumbnail::Ready) ?: Thumbnail.Failed
     }
     return state
 }

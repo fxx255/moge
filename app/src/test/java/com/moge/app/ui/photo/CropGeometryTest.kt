@@ -83,7 +83,8 @@ class CropGeometryTest {
     fun `source ratio initializes a free crop without constraining later edge drags`() {
         val viewport = IntSize(1000, 1000)
         listOf(0.5f, 1f, 2f).forEach { initialRatio ->
-            val initial = centeredCropRect(viewport, initialRatio)
+            val image = IntSize((1000 * initialRatio).toInt(), 1000)
+            val initial = initialCropFraming(image, viewport).cropRect
             assertEquals(initialRatio, initial.width / initial.height, 0.0001f)
             val resized = resizeCropRectWithinBounds(
                 initial, CropDragMode.RIGHT_EDGE, Offset(-100f, 75f),

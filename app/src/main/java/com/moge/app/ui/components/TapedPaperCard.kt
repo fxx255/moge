@@ -1,0 +1,29 @@
+package com.moge.app.ui.components
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+
+/** Tape belongs to the lazy item (and its drag preview), so it scrolls with the paper. */
+@Composable
+internal fun TapedPaperCard(
+    modifier: Modifier = Modifier,
+    content: @Composable (Modifier) -> Unit,
+) {
+    Box(modifier.fillMaxWidth()) {
+        content(Modifier.fillMaxWidth().padding(top = 10.dp))
+        // Reserved headroom keeps the rotated tape inside the item bounds and
+        // above the first text line, even while an animation uses a clipped layer.
+        Tape(
+            Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = 4.dp)
+                .testTag("paper-card-tape"),
+            width = 48.dp, height = 12.dp, angle = 5f,
+        )
+    }
+}

@@ -120,15 +120,16 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, fontSizePx, selectionScrollHost) {
+        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
-                        selectionScrollHost = selectionScrollHost).also { view ->
+                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor).also { view ->
                         // LazyColumn can measure a View before its first attached update.
                         renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
                     }
@@ -576,6 +577,7 @@ internal fun MarkdownChunk(
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val density = LocalDensity.current
     val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     val widthModifier = if (fixedWidthPx != null) {
@@ -588,13 +590,13 @@ internal fun MarkdownChunk(
     // detached/premeasured items could keep that single-line slot until another scroll.
     BoxWithConstraints(widthModifier) {
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, fontSizePx, selectable, selectionScrollHost) {
+        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor,
                         selectable = selectable, fontSizePx = fontSizePx,
-                        selectionScrollHost = selectionScrollHost).also { view ->
+                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor).also { view ->
                         renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
                     }
                 },

@@ -19,6 +19,7 @@ import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.MonotonicClock
 import com.moge.app.data.llm.withTestModelCatalog
 import com.moge.app.data.parse.ReplyFigure
+import com.moge.app.data.parse.ReplyParser
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.RequestStatus
@@ -201,7 +202,7 @@ class EndToEndGenerationTest {
             .build()
         repository = RequestRepository(db.requestDao(), Dispatchers.Unconfined)
         val settings = mockk<SettingsRepository> {
-            coEvery { current() } returns UserSettings(maxContinuations = 2)
+            coEvery { current() } returns UserSettings()
         }
         val profile = AiModelProfile(
             "p1", "测试模型", baseUrl, "test-model", false,
@@ -231,6 +232,7 @@ class EndToEndGenerationTest {
             monotonicClock = MonotonicClock.SYSTEM,
             finalizer = GenerationFinalizer(repository, renderer),
             preparer = preparer,
+            figureCompleter = GenerationFigureCompleter(renderer, modelClient),
         )
         runBlocking { db.conversationDao().insertConversation(ConversationEntity(id = "c1", title = "新题")) }
     }
@@ -351,6 +353,42 @@ class EndToEndGenerationTest {
             assertTrue(sent[1]["content"]!!.jsonPrimitive.content.contains("按原图题目继续解答"))
             assertEquals("解释第二步", sent.last()["content"]!!.jsonPrimitive.content)
         } finally { photo.delete() }
+    }
+
+    @Test fun `missing QAM receiver is completed with a second pinned request without rewriting the reply`() = runBlocking {
+        val body = requireNotNull(javaClass.getResource("/fixtures/qam-missing-demodulator.md")).readText()
+        val modulator = Json.parseToJsonElement(requireNotNull(javaClass.getResource(
+            "/diagrams/communication/shared-carrier-qam.json")).readText())
+        val receiver = Json.parseToJsonElement(requireNotNull(javaClass.getResource(
+            "/diagrams/communication/shared-carrier-qam-receiver.json")).readText())
+        val first = buildJsonObject {
+            put("conversation_title", "PCM 与 64QAM")
+            put("answer", "原结论")
+            put("reply", body)
+            put("plots", buildJsonArray { add(Json.parseToJsonElement("""{"title":"功率谱","series":[{"expr":"x"}]}""")) })
+            put("diagrams", buildJsonArray { add(modulator); add(kotlinx.serialization.json.JsonNull) })
+        }
+        val repair = buildJsonObject { put("diagrams", buildJsonArray { add(receiver) }) }
+        server.enqueue(sse(first.toString(), "stop"))
+        server.enqueue(sse(repair.toString(), "stop"))
+        val diagnostic = kotlinx.coroutines.CompletableDeferred<GenerationManager.GenerationDiagnostic>()
+        manager.diagnosticObserver = { diagnostic.complete(it) }
+        val record = manager.submit(GenerationManager.Submission("c1", "帮我批改 PCM 与 64QAM", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+        assertEquals(2, server.requestCount)
+        assertEquals(2, withTimeout(5_000) { diagnostic.await() }.httpCalls)
+        val initialRequest = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val repairRequest = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals(initialRequest["model"], repairRequest["model"])
+        val repairText = repairRequest["messages"]!!.jsonArray.last().jsonObject["content"]!!.jsonPrimitive.content
+        assertTrue(repairText.contains("[[FIGURE:3]]"))
+        val answer = db.requestDao().getMessage(record.answerMessageId)!!
+        assertEquals(ReplyParser.parse(first.toString(), normalizeMarkdown = false).reply, answer.content)
+        assertEquals("原结论", answer.finalAnswer)
+        assertEquals(listOf("/figures/0.png", "/figures/1.png", "/figures/0.png"), RequestRepository.decodePathList(answer.imagePaths))
+        assertEquals(2, renderedBatches.size)
+        assertTrue(renderedBatches.last().single() is ReplyFigure.Diagram)
+        assertEquals("PCM 与 64QAM", db.conversationDao().getConversation("c1")!!.title)
     }
 
     @Test

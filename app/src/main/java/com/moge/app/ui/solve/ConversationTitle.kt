@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -81,8 +79,5 @@ private fun WritingTitle(title: String, animate: Boolean) {
             reveal.animateTo(1f, tween(duration, easing = FastOutSlowInEasing))
         }
     }
-    HighlightedTitle(title, maxLines = 1, modifier = Modifier.drawWithContent {
-        if (reveal.value >= 1f) drawContent()
-        else clipRect(right = size.width * reveal.value) { this@drawWithContent.drawContent() }
-    })
+    HighlightedTitle(title, maxLines = 1, revealProgress = { reveal.value })
 }

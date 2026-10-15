@@ -39,7 +39,6 @@ data class RequestSnapshot(
     val forceWebSearch: Boolean = false,
     /** 提交时联网开关的生效值；重试沿用，不读当前开关。 */
     val effectiveWebSearchEnabled: Boolean = false,
-    val maxContinuations: Int = 0,
     val primaryProfileId: String = "",
     /** 提交时主模型能否看图；追问时据此决定是否回带历史图片。 */
     val primaryVisionEnabled: Boolean = false,
