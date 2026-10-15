@@ -50,6 +50,12 @@ private fun compatibleGenerationParameters(
         // Read only upper bounds attached to this parameter; unrelated limits must not lower output.
         val paramAt = body.indexOf(budget, ignoreCase = true)
         val detail = body.substring(paramAt, (paramAt + 400).coerceAtMost(body.length))
+        val range = OutputTokenRange(budget)
+        if (range.isDescribedBy(detail)) {
+            // A range is a value constraint, not a reason to swap/remove the parameter name.
+            val maximum = range.reducedMaximum(detail, old) ?: return null
+            return JsonObject(payload + (budget to JsonPrimitive(maximum)))
+        }
         val limit = UPPER_LIMIT.findAll(detail).mapNotNull { match ->
             match.groupValues.drop(1).firstOrNull(String::isNotBlank)?.replace(",", "")?.toIntOrNull()
         }.filter { it in 1 until old }.minOrNull()

@@ -19,6 +19,51 @@ class GenerationParameterNegotiationTest {
         }
     }
 
+    @Test fun `sse wrapped range error from gateway uses its actual inclusive maximum`() {
+        val body = """data: {"error":{"code":"invalid_parameter_error","param":null,"message":"Range of max_tokens should be [1, 131072]","type":"invalid_request_error"},"id":"chatcmpl-test"}"""
+        val initial = payload()
+        val negotiation = GenerationParameterNegotiation(initial)
+        val next = negotiation.afterRejection(rejected(body))!!
+        assertEquals(131072, next["max_tokens"]!!.jsonPrimitive.int)
+        assertEquals(JsonObject(initial - "max_tokens"), JsonObject(next - "max_tokens"))
+        assertNull("The same rejection must not create a retry loop", negotiation.afterRejection(rejected(body)))
+    }
+
+    @Test fun `numeric ranges apply to every output parameter and respect exclusive ends`() {
+        for (key in listOf("max_tokens", "max_completion_tokens", "max_output_tokens")) {
+            for ((detail, upper) in listOf(
+                "should be [1,131072]" to 131072,
+                "must be in the range [1, 131,072]" to 131072,
+                "must be within (0, 65536]" to 65536,
+                "must be in [1, 65536)" to 65535,
+                "must be between 1 and 32768" to 32768,
+                "的取值范围应为 [1，32768]" to 32768,
+            )) {
+                val next = GenerationParameterNegotiation(payload(key)).afterRejection(rejected("$key $detail", 422))!!
+                assertEquals("$key $detail", upper, next[key]!!.jsonPrimitive.int)
+            }
+        }
+    }
+
+    @Test fun `range parsing never invents limits or retries unrelated rejections`() {
+        for (detail in listOf(
+            "max_tokens must be an integer greater than 0",
+            "max_tokens invalid type; temperature should be [0, 2]",
+            "max_tokens value rejected; max_output_tokens should be [1, 32768]",
+            "max_tokens should be [9, 8]", "max_tokens should be (8, 9)",
+            "max_tokens should be [0, 0]", "max_tokens should be [1, 2147483648]",
+            "max_tokens should be [1, 131072", "max_tokens should be [1, 13,1072]",
+            "max_tokens should be [1, unknown]",
+        )) {
+            assertNull(detail, GenerationParameterNegotiation(payload()).afterRejection(rejected(detail)))
+        }
+        for (status in listOf(401, 403, 429, 500, 503)) {
+            assertNull(GenerationParameterNegotiation(payload()).afterRejection(rejected("max_tokens should be [1, 131072]", status)))
+        }
+        val bounded = JsonObject(payload() + ("max_tokens" to JsonPrimitive(65536)))
+        assertNull(GenerationParameterNegotiation(bounded).afterRejection(rejected("max_tokens should be [1, 131072]")))
+    }
+
     @Test fun `token spelling budget and effort rejection negotiate in sequence`() {
         val negotiation = GenerationParameterNegotiation(payload())
         val modern = negotiation.afterRejection(rejected("Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead."))!!

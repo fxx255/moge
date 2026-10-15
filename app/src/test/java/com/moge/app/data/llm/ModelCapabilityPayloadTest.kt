@@ -127,6 +127,44 @@ class ModelCapabilityPayloadTest {
         assertTrue(payloads.all { it["messages"] == payloads[0]["messages"] })
     }
 
+    @Test fun `chat retries screenshot range rejection once with the full permitted output`() = runBlocking {
+        val rejection = """data: {"error":{"code":"invalid_parameter_error","param":null,"message":"Range of max_tokens should be [1, 131072]","type":"invalid_request_error"},"id":"chatcmpl-test"}"""
+        val model = client("unseen-model", AiApiProtocol.CHAT_COMPLETIONS, { 404 to "{}" }, listOf(
+            400 to rejection, 200 to chatSse("""{"reply":"正文"}"""),
+        ))
+        val usage = mutableListOf<UsageSample?>()
+        val events = mutableListOf<StreamEvent>()
+        assertEquals("正文", model.chatStreaming(listOf(ChatMessage("user", "题目")), onUsage = usage::add) { events += it }.reply)
+        assertEquals(listOf(Int.MAX_VALUE, 131072), payloads.map { it["max_tokens"]!!.jsonPrimitive.int })
+        assertEquals(JsonObject(payloads[0] - "max_tokens"), JsonObject(payloads[1] - "max_tokens"))
+        assertEquals(2, usage.size)
+        assertTrue(events.filterIsInstance<StreamEvent.AnswerDelta>().none { it.text.contains("invalid_parameter_error") })
+    }
+
+    @Test fun `responses nonstream fallback also handles range rejections without reducing to a default`() = runBlocking {
+        val final = """{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"reply\":\"正文\"}"}]}]}"""
+        val model = client("unseen-model", AiApiProtocol.RESPONSES, { 404 to "{}" }, listOf(
+            400 to "Unknown parameter: 'stream'",
+            422 to "Range of max_output_tokens should be [1, 131072]", 200 to final,
+        ))
+        assertEquals("正文", model.chatStreaming(listOf(ChatMessage("user", "题目"))) {}.reply)
+        assertEquals(3, payloads.size)
+        assertEquals(Int.MAX_VALUE, payloads[1]["max_output_tokens"]!!.jsonPrimitive.int)
+        assertEquals(131072, payloads[2]["max_output_tokens"]!!.jsonPrimitive.int)
+        assertEquals(JsonObject(payloads[1] - "max_output_tokens"), JsonObject(payloads[2] - "max_output_tokens"))
+    }
+
+    @Test fun `range error after responses output starts never resends generated content`() = runBlocking {
+        val stream = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"部分正文\"}\n\n" +
+            "data: {\"type\":\"error\",\"message\":\"Range of max_output_tokens should be [1, 131072]\"}\n\n"
+        val model = client("unseen-model", AiApiProtocol.RESPONSES, { 404 to "{}" }, listOf(200 to stream))
+        val events = mutableListOf<StreamEvent>()
+        val error = runCatching { model.chatStreaming(listOf(ChatMessage("user", "题目"))) { events += it } }.exceptionOrNull()
+        assertTrue(error is ModelException)
+        assertEquals(1, payloads.size)
+        assertEquals(listOf(StreamEvent.AnswerDelta("部分正文")), events.filterIsInstance<StreamEvent.AnswerDelta>())
+    }
+
     @Test fun `ordinary named responses model negotiates maximum and supported effort without metadata`() = runBlocking {
         val final = "data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"reply\\\":\\\"正文\\\"}\"}]}]}}\n\n"
         val model = client("unseen-model", AiApiProtocol.RESPONSES, { 404 to "{}" }, listOf(
