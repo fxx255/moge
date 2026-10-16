@@ -162,8 +162,8 @@ internal fun createMarkdownTextView(
             if (selectable) {
                 if (onTextTap != null && event.actionMasked == MotionEvent.ACTION_DOWN) {
                     val spannable = text as? Spannable
-                    // The controller dismisses selection on DOWN. Retain the
-                    // pre-dismiss state so that gesture cannot also start editing.
+                    // Retain the initial selection state so a dismissing tap
+                    // cannot also start editing after the controller handles UP.
                     tapStartedWithSelection = hasSelection() ||
                         (spannable != null && isPointInsideClickableSpan(spannable, event))
                 }

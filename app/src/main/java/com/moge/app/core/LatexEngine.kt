@@ -24,6 +24,10 @@ internal object LatexEngine {
         if (initialized) return
         // TeXFormula's static initializer reads the Android assets.
         JLatexMathAndroid.init(context.applicationContext)
+        // Load built-in commands before replacing any of them. Loading the
+        // formula class later would silently overwrite our compatibility macros.
+        TeXFormula("")
+        installLatexFrameCompatibility()
         for ((closed, open) in listOf("oiint" to "iint", "oiiint" to "iiint")) {
             MacroInfo.Commands[closed] = ClosedIntegralMacro("\\$open")
         }

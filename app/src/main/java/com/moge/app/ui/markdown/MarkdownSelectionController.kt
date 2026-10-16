@@ -14,6 +14,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -47,6 +48,9 @@ internal class MarkdownSelectionController(
     private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var selectionStartedDuringTouch = false
+    private var contentSelectionGesture = false
+    private var contentGestureMoved = false
+    private val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
     private val location = IntArray(2)
     private val startHandle by lazy { Handle(true) }
     private val endHandle by lazy { Handle(false) }
@@ -54,12 +58,28 @@ internal class MarkdownSelectionController(
 
     fun touch(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            // A new content gesture dismisses the old selection; the list can
-            // then handle ordinary swipes without fighting an active scroll job.
-            if (active) finish()
             lastTouchX = event.x
             lastTouchY = event.y
             selectionStartedDuringTouch = false
+            contentSelectionGesture = active
+            contentGestureMoved = false
+        }
+        if (contentSelectionGesture) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (kotlin.math.hypot(event.x - lastTouchX, event.y - lastTouchY) > touchSlop) {
+                    contentGestureMoved = true
+                    view.cancelLongPress()
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> contentGestureMoved = true
+                MotionEvent.ACTION_UP -> {
+                    contentSelectionGesture = false
+                    if (!contentGestureMoved) finish()
+                }
+                MotionEvent.ACTION_CANCEL -> contentSelectionGesture = false
+            }
+            // Keep Editor from collapsing the range. Do not disallow parent
+            // interception: the enclosing Compose list still owns browsing swipes.
+            return true
         }
         if (selectionStartedDuringTouch &&
             event.actionMasked in listOf(MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL)) {
@@ -143,6 +163,7 @@ internal class MarkdownSelectionController(
         if (!active) return
         active = false
         dragging = false
+        contentSelectionGesture = false
         actionMode = null
         host.release(this)
         if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnPreDrawListener(this)
@@ -163,13 +184,11 @@ internal class MarkdownSelectionController(
     }
 
     private fun endpoint(start: Boolean): Pair<Float, Float> {
-        val layout = view.layout ?: return 0f to 0f
         val offset = (if (start) minOf(view.selectionStart, view.selectionEnd)
             else maxOf(view.selectionStart, view.selectionEnd)).coerceIn(0, view.text.length)
-        val line = layout.getLineForOffset(offset)
+        val caret = selectionEndpoint(view, offset, start) ?: return 0f to 0f
         view.getLocationOnScreen(location)
-        return (location[0] + view.totalPaddingLeft - view.scrollX + layout.getPrimaryHorizontal(offset)) to
-            (location[1] + view.totalPaddingTop - view.scrollY + layout.getLineBottom(line)).toFloat()
+        return (location[0] + caret.x) to (location[1] + caret.bottom)
     }
 
     private fun updateHandles() {
@@ -212,9 +231,9 @@ internal class MarkdownSelectionController(
 
     private fun updateMagnifier() {
         if (!dragging || !active) return
-        // Sampling follows the finger. The grab offset belongs only to selection
-        // adjustment; line wrapping or a moving handle must not move the lens.
-        magnifier.show(pointerX, pointerY, host.viewport)
+        val offset = if (dragStart) minOf(view.selectionStart, view.selectionEnd)
+            else maxOf(view.selectionStart, view.selectionEnd)
+        magnifier.show(pointerX, pointerY, host.viewport, offset, dragStart)
     }
 
     internal fun canExtend(speed: Float): Boolean {

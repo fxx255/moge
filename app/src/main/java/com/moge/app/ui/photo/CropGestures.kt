@@ -19,7 +19,6 @@ internal fun Modifier.cropGestures(state: CropViewportState, saving: Boolean, mo
             state.interrupt()
             var mode = cropDragMode(first.position, state.cropRect, handleRadius)
             var multiTouch = false
-            var shrunk = false
             while (true) {
                 val event = awaitPointerEvent()
                 val pressed = event.changes.filter { it.pressed }
@@ -37,13 +36,13 @@ internal fun Modifier.cropGestures(state: CropViewportState, saving: Boolean, mo
                     val change = pressed.first()
                     val delta = change.position - change.previousPosition
                     if (delta.x.isFinite() && delta.y.isFinite()) {
-                        val before = state.cropRect
                         state.drag(mode, delta, minimumSize)
-                        if (state.cropRect.width < before.width || state.cropRect.height < before.height) shrunk = true
                     }
                 }
                 event.changes.forEach { it.consume() }
             }
-            if (shrunk && !multiTouch) state.fitSelection(motionEnabled)
+            // Also resume a fit interrupted by a fresh touch. Already-fitted
+            // frames are unchanged, so ordinary panning keeps its manual zoom.
+            state.fitSelection(motionEnabled, durationMillis = if (multiTouch) 120 else 180)
         }
     }

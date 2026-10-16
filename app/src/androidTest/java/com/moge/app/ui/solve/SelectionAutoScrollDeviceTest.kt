@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.ui.markdown.markdownSelectionController
+import com.moge.app.ui.markdown.selectionEndpoint
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -113,16 +114,16 @@ class SelectionAutoScrollDeviceTest {
             time = SystemClock.uptimeMillis()
             inject(MotionEvent.ACTION_DOWN, point.first, point.second, time)
             val density = view.resources.displayMetrics.density
-            // Exercise real popup touch routing at opposite screen edges; moving
-            // the handle popup must not translate the sampled screen coordinates.
+            // The lens window stays with the finger at opposite screen edges,
+            // while its enlarged content follows the selected row and boundary.
             for (fingerX in listOf(2f * density, root.width - 2f * density)) {
                 val fingerY = (top + bottom) / 2f
                 inject(MotionEvent.ACTION_MOVE, fingerX, fingerY, time)
                 instrumentation.runOnMainSync {
                     val controller = requireNotNull(markdownSelectionController(view))
-                    val location = IntArray(2).also { view.getLocationOnScreen(it) }
-                    assertEquals(fingerX - location[0], controller.magnifier.sourcePoint.first, 1f)
-                    assertEquals(fingerY - location[1], controller.magnifier.sourcePoint.second, 1f)
+                    val caret = requireNotNull(selectionEndpoint(view, view.selectionEnd, start = false))
+                    assertEquals(caret.x, controller.magnifier.sourcePoint.first, 1f)
+                    assertEquals(caret.centerY, controller.magnifier.sourcePoint.second, 1f)
                     assertEquals(fingerX, controller.magnifier.screenBounds.centerX(), controller.magnifier.screenBounds.width() / 2f + 1f)
                 }
             }
@@ -195,6 +196,30 @@ class SelectionAutoScrollDeviceTest {
                 assertTrue("The upper-edge magnifier must stay below the finger", controller.magnifier.screenBounds.top > top + 2f * density)
             }
             inject(MotionEvent.ACTION_CANCEL, point.first, top + 2f * density, time)
+
+            var range = 0 to 0
+            var beforeSwipe: ConversationViewport? = null
+            instrumentation.runOnMainSync {
+                range = view.selectionStart to view.selectionEnd
+                beforeSwipe = saved
+            }
+            time = SystemClock.uptimeMillis()
+            val swipeX = root.width * .65f
+            val swipeY = bottom - 100f * density
+            inject(MotionEvent.ACTION_DOWN, swipeX, swipeY, time)
+            for (step in 1..8) {
+                inject(MotionEvent.ACTION_MOVE, swipeX, swipeY - step * 18f * density, time)
+                compose.mainClock.advanceTimeBy(16)
+                awaitFrame(view)
+            }
+            inject(MotionEvent.ACTION_UP, swipeX, swipeY - 144f * density, time)
+            compose.mainClock.advanceTimeBy(64)
+            awaitFrame(view)
+            instrumentation.runOnMainSync {
+                assertNotEquals("A content swipe still scrolls the conversation", beforeSwipe, saved)
+                assertEquals("Browsing must retain the selected range", range, view.selectionStart to view.selectionEnd)
+                assertTrue(requireNotNull(markdownSelectionController(view)).selecting)
+            }
         } finally {
             // Release native windows and the paused-clock content even if an assertion fails.
             instrumentation.runOnMainSync {

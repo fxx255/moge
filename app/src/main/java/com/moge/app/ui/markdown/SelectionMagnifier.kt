@@ -45,19 +45,23 @@ internal class SelectionMagnifier(
         private set
     internal var screenBounds = RectF()
         private set
+    private var sampledRow: SelectionEndpoint? = null
+    private var zoom = ZOOM
 
-    fun show(pointerX: Float, pointerY: Float, viewport: RectF) {
+    fun show(pointerX: Float, pointerY: Float, viewport: RectF, selectionOffset: Int, start: Boolean) {
         if (!source.isAttachedToWindow || !source.isShown || viewport.width() <= 0 || viewport.height() <= 0) {
             dismiss()
             return
         }
+        val row = selectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
+        sampledRow = row
+        sourcePoint = row.x to row.centerY
         val width = minOf(152f * density, viewport.width()).toInt().coerceAtLeast(1)
-        // Keep enlarged accessibility fonts readable without magnifying several unrelated lines.
-        val height = maxOf(56f * density, source.textSize * ZOOM + 16f * density)
+        val rowHeight = row.bottom - row.top
+        val height = maxOf(56f * density, rowHeight * ZOOM + 16f * density)
             .coerceAtMost(minOf(96f * density, viewport.height())).roundToInt().coerceAtLeast(1)
-        val screen = IntArray(2).also { source.getLocationOnScreen(it) }
-        sourcePoint = (pointerX.coerceIn(viewport.left, viewport.right) - screen[0]) to
-            (pointerY.coerceIn(viewport.top, viewport.bottom) - screen[1])
+        // Fit the whole active row even with large text or a tall formula span.
+        zoom = minOf(ZOOM, (height - 16f * density).coerceAtLeast(1f) / rowHeight)
         val centerX = pointerX.coerceIn(viewport.left + width / 2f, viewport.right - width / 2f)
         val gap = 24f * density
         val above = pointerY - gap - height
@@ -155,6 +159,11 @@ internal class SelectionMagnifier(
 
         private fun drawText(canvas: Canvas) {
             val layout = source.layout ?: return
+            val row = sampledRow ?: return
+            // The sample follows the caret, while the window follows the hand.
+            // Clip before translating into Layout space so adjacent rows cannot
+            // intrude into the lens when the answer uses generous line spacing.
+            canvas.clipRect(0f, row.top, source.width.toFloat(), row.bottom)
             canvas.translate(source.totalPaddingLeft - source.scrollX.toFloat(), source.totalPaddingTop - source.scrollY.toFloat())
             val start = source.selectionStart
             val end = source.selectionEnd
@@ -181,7 +190,7 @@ internal class SelectionMagnifier(
                 drawRect(bounds, gloss)
                 drawOval(reflection, highlight)
                 translate(bounds.centerX(), bounds.centerY())
-                scale(ZOOM, ZOOM)
+                scale(zoom, zoom)
                 translate(-sourcePoint.first, -sourcePoint.second)
                 drawText(this)
             }

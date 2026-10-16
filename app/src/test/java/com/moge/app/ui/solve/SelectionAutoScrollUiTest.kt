@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.markdown.markdownSelectionController
+import com.moge.app.ui.markdown.selectionEndpoint
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -152,10 +153,8 @@ class SelectionAutoScrollUiTest {
             val controller = requireNotNull(markdownSelectionController(view))
             val point = endpoint(view, false)
             controller.beginDrag(false, point.first, point.second)
-            val sampled = controller.magnifier.sourcePoint
             controller.moveDrag(point.first + 8f, point.second + 3f)
-            assertEquals("Sample X must follow the dragged point", sampled.first + 8f, controller.magnifier.sourcePoint.first, .01f)
-            assertEquals("Sample Y must not snap to a line midpoint", sampled.second + 3f, controller.magnifier.sourcePoint.second, .01f)
+            assertSamplesEndpoint(view, start = false)
             controller.moveDrag(point.first, edge(true))
             assertTrue(controller.magnifier.isShowing)
             controller.finish()
@@ -178,14 +177,12 @@ class SelectionAutoScrollUiTest {
             selectVisibleWord(view)
             val controller = requireNotNull(markdownSelectionController(view))
             val point = endpoint(view, true)
-            // Grab away from the anchor: this offset must never influence sampling.
+            // Grab away from the anchor: only window placement follows the finger.
             controller.beginDrag(true, point.first - 17f, point.second + 12f)
-            val location = IntArray(2).also { view.getLocationOnScreen(it) }
             val y = (edge(false) + edge(true)) / 2f
             for (x in listOf(1f, view.rootView.width - 1f)) {
                 controller.moveDrag(x, y)
-                assertEquals(x - location[0], controller.magnifier.sourcePoint.first, .01f)
-                assertEquals(y - location[1], controller.magnifier.sourcePoint.second, .01f)
+                assertSamplesEndpoint(view, start = true)
                 if (x < view.rootView.width / 2f) assertTrue(controller.magnifier.screenBounds.centerX() < view.rootView.width / 2f)
                 else assertTrue(controller.magnifier.screenBounds.centerX() > view.rootView.width / 2f)
             }
@@ -196,11 +193,18 @@ class SelectionAutoScrollUiTest {
         compose.runOnUiThread {
             val view = body()
             val controller = requireNotNull(markdownSelectionController(view))
-            val location = IntArray(2).also { view.getLocationOnScreen(it) }
-            assertEquals("Stationary finger samples the newly scrolled content", edge(false) - location[1], controller.magnifier.sourcePoint.second, .01f)
+            assertSamplesEndpoint(view, start = true)
             assertTrue(controller.magnifier.screenBounds.top > edge(false))
             controller.endDrag()
         }
         compose.mainClock.autoAdvance = true
+    }
+
+    private fun assertSamplesEndpoint(view: TextView, start: Boolean) {
+        val offset = if (start) view.selectionStart else view.selectionEnd
+        val caret = requireNotNull(selectionEndpoint(view, offset, start))
+        val sample = requireNotNull(markdownSelectionController(view)).magnifier.sourcePoint
+        assertEquals("Magnified boundary must follow the active endpoint", caret.x, sample.first, .01f)
+        assertEquals("Magnified row must stay vertically centered during scroll", caret.centerY, sample.second, .01f)
     }
 }

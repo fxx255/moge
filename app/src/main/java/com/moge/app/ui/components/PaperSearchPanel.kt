@@ -26,6 +26,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -39,14 +40,15 @@ internal fun PaperSearchPanel(
     hint: String,
     enabled: Boolean,
     filtersModifier: Modifier = Modifier,
+    expandedContent: @Composable () -> Unit = {},
     filters: @Composable RowScope.() -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("paper-search-panel"),
         shape = RoundedCornerShape(17.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shadowElevation = 3.dp,
+        shadowElevation = 8.dp,
     ) {
         Column(Modifier.padding(7.dp)) {
             TextField(
@@ -76,6 +78,7 @@ internal fun PaperSearchPanel(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 content = filters,
             )
+            expandedContent()
         }
     }
 }

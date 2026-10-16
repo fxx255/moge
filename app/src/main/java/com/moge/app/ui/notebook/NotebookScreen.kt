@@ -139,6 +139,7 @@ internal fun NotebookContent(
                     PaperSearchPanel(
                         query = state.query, onQuery = onQuery, hint = "搜索收藏标题、题目或解答", enabled = !state.busy,
                         filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),
+                        expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
                     ) {
                         PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
                             { onCategory(null, false) }, "全部", enabled = !state.busy)
@@ -153,7 +154,7 @@ internal fun NotebookContent(
                         Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
                         TextButton(onRetry) { Text("重试读取分类") }
                     }
-                    if (state.selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    if (state.selecting && !drag.held) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                         TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
                         TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
                     }
@@ -175,7 +176,7 @@ internal fun NotebookContent(
                                 val selected = entry.id in state.selectedIds
                                 val selecting = state.selecting
                                 val preview: @Composable () -> Unit = remember(entry, category, selected, selecting) {
-                                    @Composable { NotebookCard(entry, category, selected, selecting, true, {}, Modifier) }
+                                    @Composable { NotebookCard(entry, category, selected, selecting, true, {}, Modifier, showTape = false) }
                                 }
                                 NotebookCard(entry, category, selected, selecting, state.busy,
                                     onClick = { if (drag.visual == null) { if (state.selecting) onToggleSelection(entry.id) else onOpenEntry(entry.id) } },
@@ -186,7 +187,7 @@ internal fun NotebookContent(
                     }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
-                if (!detail) PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
+                if (!detail) PaperDragOverlay(drag, Modifier.matchParentSize())
             }
         }
     }
@@ -205,11 +206,12 @@ internal fun NotebookContent(
 private fun NotebookCard(
     entry: NotebookEntryEntity, category: String, selected: Boolean, selecting: Boolean, busy: Boolean,
     onClick: () -> Unit, modifier: Modifier,
+    showTape: Boolean = true,
 ) {
     TapedPaperCard(modifier.clickable(enabled = !busy,
         role = if (selecting) Role.Checkbox else Role.Button,
         onClickLabel = if (selecting) "切换选择" else "打开收藏", onClick = onClick)
-        .semantics(mergeDescendants = true) { this.selected = selected }) { cardModifier ->
+        .semantics(mergeDescendants = true) { this.selected = selected }, showTape = showTape) { cardModifier ->
         OutlinedCard(cardModifier,
             colors = CardDefaults.outlinedCardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surface)) {

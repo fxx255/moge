@@ -76,7 +76,7 @@ class SelectionAppearanceTest {
                 Selection.setSelection(body.text as Spannable, 2, 8)
                 val lineY = (body.layout.getLineTop(0) + body.layout.getLineBottom(0)) / 2f
                 val x = body.totalPaddingLeft + body.layout.getPrimaryHorizontal(8)
-                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f))
+                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f), 8, start = false)
                 assertTrue(magnifier.isShowing)
                 assertTrue("At the upper edge the lens belongs below the finger", magnifier.screenBounds.top > lineY)
                 val popup = requireNotNull(shadowOf(RuntimeEnvironment.getApplication()).latestPopupWindow)
@@ -138,7 +138,7 @@ class SelectionAppearanceTest {
                 magnifier.dismiss()
                 assertFalse(magnifier.isShowing)
                 // Reopening at the same size must recreate the released glass backdrop.
-                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f))
+                magnifier.show(x, lineY, RectF(0f, 0f, 760f, 520f), 8, start = false)
                 assertTrue(magnifier.isShowing)
             } finally { magnifier.dismiss(); controller.pause().stop().destroy() }
         }
@@ -150,33 +150,76 @@ class SelectionAppearanceTest {
         val magnifier = SelectionMagnifier(body, Color.BLUE, Color.WHITE)
         try {
             body.textSize = 40f
+            body.measure(View.MeasureSpec.makeMeasureSpec(760, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(520, View.MeasureSpec.EXACTLY))
+            body.layout(0, 0, 760, 520)
             val viewport = RectF(12f, 24f, 102.5f, 300f)
-            magnifier.show(750f, 220f, viewport)
+            magnifier.show(750f, 220f, viewport, 8, start = false)
             assertTrue(magnifier.isShowing)
             assertTrue(viewport.contains(magnifier.screenBounds))
             assertTrue(magnifier.screenBounds.height() > 56f * body.resources.displayMetrics.density)
             controller.pause().stop().destroy()
-            magnifier.show(10f, 10f, viewport)
+            magnifier.show(10f, 10f, viewport, 8, start = false)
             assertFalse("A detached answer cannot retain the lens", magnifier.isShowing)
         } finally { magnifier.dismiss() }
     }
 
-    @Test fun `lens samples the exact dragged point rather than the line midpoint`() {
+    @Test fun `lens centers the selection boundary and its row independently of the finger`() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         val body = attachedBody(controller.get(), Color.BLUE, Color.WHITE)
         val magnifier = SelectionMagnifier(body, Color.BLUE, Color.WHITE)
         try {
+            body.setLineSpacing(36f, 1f)
+            body.measure(View.MeasureSpec.makeMeasureSpec(760, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(520, View.MeasureSpec.EXACTLY))
+            body.layout(0, 0, 760, 520)
             val viewport = RectF(0f, 0f, 760f, 520f)
-            magnifier.show(73.25f, 19.5f, viewport)
-            assertEquals(73.25f, magnifier.sourcePoint.first, 0.001f)
-            assertEquals(19.5f, magnifier.sourcePoint.second, 0.001f)
+            val layout = body.layout
+            val boundary = 8
+            val rowTop = body.totalPaddingTop + layout.getLineTop(0)
+            val rowBottom = body.totalPaddingTop + layout.getLineBottom(0) - 36f
+            magnifier.show(73.25f, 19.5f, viewport, boundary, start = false)
+            assertEquals(body.totalPaddingLeft + layout.getPrimaryHorizontal(boundary), magnifier.sourcePoint.first, .01f)
+            assertEquals("Added line spacing must not pull the sample between rows",
+                (rowTop + rowBottom) / 2f, magnifier.sourcePoint.second, .01f)
             assertTrue("The lens flips below a finger at the top", magnifier.screenBounds.top > 19.5f)
-            magnifier.show(73.25f, 320f, viewport)
+            val sample = magnifier.sourcePoint
+            magnifier.show(73.25f, 320f, viewport, boundary, start = false)
+            assertEquals(sample, magnifier.sourcePoint)
             assertTrue("With enough room the lens belongs above the finger", magnifier.screenBounds.bottom < 320f)
+            magnifier.show(750f, 320f, viewport, layout.getLineStart(1), start = false)
+            assertEquals("An exclusive end on the next row stays at the selected row's edge",
+                body.totalPaddingLeft + layout.getLineRight(0), magnifier.sourcePoint.first, .01f)
+            assertEquals(sample.second, magnifier.sourcePoint.second, .01f)
         } finally {
             magnifier.dismiss()
             controller.pause().stop().destroy()
         }
+    }
+
+    @Test fun `browsing moves and parent scroll cancellation preserve the selected range`() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+        val host = SelectionScrollHost(scope, 1f) { _, _ -> }
+        val body = attachedBody(activity.get(), Color.BLUE, Color.WHITE, host)
+        host.viewport = RectF(0f, 0f, 760f, 520f)
+        try {
+            val selection = requireNotNull(markdownSelectionController(body))
+            selection.begin(2, 8)
+            for (ending in listOf(android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL)) {
+                val time = android.os.SystemClock.uptimeMillis()
+                for ((action, y) in listOf(android.view.MotionEvent.ACTION_DOWN to 220f,
+                    android.view.MotionEvent.ACTION_MOVE to 100f, ending to 100f)) {
+                    val event = android.view.MotionEvent.obtain(time, time + 32, action, 100f, y, 0)
+                    try { body.dispatchTouchEvent(event) } finally { event.recycle() }
+                }
+                body.viewTreeObserver.dispatchOnPreDraw()
+                assertTrue(selection.selecting)
+                assertEquals(2, body.selectionStart)
+                assertEquals(8, body.selectionEnd)
+                assertFalse(selection.dragging)
+            }
+        } finally { host.dispose(); activity.pause().stop().destroy() }
     }
 
     @Test fun `dismissing a question selection by tapping cannot also start editing`() {

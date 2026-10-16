@@ -10,17 +10,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-/** Tape belongs to the lazy item (and its drag preview), so it scrolls with the paper. */
+/** Tape scrolls with the paper; lifted previews keep their layout but shed the tape. */
 @Composable
 internal fun TapedPaperCard(
     modifier: Modifier = Modifier,
+    showTape: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     Box(modifier.fillMaxWidth()) {
         content(Modifier.fillMaxWidth().padding(top = 10.dp))
         // Reserved headroom keeps the rotated tape inside the item bounds and
         // above the first text line, even while an animation uses a clipped layer.
-        Tape(
+        if (showTape) Tape(
             Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = 4.dp)
                 .testTag("paper-card-tape"),
             width = 48.dp, height = 12.dp, angle = 5f,

@@ -164,6 +164,7 @@ internal fun HistoryContent(
                     PaperSearchPanel(
                         query = state.query, onQuery = onQuery, hint = "搜索标题、消息或识别文本", enabled = !state.busy,
                         filtersModifier = Modifier.paperCategoryActivation(drag).testTag("history-category-filters"),
+                        expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
                     ) {
                         PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
                             { onCategory(null, false) }, "全部", enabled = !state.busy && !drag.held)
@@ -178,7 +179,7 @@ internal fun HistoryContent(
                         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
                         TextButton(onRetry) { Text("重试读取分类") }
                     }
-                    if (state.selecting) {
+                    if (state.selecting && !drag.held) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
                             TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
@@ -201,7 +202,7 @@ internal fun HistoryContent(
                     }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
-                PaperDragOverlay(drag, state.categories, Modifier.matchParentSize())
+                PaperDragOverlay(drag, Modifier.matchParentSize())
             }
         }
         if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { category ->
@@ -277,7 +278,7 @@ private fun HistoryGrid(
             // Allocate a new immutable preview when data changes; a live composable lambda
             // would otherwise update the lifted card during later recompositions.
             val preview: @Composable () -> Unit = remember(entry, selected, selecting, generating, category, thumbnail, retention) {
-                @Composable { HistoryCard(entry, selected, selecting, true, generating, {}, category, Modifier, thumbnail, retention) }
+                @Composable { HistoryCard(entry, selected, selecting, true, generating, {}, category, Modifier, thumbnail, retention, showTape = false) }
             }
             HistoryCard(entry, selected, selecting, state.busy, generating,
                 onClick = { if (drag.visual == null) { if (state.selecting) onToggle(id) else onOpen(id) } },
@@ -295,12 +296,13 @@ private fun HistoryCard(
     entry: HistoryEntry, selected: Boolean, selecting: Boolean, busy: Boolean,
     generating: Boolean, onClick: () -> Unit, category: String, modifier: Modifier, thumbnail: Thumbnail,
     retention: String,
+    showTape: Boolean = true,
 ) {
     val shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
     val conversation = entry.conversation
     TapedPaperCard(modifier.clickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
         onClickLabel = if (selecting) "切换选择" else "打开对话", onClick = onClick)
-        .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }) { cardModifier ->
+        .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }, showTape = showTape) { cardModifier ->
         Column(
             cardModifier.heightIn(min = 48.dp).clip(shape)
                 .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)

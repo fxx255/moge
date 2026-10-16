@@ -11,7 +11,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +34,6 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -54,6 +52,10 @@ internal data class PaperDragVisual(
     val preview: (@Composable () -> Unit)? = null,
 )
 
+internal const val PAPER_DELETE_HEIGHT_FRACTION = 0.24f
+private const val PAPER_DRAG_FOLLOW_MILLIS = 50
+private const val PAPER_DRAG_SETTLE_MILLIS = 120
+
 /** Preserve the card's proportions; it fits just inside a category once it has left its origin. */
 internal fun paperDragScale(origin: Rect, displacement: Offset, categoryWidth: Float, categoryHeight: Float): Float {
     if (origin.width <= 0f || origin.height <= 0f || !displacement.x.isFinite() || !displacement.y.isFinite() ||
@@ -61,7 +63,7 @@ internal fun paperDragScale(origin: Rect, displacement: Offset, categoryWidth: F
     val compact = (min(categoryWidth / origin.width, categoryHeight / origin.height) * 0.9f).coerceIn(0.01f, 0.95f)
     // Reach the compact preview after a shorter travel distance so a drag
     // does not need to cross the whole card before it visually settles.
-    val distance = (max(abs(displacement.x) / origin.width, abs(displacement.y) / origin.height) / 0.6f)
+    val distance = (max(abs(displacement.x) / origin.width, abs(displacement.y) / origin.height) / 0.35f)
         .coerceIn(0f, 1f)
     val progress = distance * distance * (3f - 2f * distance)
     return 1f + (compact - 1f) * progress
@@ -127,15 +129,17 @@ internal class PaperDragState {
     private fun expandCategories(previous: Offset, next: Offset) {
         val current = visual ?: return
         if (!held || !moved || categoriesExpanded || next.y >= current.start.y) return
-        val prompt = (categoryActivationBounds.takeUnless { it.isEmpty } ?: categoryPromptBounds).intersect(rootBounds)
-        if (prompt.isEmpty) return
-        val crossesPrompt = if (next.y < previous.y && previous.y >= prompt.top && next.y < prompt.bottom) {
-            val y = previous.y.coerceIn(prompt.top, prompt.bottom)
-            val fraction = (previous.y - y) / (previous.y - next.y)
-            val x = previous.x + (next.x - previous.x) * fraction
-            x >= prompt.left && x < prompt.right
-        } else false
-        if (prompt.contains(next) || crossesPrompt) categoriesExpanded = true
+        categoriesExpanded = listOf(categoryActivationBounds, categoryPromptBounds).any { bounds ->
+            val prompt = bounds.intersect(rootBounds)
+            if (prompt.isEmpty) return@any false
+            val crossesPrompt = if (next.y < previous.y && previous.y >= prompt.top && next.y < prompt.bottom) {
+                val y = previous.y.coerceIn(prompt.top, prompt.bottom)
+                val fraction = (previous.y - y) / (previous.y - next.y)
+                val x = previous.x + (next.x - previous.x) * fraction
+                x >= prompt.left && x < prompt.right
+            } else false
+            prompt.contains(next) || crossesPrompt
+        }
     }
 
     fun targetBounds(target: PaperDropTarget, bounds: Rect) {
@@ -226,7 +230,7 @@ internal fun Modifier.paperDragSource(
     val haptic = LocalHapticFeedback.current
     val touchSlop = LocalViewConfiguration.current.touchSlop
     val sourceAlpha by animateFloatAsState(if (state.visual?.id == id && state.held) 0.3f else 1f,
-        if (MogeTheme.motionEnabled) tween(160) else snap(), label = "drag-source-alpha")
+        if (MogeTheme.motionEnabled) tween(PAPER_DRAG_SETTLE_MILLIS) else snap(), label = "drag-source-alpha")
     this.onGloballyPositioned {
         // A partially visible card still lifts at its full measured size.
         val origin = it.localToRoot(Offset.Zero)
@@ -256,30 +260,24 @@ internal fun Modifier.paperDragSource(
         }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCategoryEntity>, modifier: Modifier = Modifier) {
+internal fun PaperDragOverlay(state: PaperDragState, modifier: Modifier = Modifier) {
     val motion = MogeTheme.motionEnabled
     val density = LocalDensity.current
-    val scroll = rememberScrollState()
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(state.hovered) {
         if (state.hovered != null) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     LaunchedEffect(state.held, state.settling, motion) {
-        if (state.settling) { if (motion) delay(280); state.finishSettling() }
-        if (state.held) scroll.scrollTo(0)
+        if (state.settling) {
+            // Keep the preview through the last animation frame before disposing it.
+            if (motion) delay(PAPER_DRAG_SETTLE_MILLIS + 20L)
+            state.finishSettling()
+        }
     }
     BoxWithConstraints(modifier.testTag("paper-drag-overlay").onGloballyPositioned { state.rootBounds = it.boundsInRoot() }) {
-        val deleteHeight = maxHeight * 0.24f
+        val deleteHeight = maxHeight * PAPER_DELETE_HEIGHT_FRACTION
         val categoryWidth = ((maxWidth - 64.dp) / 2).coerceIn(80.dp, 160.dp)
-        val categoryTop = with(density) { (state.categoryActivationBounds.top - state.rootBounds.top).coerceAtLeast(0f).toDp() }
-        val gridMaxHeight = (maxHeight - deleteHeight - categoryTop - 52.dp).coerceAtLeast(0.dp)
-        AnimatedVisibility(state.held, Modifier.align(Alignment.TopCenter).padding(top = categoryTop),
-            enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { -it / 3 },
-            exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { -it / 3 }) {
-            PaperCategoryDropPanel(state, categories, scroll, categoryWidth, gridMaxHeight)
-        }
         AnimatedVisibility(state.held, Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(tween(if (motion) 160 else 0)) + slideInVertically(tween(if (motion) 200 else 0)) { it / 3 },
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { it / 3 }) {
@@ -292,8 +290,8 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
         state.visual?.let { visual ->
             var lifted by remember(visual.id) { mutableStateOf(!motion) }
             LaunchedEffect(state.held) { lifted = state.held }
-            val point by animateOffsetAsState(visual.pointer, if (!motion || state.held) snap() else tween(260), label = "paper-drop-position")
-            val alpha by animateFloatAsState(if (lifted) 1f else 0f, if (motion) tween(260) else snap(), label = "paper-drop-alpha")
+            val point by animateOffsetAsState(visual.pointer, if (!motion || state.held) snap() else tween(PAPER_DRAG_SETTLE_MILLIS), label = "paper-drop-position")
+            val alpha by animateFloatAsState(if (lifted) 1f else 0f, if (motion) tween(PAPER_DRAG_SETTLE_MILLIS) else snap(), label = "paper-drop-alpha")
             val width = with(density) { visual.origin.width.toDp() }
             val height = with(density) { visual.origin.height.toDp() }
             val categoryHeightPx = state.categoryCardSize.height.takeIf { it > 0f } ?: with(density) { 64.dp.toPx() }
@@ -303,7 +301,7 @@ internal fun PaperDragOverlay(state: PaperDragState, categories: List<NotebookCa
             } else visual.pointer - visual.start
             val scale by animateFloatAsState(
                 paperDragScale(visual.origin, displacement, categoryWidthPx, categoryHeightPx),
-                if (!motion) snap() else tween(if (state.held) 80 else 260), label = "paper-drag-scale")
+                if (!motion) snap() else tween(if (state.held) PAPER_DRAG_FOLLOW_MILLIS else PAPER_DRAG_SETTLE_MILLIS), label = "paper-drag-scale")
             val shadow = with(density) { 12.dp.toPx() }
             val previewShape = MaterialTheme.shapes.small
             Box(Modifier.offset {

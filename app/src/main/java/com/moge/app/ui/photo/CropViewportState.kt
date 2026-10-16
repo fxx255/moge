@@ -50,12 +50,13 @@ internal class CropViewportState(private val scope: CoroutineScope) {
     fun interrupt() { animation?.cancel(); animation = null }
 
     fun transform(gestureZoom: Float, pan: Offset, focus: Offset) {
-        val minimumZoom = minimumCropZoom(image, viewport)
+        // Permit continuous pinching below the fitted size. The tiny floor only
+        // keeps geometry representable; it is far below a useful viewing size.
+        val minimumZoom = minimumCropZoom(image, viewport) * .001f
         val newZoom = (zoom * gestureZoom).coerceIn(minimumZoom, maximumZoom)
         val applied = newZoom / zoom
         val center = Offset(viewport.width / 2f, viewport.height / 2f)
-        val offset = if (newZoom <= minimumZoom) Offset.Zero
-        else constrainImageOffset(imageOffset * applied + (focus - center) * (1f - applied) + pan,
+        val offset = constrainImageOffset(imageOffset * applied + (focus - center) * (1f - applied) + pan,
             image, viewport, newZoom, cropRect)
         framing = CropFraming(newZoom, offset,
             constrainCropRectToBounds(cropRect, visibleImageBounds(image, viewport, newZoom, offset)))
@@ -71,7 +72,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         }
     }
 
-    fun fitSelection(motionEnabled: Boolean) {
+    fun fitSelection(motionEnabled: Boolean, durationMillis: Int = 180) {
         interrupt()
         val from = framing
         val target = fitCropFraming(from, viewport)
@@ -79,7 +80,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         maximumZoom = maxOf(maximumZoom, target.zoom)
         if (!motionEnabled) framing = target
         else animation = scope.launch {
-            animate(0f, 1f, animationSpec = tween(180, easing = FastOutSlowInEasing)) { progress, _ ->
+            animate(0f, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { progress, _ ->
                 framing = interpolateCropFraming(from, target, progress)
             }
             framing = target

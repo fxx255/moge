@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,7 @@ class PaperDragInteractionTest {
     private var deleted = false
     private val previewText = mutableStateOf("原始正文\n保留第二行")
     private val cardSelection = mutableStateOf(emptySet<String>())
+    private lateinit var sampleView: android.view.View
 
     @Composable
     private fun PreviewCard(body: String, modifier: Modifier = Modifier) {
@@ -71,6 +73,7 @@ class PaperDragInteractionTest {
     private fun renderCard(width: Dp = 120.dp, height: Dp = 250.dp, sourceViewportHeight: Dp? = null): PaperDragState {
         val drag = PaperDragState()
         compose.setContent { MogeTheme { CompositionLocalProvider(LocalPaperMotionEnabled provides true) {
+            sampleView = LocalView.current
             val body = previewText.value
             val preview: @Composable () -> Unit = remember(body) { @Composable { PreviewCard(body) } }
             Box(Modifier.fillMaxSize()) {
@@ -81,13 +84,21 @@ class PaperDragInteractionTest {
                             { cardSelection.value = cardSelection.value + it },
                             { droppedIds = it.ids; movedTo = (it.target as? PaperDropTarget.Category)?.id }, preview))
                 }
-                PaperDragOverlay(drag, history.value.categories, Modifier.matchParentSize())
+                Column(Modifier.align(Alignment.TopCenter)) {
+                    PaperSearchPanel("", {}, "搜索", enabled = false,
+                        filtersModifier = Modifier.paperCategoryActivation(drag),
+                        expandedContent = { PaperCategoryDropPanel(drag, history.value.categories) }) {
+                        PaperCategoryFilter(true, {}, "全部", enabled = false)
+                    }
+                }
+                PaperDragOverlay(drag, Modifier.matchParentSize())
             }
         } } }
         return drag
     }
     private fun renderHistory() {
         compose.setContent { MogeTheme {
+            sampleView = LocalView.current
             HistoryContent(history.value, {}, { opened++ }, {},
                 { id -> history.value = history.value.copy(selectedIds = if (id in history.value.selectedIds) history.value.selectedIds - id else history.value.selectedIds + id) },
                 { history.value = history.value.copy(selectedIds = emptySet()) }, {}, {}, {}, {}, {}, {},
@@ -130,9 +141,16 @@ class PaperDragInteractionTest {
         compose.onNodeWithTag(tag).performTouchInput { moveTo(destination - origin, delayMillis = 240); up() }
         compose.waitForIdle()
     }
+    private fun assertLiftedCardHasNoTape(sourceTag: String) {
+        compose.onNode(hasTestTag("paper-card-tape") and hasAnyAncestor(hasTestTag("drag-paper")),
+            useUnmergedTree = true).assertDoesNotExist()
+        compose.onNode(hasTestTag("paper-card-tape") and hasAnyAncestor(hasTestTag(sourceTag)),
+            useUnmergedTree = true).assertExists()
+    }
     @Test fun `hold exposes compact category prompt and delete but release alone keeps selection`() {
         renderHistory()
         hold("history-card-a")
+        assertLiftedCardHasNoTape("history-card-a")
         compose.onNodeWithTag("drop-delete").assertExists()
         compose.onNodeWithTag("drop-category-prompt").assertIsDisplayed()
         compose.onNodeWithTag("drop-category-custom").assertDoesNotExist()
@@ -155,11 +173,29 @@ class PaperDragInteractionTest {
         assertEquals(0, opened)
         assertFalse(deleted)
     }
-    @Test fun `existing filter row unfolds categories with a page sized curved delete area`() {
+    @Test @Config(qualifiers = "+night")
+    fun `existing filter row unfolds categories with a page sized curved delete area`() {
         renderHistory()
         hold("history-card-a")
         moveTo("history-card-a", "history-category-filters")
         compose.onNodeWithTag("drop-category-grid").assertIsDisplayed()
+        compose.onNodeWithContentDescription("搜索标题、消息或识别文本").assertIsDisplayed()
+        compose.onNodeWithTag("history-category-filters").assertIsDisplayed()
+        val panel = compose.onNodeWithTag("paper-search-panel").fetchSemanticsNode().boundsInRoot
+        val filters = compose.onNodeWithTag("history-category-filters").fetchSemanticsNode().boundsInRoot
+        val prompt = compose.onNodeWithTag("drop-category-prompt").fetchSemanticsNode().boundsInRoot
+        val grid = compose.onNodeWithTag("drop-category-grid").fetchSemanticsNode().boundsInRoot
+        val firstLabel = compose.onNode(hasText("未分类") and hasAnyAncestor(hasTestTag("drop-category-none")))
+            .getUnclippedBoundsInRoot()
+        val gridBounds = compose.onNodeWithTag("drop-category-grid").getUnclippedBoundsInRoot()
+        exportPocketSample("chalk")
+        assertTrue("A small screen must show the entire category label: $firstLabel in $gridBounds",
+            firstLabel.top >= gridBounds.top && firstLabel.bottom <= gridBounds.bottom)
+        assertTrue("The original filters remain above the prompt", filters.bottom <= prompt.top)
+        assertTrue("The expanded targets belong to the original search sheet", panel.contains(grid.topLeft) && grid.bottom <= panel.bottom)
+        compose.onNode(hasTestTag("drop-category-grid") and hasAnyAncestor(hasTestTag("paper-search-panel"))).assertExists()
+        val card = compose.onNodeWithTag("history-card-a").fetchSemanticsNode().boundsInRoot
+        assertTrue("The expanded search sheet reserves space above the cards", card.top >= panel.bottom)
         val zone = compose.onNodeWithTag("drop-delete").fetchSemanticsNode().boundsInRoot
         val root = compose.onNodeWithTag("paper-drag-overlay").fetchSemanticsNode().boundsInRoot
         assertEquals("The visible and active delete region shrink together by 20 percent", root.height * .24f, zone.height, 1f)
@@ -176,6 +212,7 @@ class PaperDragInteractionTest {
     @Test fun `notebook uses same long press move gesture`() {
         renderNotebook()
         hold("notebook-card-a")
+        assertLiftedCardHasNoTape("notebook-card-a")
         dragTo("notebook-card-a", "drop-category-custom")
         assertEquals("custom", movedTo)
         assertEquals(setOf("a"), droppedIds)
@@ -229,9 +266,11 @@ class PaperDragInteractionTest {
         unfold("history-card-a")
         compose.onNodeWithTag("drop-category-none").assertIsDisplayed()
         (0..9).forEach { compose.onNodeWithTag("drop-category-group$it").assertExists() }
-        val first = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().boundsInRoot
-        val nextRow = compose.onNodeWithTag("drop-category-group2").fetchSemanticsNode().boundsInRoot
-        assertTrue(nextRow.top >= first.bottom)
+        // Lower rows may be fully clipped on a small viewport. Compare their
+        // layout positions before scrolling them into the visible drop region.
+        val first = compose.onNodeWithTag("drop-category-none").getUnclippedBoundsInRoot()
+        val nextRow = compose.onNodeWithTag("drop-category-group2").getUnclippedBoundsInRoot()
+        assertTrue("Groups must wrap into rows: $first then $nextRow", nextRow.top >= first.bottom)
         val grid = compose.onNodeWithTag("drop-category-grid").fetchSemanticsNode()
         assertTrue(grid.config.contains(SemanticsProperties.VerticalScrollAxisRange))
         assertFalse(grid.config.contains(SemanticsProperties.HorizontalScrollAxisRange))
@@ -277,6 +316,20 @@ class PaperDragInteractionTest {
         val text = compose.onNodeWithText(fullName).fetchSemanticsNode().boundsInRoot
         val categoryBounds = compose.onNodeWithTag("drop-category-custom").fetchSemanticsNode().boundsInRoot
         assertTrue(text.bottom <= categoryBounds.bottom)
+        exportPocketSample("paper-long-label")
+    }
+
+    private fun exportPocketSample(name: String) {
+        if (System.getenv("PAPER_CATEGORY_EXPORT_SAMPLES") != "1") return
+        compose.runOnIdle {
+            val root = sampleView.rootView
+            val image = android.graphics.Bitmap.createBitmap(root.width, root.height, android.graphics.Bitmap.Config.ARGB_8888)
+            try {
+                root.draw(android.graphics.Canvas(image))
+                val file = java.io.File("build/category-pocket-samples/$name.png").apply { parentFile?.mkdirs() }
+                file.outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            } finally { image.recycle() }
+        }
     }
 
     @Test fun `small floating preview preserves content and anchors its grab to the actual pointer`() {
@@ -398,7 +451,7 @@ class PaperDragInteractionTest {
         compose.waitForIdle()
     }
 
-    @Test fun `cancelled preview restores its size and retains content during the return animation`() {
+    @Test fun `cancelled preview retains its size and content until the quick return finishes`() {
         val drag = renderCard()
         val original = compose.onNodeWithTag("component-card").fetchSemanticsNode().boundsInRoot
         hold("component-card")
@@ -406,24 +459,30 @@ class PaperDragInteractionTest {
         compose.waitForIdle()
         val held = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithTag("component-card").performTouchInput { cancel() }
-        compose.mainClock.advanceTimeBy(32)
-        compose.waitForIdle()
-        compose.mainClock.advanceTimeBy(96)
-        compose.waitForIdle()
-        val returning = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
-        assertTrue(returning.width >= held.width && returning.width <= original.width + 1f)
-        assertTrue(returning.height >= held.height && returning.height <= original.height + 1f)
-        compose.onNode(hasText("原始标题") and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertExists()
-        compose.runOnIdle {
-            assertTrue(drag.settling)
-            assertEquals(drag.visual!!.start, drag.visual!!.pointer)
-            assertNotNull(drag.visual!!.preview)
-        }
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        compose.onNodeWithTag("drag-paper").assertDoesNotExist()
-        compose.runOnIdle { assertFalse(drag.settling) }
+        try {
+            compose.onNodeWithTag("component-card").performTouchInput { cancel() }
+            compose.mainClock.advanceTimeBy(32)
+            compose.waitForIdle()
+            compose.mainClock.advanceTimeBy(32)
+            compose.waitForIdle()
+            // Prime recomposition and the first animation frame, then sample playback.
+            compose.mainClock.advanceTimeBy(48)
+            compose.waitForIdle()
+            val returning = compose.onNodeWithTag("drag-paper").fetchSemanticsNode().boundsInRoot
+            assertTrue("The return must include intermediate sizes: $held -> $returning -> $original",
+                returning.width > held.width && returning.width < original.width)
+            assertTrue(returning.height > held.height && returning.height < original.height)
+            compose.onNode(hasText("原始标题") and hasAnyAncestor(hasTestTag("drag-paper")), useUnmergedTree = true).assertExists()
+            compose.runOnIdle {
+                assertTrue(drag.settling)
+                assertEquals(drag.visual!!.start, drag.visual!!.pointer)
+                assertNotNull(drag.visual!!.preview)
+            }
+            compose.mainClock.advanceTimeBy(112)
+            compose.waitForIdle()
+            compose.onNodeWithTag("drag-paper").assertDoesNotExist()
+            compose.runOnIdle { assertFalse(drag.settling) }
+        } finally { compose.mainClock.autoAdvance = true }
     }
 
 }
