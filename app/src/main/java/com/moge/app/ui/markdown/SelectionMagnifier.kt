@@ -53,7 +53,10 @@ internal class SelectionMagnifier(
             dismiss()
             return
         }
-        val row = selectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
+        // A caret next to '=' still needs the complete equation row, including
+        // neighboring fractions. Handles themselves stay close to their item.
+        val row = formulaSelectionEndpoint(source, selectionOffset, start, wholeRow = true)
+            ?: selectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
         sampledRow = row
         sourcePoint = row.x to row.centerY
         val width = minOf(152f * density, viewport.width()).toInt().coerceAtLeast(1)
@@ -164,17 +167,17 @@ internal class SelectionMagnifier(
             // Clip before translating into Layout space so adjacent rows cannot
             // intrude into the lens when the answer uses generous line spacing.
             canvas.clipRect(0f, row.top, source.width.toFloat(), row.bottom)
-            canvas.translate(source.totalPaddingLeft - source.scrollX.toFloat(), source.totalPaddingTop - source.scrollY.toFloat())
             val start = source.selectionStart
             val end = source.selectionEnd
             selectionPath.reset()
-            if (start >= 0 && end >= 0 && start != end) layout.getSelectionPath(minOf(start, end), maxOf(start, end), selectionPath)
+            if (start >= 0 && end >= 0 && start != end) markdownSelectionPath(source, start, end, selectionPath)
             selectionPaint.color = ColorUtils.setAlphaComponent(accent, 96)
             // Render text/spans above the glass. Drawing the TextView background
             // here would turn the lens opaque and hide all of its glass treatment.
             // Draw explicitly: Layout's optional highlight path is not rendered
             // consistently without the TextView editor's focus/selection state.
             canvas.drawPath(selectionPath, selectionPaint)
+            canvas.translate(source.totalPaddingLeft - source.scrollX.toFloat(), source.totalPaddingTop - source.scrollY.toFloat())
             layout.draw(canvas)
         }
 

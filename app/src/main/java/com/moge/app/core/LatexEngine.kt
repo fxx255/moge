@@ -28,6 +28,7 @@ internal object LatexEngine {
         // formula class later would silently overwrite our compatibility macros.
         TeXFormula("")
         installLatexFrameCompatibility()
+        installLatexSelectionLayout()
         for ((closed, open) in listOf("oiint" to "iint", "oiiint" to "iiint")) {
             MacroInfo.Commands[closed] = ClosedIntegralMacro("\\$open")
         }

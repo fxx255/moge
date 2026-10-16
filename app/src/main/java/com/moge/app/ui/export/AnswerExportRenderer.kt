@@ -1,5 +1,8 @@
 package com.moge.app.ui.export
 
+import com.moge.app.ui.markdown.parseMarkdownTable
+import com.moge.app.ui.markdown.MarkdownTable
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -237,7 +240,7 @@ private class NativeExportRenderer(
         for (section in sections) {
             currentCoroutineContext().ensureActive()
             if (section.isTable) {
-                val table = parseExportTable(section.text)
+                val table = parseMarkdownTable(section.text)
                 if (table != null) { table(table); continue }
             }
             for (chunk in boundedSourceChunks(section.text)) {
@@ -291,7 +294,7 @@ private class NativeExportRenderer(
         }
     }
 
-    private suspend fun table(table: ExportTable) {
+    private suspend fun table(table: MarkdownTable) {
         if (table.headers.any { it.length > ExportLimits.SOURCE_CHUNK }) {
             tableAsCards(table, "表头过长，按行逐列续排以保留全部内容")
             return
@@ -338,7 +341,7 @@ private class NativeExportRenderer(
         }
     }
 
-    private suspend fun tableAsCards(table: ExportTable, notice: String) {
+    private suspend fun tableAsCards(table: MarkdownTable, notice: String) {
         plainNotice(notice)
         for (row in table.rows.ifEmpty { listOf(List(table.columns) { "" }) }) {
             for (column in table.headers.indices) {

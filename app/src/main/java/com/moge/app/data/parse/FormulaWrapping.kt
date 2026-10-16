@@ -2,7 +2,7 @@ package com.moge.app.data.parse
 
 /**
  * 把过长的公式在顶层“安全断点”处拆成多个块级公式，避免右侧溢出被裁剪。
- * 断点只取「大括号深度 0 且不在 \begin{...} 环境内部」的位置，保证每段仍是可独立渲染的 LaTeX；
+ * 优先在完整外框、可见括号内分行；其余断点只取顶层位置，保证每段仍是可独立渲染的 LaTeX；
  * 整体就是一个 array/aligned 行式环境时，按行解包而不是硬切环境。
  */
 internal fun wrapLongFormulas(
@@ -174,7 +174,10 @@ private const val DISPLAY_DELIMITER = "$$"
 
 private fun splitFormulaBlocks(latex: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
     if (latex.isEmpty()) return emptyList()
-    return splitFormula(latex, maxWidthPx, measure).flatMap { listOf(DISPLAY_DELIMITER, it, DISPLAY_DELIMITER) }
+    // Blank source lines are ordinary TeX whitespace, but Markwon treats them
+    // as the end of a math block and strands the name above its equation.
+    val continuous = latex.replace(Regex("\n[ \t]*\n+"), "\n")
+    return splitFormula(continuous, maxWidthPx, measure).flatMap { listOf(DISPLAY_DELIMITER, it, DISPLAY_DELIMITER) }
 }
 
 private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
@@ -213,6 +216,9 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
     val value = trimSegment(latex)
     if (value.isEmpty()) return emptyList()
     if (measure(value) <= maxWidthPx) return listOf(value)
+    wrapFormulaGroup(value, FormulaGroupKind.Frame, maxWidthPx, measure)?.let { return it }
+    splitSetBuilderFormula(value, maxWidthPx, measure)?.let { return it }
+    wrapFormulaGroup(value, FormulaGroupKind.Delimiter, maxWidthPx, measure)?.let { return it }
     // 拆成独立显示块时消费掉行分隔符，不能把 \\ 留在上一段末尾或下一段开头。
     val rowBreaks = splitPoints(value, 0)
     if (rowBreaks.isNotEmpty()) {
@@ -238,6 +244,52 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
         }
     }
     return pieces
+}
+
+/**
+ * A set's outer sized braces protect all its commas from ordinary wrapping.
+ * Break between complete conditions, closing/reopening invisible delimiters so
+ * each row remains valid TeX. Keep the name, coordinates and first condition
+ * together when they fit, rather than stranding D_1 on a row of its own.
+ */
+private fun splitSetBuilderFormula(latex: String, maxWidthPx: Int, measure: (String) -> Int): List<String>? {
+    val open = latex.indexOf("\\left\\{")
+    val close = latex.lastIndexOf("\\right\\}")
+    if (open < 0 || close <= open) return null
+    val suffix = latex.substring(close + "\\right\\}".length)
+    if (suffix.any { !it.isWhitespace() && it !in ".,;" }) return null
+    val body = latex.substring(open + "\\left\\{".length, close)
+    // A nested pair may contain its own commas. splitPoints ignores those,
+    // just as it ignores tuple commas and subscripts such as x_{1,2}.
+    val cuts = splitPoints(body, 1)
+    if (cuts.isEmpty() || ':' !in body && "\\mid" !in body) return null
+    val conditions = mutableListOf<String>()
+    var start = 0
+    for (cut in cuts) {
+        conditions += trimSegment(body.substring(start, cut + 1))
+        start = cut + 1
+    }
+    conditions += trimSegment(body.substring(start))
+    if (conditions.any { it.isEmpty() }) return null
+    val prefix = latex.substring(0, open)
+    val rows = mutableListOf<String>()
+    var current = prefix + "\\left\\{" + conditions.first()
+    for ((index, condition) in conditions.drop(1).withIndex()) {
+        val last = index == conditions.size - 2
+        val closer = if (last) "\\right\\}$suffix" else "\\right."
+        if (measure(current + "\\ " + condition + closer) <= maxWidthPx) {
+            current += "\\ " + condition
+        } else {
+            rows += current + "\\right."
+            current = "\\left." + condition
+        }
+    }
+    rows += current + "\\right\\}$suffix"
+    // Refine only conditions that still exceed the width. Each row now has
+    // just one visible brace, leaving the other conditions their full width.
+    return rows.takeIf { it.size > 1 }?.flatMap { row ->
+        if (measure(row) <= maxWidthPx) listOf(row) else splitFormula(row, maxWidthPx, measure)
+    }
 }
 
 /**

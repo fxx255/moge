@@ -4,9 +4,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.util.Log
 import android.widget.TextView
-import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,8 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,11 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.zIndex
 import com.moge.app.R
 import com.moge.app.data.llm.isPlaceholderReply
 import com.moge.app.data.parse.findFigureAnchors
@@ -218,7 +212,6 @@ internal fun isReplyPlaceholder(content: String): Boolean =
  * 于是只有两三列短文字的窄表格也被拉成 1.8 倍 —— 用户反馈「宽度富裕很多但依然控了
  * 很大」，右侧一大半被顶到屏幕外，还得手动横拖才看得到。现在 1.8 只是上限。
  */
-internal const val TABLE_MAX_WIDTH_FACTOR = 1.8f
 
 /** 正文 Markdown 字号（sp）。估算表格自然宽度时必须与 TextView 的实际字号一致。 */
 internal const val MARKDOWN_TEXT_SIZE_SP = 17f
@@ -467,79 +460,11 @@ internal fun MarkdownAnswer(content: String) {
         MarkdownChunk(content, fixedWidthPx = null)
         return
     }
-    var containerWidthPx by remember { mutableIntStateOf(0) }
-    // 估算表格自然宽度用的画笔。字号必须与 createMarkdownTextView 里的一致
-    // （那里单位是 sp，这里要换算成 px），否则估算出来的宽度对不上真实渲染。
-    val resources = LocalResources.current
-    val metrics = resources.displayMetrics
-    // 与 tableThemeFor() 保持同一套算法，避免两处算出不同的内边距
-    val cellPaddingPx = (TABLE_CELL_PADDING_DP * metrics.density).toInt().coerceAtLeast(1)
-    val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
-    val measurePaint = remember(fontSizePx) {
-        android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = fontSizePx
-        }
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onSizeChanged { containerWidthPx = it.width },
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         chunks.forEachIndexed { index, chunk ->
-            // 显式 key：Column 的内容没有 key 时按**位置**做差量复用，上一帧的
-            // [文字块, 表格块] 变成这一帧的 [文字块, 图, 表格块] 时，第 2 个槽位会被
-            // 原地复用成「图」——而里面挂的 AndroidView 是真实 Android 视图，
-            // 复用/重建时机比纯 Compose 节点脆弱得多，容易留下尺寸与位置都错配的旧视图，
-            // 表现为后面的图与表格点不动、拖不动。给 key 让 Compose 按身份匹配。
             key(index) {
-                // 注意：key 的 lambda 里**不能写 return@key**——那会让 Kotlin 给这个
-                // 匿名函数生成非法方法名 `<anonymous>`，运行期直接 ClassFormatError
-                // （编译能过、全套单测一起爆）。所以这里用 if/else 而不是提前返回。
-                if (!chunk.isTable || containerWidthPx <= 0) {
-                    // 非表格块正常铺满；表格块等测量到宽度再渲染，避免按 0 宽拆分公式
-                    if (!chunk.isTable) MarkdownChunk(chunk.text, fixedWidthPx = null)
-                } else {
-                    // 按需撑宽：先估算表格的自然宽度，放得下就不撑，放不下才撑到刚好够，
-                    // 上限 TABLE_MAX_WIDTH_FACTOR。
-                    //
-                    // 旧版是**无条件**乘 1.8，只有两三列短文字的窄表格也被拉成 1.8 倍
-                    // （用户反馈「宽度富裕很多但依然控了很大」，右侧大半在屏幕外）。
-                    // 估算本身是纯文本计算（微秒级），可以安全地在流式期间反复调用 ——
-                    // 这也是没有改用「试排 + 实测」的原因，那样每帧都要完整排版一次。
-                    val tableWidthPx = remember(chunk.text, containerWidthPx, cellPaddingPx, fontSizePx) {
-                        val natural = estimateTableNaturalWidthPx(chunk.text, measurePaint, cellPaddingPx)
-                        resolveTableWidthPx(containerWidthPx, natural)
-                    }
-                    val scroll = rememberScrollState()
-                    // 宽表格可左右拖动。
-                    //
-                    // 两个必须同时成立的条件（缺一个就拖不动）：
-                    // ① 外层 Box 用 wrapContentWidth 而不是 fillMaxWidth —— horizontalScroll 只在
-                    //    「内容宽度 > 容器宽度」时才产生可滚动区间；若外层被 fillMaxWidth 撑满，
-                    //    可滚动距离就是 0，横滑毫无反应；
-                    // ② 内层 TextView 给足固定宽度 tableWidthPx（1.8 倍气泡宽），它才是那个「更宽的内容」。
-                    //
-                    // clipToBounds：内容是 1.8 倍宽的真实 Android 视图，若不显式裁剪，
-                    // 溢出视口的部分会横向画到气泡外面，盖住旁边的文字（用户反馈的
-                    // 「表格遮挡了部分文字内容」）。滚动容器本身不保证裁剪主轴。
-                    Box(
-                        modifier = Modifier
-                            .wrapContentWidth()
-                            // 与图片同理：抬高 zIndex，保证表格的横向拖动不会因为
-                            // 上方文本块的高度偏差而被吃掉（用户反馈「末尾的表格拖不动」）。
-                            .zIndex(FIGURE_Z_INDEX)
-                            .excludePageSwipe().horizontalScroll(scroll, reverseScrolling = false)
-                            .clipToBounds(),
-                    ) {
-                        // selectable=false：见 createMarkdownTextView 内注释。
-                        // 表格块交给外层滚动处理手势，TextView 自己不参与触摸消费。
-                        MarkdownChunk(
-                            chunk.text,
-                            fixedWidthPx = tableWidthPx,
-                            selectable = false,
-                        )
-                    }
-                }
+                if (chunk.isTable) MarkdownTableBlock(chunk.text)
+                else MarkdownChunk(chunk.text, fixedWidthPx = null)
             }
         }
     }
@@ -573,6 +498,8 @@ internal fun MarkdownChunk(
     content: String,
     fixedWidthPx: Int?,
     selectable: Boolean = true,
+    textAlignment: Int = android.view.View.TEXT_ALIGNMENT_GRAVITY,
+    bold: Boolean = false,
 ) {
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -590,13 +517,15 @@ internal fun MarkdownChunk(
     // detached/premeasured items could keep that single-line slot until another scroll.
     BoxWithConstraints(widthModifier) {
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost) {
+        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor,
                         selectable = selectable, fontSizePx = fontSizePx,
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor).also { view ->
+                        view.textAlignment = textAlignment
+                        if (bold) view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
                         renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
                     }
                 },

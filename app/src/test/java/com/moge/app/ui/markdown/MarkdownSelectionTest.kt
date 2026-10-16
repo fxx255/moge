@@ -34,17 +34,17 @@ class MarkdownSelectionTest {
         .getSpans(0, view.text.length, BaselineLatexSpan::class.java).sortedBy { (view.text as Spanned).getSpanStart(it) }
     private fun clipboard() = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
-    @Test fun `selection within drawable snaps to full formula and copies through native menu`() {
+    @Test fun `selection within a fraction snaps to that item and copies through native menu`() {
         val view = render("前文 \$\$$formula\$\$ 后文")
         val text = view.text as Spannable
         val span = spans(view).single()
         val start = text.getSpanStart(span)
         val end = text.getSpanEnd(span)
-        Selection.setSelection(text, start + 2, end - 2)
+        Selection.setSelection(text, start + 2, start + formula.indexOf('+') - 2)
         assertEquals(start, view.selectionStart)
-        assertEquals(end, view.selectionEnd)
+        assertEquals(start + formula.indexOf('+'), view.selectionEnd)
         assertTrue(view.onTextContextMenuItem(android.R.id.copy))
-        assertEquals(formula, clipboard().primaryClip!!.getItemAt(0).text.toString())
+        assertEquals("\\frac{1}{2}", clipboard().primaryClip!!.getItemAt(0).text.toString())
     }
 
     @Test fun `exact formula boundaries and backward selection preserve complete source`() {

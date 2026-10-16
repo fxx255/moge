@@ -97,7 +97,9 @@ internal class MarkdownSelectionController(
     fun longClick(): Boolean {
         if (view.layout == null || view.text.isEmpty() || !view.isAttachedToWindow) return false
         val offset = view.getOffsetForPosition(lastTouchX, lastTouchY).coerceAtMost(view.text.length - 1)
-        val word = selectionWord(view.text.toString(), offset)
+        val formula = formulaPartForPosition(view, lastTouchX, lastTouchY)
+        val word = formula?.let { MarkdownSelection(it.start, it.end) }
+            ?: selectionWord(view.text.toString(), offset)
         begin(word.start, word.end)
         selectionStartedDuringTouch = true
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -204,7 +206,9 @@ internal class MarkdownSelectionController(
             else minOf(view.selectionStart, view.selectionEnd)
         val position = endpoint(start)
         fingerOffsetX = x - position.first
-        fingerOffsetY = y - position.second + view.lineHeight / 2f
+        val offset = if (start) minOf(view.selectionStart, view.selectionEnd) else maxOf(view.selectionStart, view.selectionEnd)
+        val caret = selectionEndpoint(view, offset, start)
+        fingerOffsetY = y - position.second + (caret?.let { it.bottom - it.centerY } ?: (view.lineHeight / 2f))
         pointerX = x
         pointerY = y
         dragging = true

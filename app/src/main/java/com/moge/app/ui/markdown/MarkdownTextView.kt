@@ -75,6 +75,10 @@ internal fun createMarkdownTextView(
         private var selectionActionMode: ActionMode? = null
         private var handlingNativeTouch = false
         private var tapStartedWithSelection = false
+        private val selectedPath = android.graphics.Path()
+        private val selectedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = androidx.core.graphics.ColorUtils.setAlphaComponent(linkColor, 64)
+        }
         override val selectionController = if (selectable && selectionScrollHost != null)
             MarkdownSelectionController(this, selectionScrollHost, linkColor, selectionSurfaceColor) else null
         private val conversationSelection = selectionController
@@ -98,6 +102,17 @@ internal fun createMarkdownTextView(
         }
 
         override fun performLongClick(): Boolean = conversationSelection?.longClick() ?: super.performLongClick()
+
+        override fun getOffsetForPosition(x: Float, y: Float): Int =
+            formulaOffsetForPosition(this, x, y) ?: super.getOffsetForPosition(x, y)
+
+        override fun onDraw(canvas: Canvas) {
+            if (hasSelection()) {
+                markdownSelectionPath(this, selectionStart, selectionEnd, selectedPath)
+                canvas.drawPath(selectedPath, selectedPaint)
+            }
+            super.onDraw(canvas)
+        }
 
         override fun requestRectangleOnScreen(rectangle: Rect, immediate: Boolean): Boolean {
             // The selection drag owns scrolling. Editor's automatic reveal of
@@ -127,7 +142,7 @@ internal fun createMarkdownTextView(
             super.onSelectionChanged(start, end)
             if (adjustingSelection || start < 0 || end < 0 || start == end) return
             val spannable = text as? Spannable ?: return
-            val complete = completeFormulaSelection(spannable, start, end)
+            val complete = snapFormulaSelection(spannable, start, end)
             if (complete.start == minOf(start, end) && complete.end == maxOf(start, end)) return
             adjustingSelection = true
             try {
@@ -203,7 +218,9 @@ internal fun createMarkdownTextView(
         isSaveEnabled = false
         setTextColor(textColor)
         setLinkTextColor(linkColor)
-        highlightColor = androidx.core.graphics.ColorUtils.setAlphaComponent(linkColor, 64)
+        // Custom geometry is shared with the lens; native ReplacementSpan
+        // highlights would cover the drawable's empty, full-width margins.
+        highlightColor = android.graphics.Color.TRANSPARENT
         if (selectable && android.os.Build.VERSION.SDK_INT >= 29) {
             setTextSelectHandleLeft(SelectionHandleDrawable(linkColor, start = true, resources.displayMetrics.density))
             setTextSelectHandleRight(SelectionHandleDrawable(linkColor, start = false, resources.displayMetrics.density))
@@ -498,8 +515,9 @@ internal fun formulaMaxWidthPx(view: TextView, measuredWidthPx: Int): Int {
 }
 
 /** 优先用 JLatexMath 真实测量公式宽度；测量失败时按字符数估算。 */
-internal fun formulaWidthMeasurer(view: TextView): (String) -> Int {
-    val textSizePx = view.textSize
+internal fun formulaWidthMeasurer(view: TextView): (String) -> Int = formulaWidthMeasurer(view.textSize)
+
+internal fun formulaWidthMeasurer(textSizePx: Float): (String) -> Int {
     return { latex ->
         runCatching { JLatexMathDrawable.builder(latex).textSize(textSizePx).build().intrinsicWidth }
             .getOrDefault((latex.length * textSizePx * 0.62f).toInt())

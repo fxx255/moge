@@ -12,6 +12,17 @@ class FormulaWrappingTest {
     private val d = "$$"
     private val measure: (String) -> Int = { it.length * 10 }
 
+    @Test fun `set builder conditions wrap inside paired braces without stranding the name`() {
+        val latex = "\\mathcal D_1=\\left\\{(x,y):y\\ge0,\\ \\sqrt3x+y\\ge3+\\sqrt3," +
+            "\\ (1+\\sqrt3)x+(1-\\sqrt3)y\\ge1+\\sqrt3\\right\\}."
+        val rows = splitFormula(latex, 700, measure)
+        assertTrue(rows.toString(), rows.size > 1)
+        assertTrue(rows.first().startsWith("\\mathcal D_1=\\left\\{(x,y):y\\ge0,"))
+        for (row in rows) assertEquals(row, row.split("\\left").size, row.split("\\right").size)
+        assertTrue(rows.last().endsWith("\\right\\}."))
+        assertEquals(listOf(latex), splitFormula(latex, 10000, measure))
+    }
+
     @Test
     fun `damaged inline formula cannot capture later valid math and prose`() {
         val input = "结论：双纽线 $$\\rho^2=\\cos22θ 所围成的图形面积为\n\n${d}S=1.$$"

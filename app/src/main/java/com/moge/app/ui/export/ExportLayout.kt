@@ -100,52 +100,6 @@ internal fun boundedSourceChunks(source: String, limit: Int = ExportLimits.SOURC
     return result
 }
 
-internal data class ExportTable(val headers: List<String>, val rows: List<List<String>>) {
-    val columns: Int get() = headers.size
-}
-
-/** Escaped pipes and pipes in code spans are data, not column separators. */
-internal fun tableCells(line: String): List<String> {
-    val text = line.trim().removePrefix("|")
-    val cells = mutableListOf<String>()
-    val cell = StringBuilder()
-    var cursor = 0
-    var codeFence = 0
-    while (cursor < text.length) {
-        val char = text[cursor]
-        if (char == '\\' && cursor + 1 < text.length) {
-            cell.append(char).append(text[cursor + 1]); cursor += 2; continue
-        }
-        if (char == '`') {
-            var end = cursor + 1
-            while (end < text.length && text[end] == '`') end++
-            val run = end - cursor
-            if (codeFence == 0) codeFence = run else if (codeFence == run) codeFence = 0
-            cell.append(text.substring(cursor, end)); cursor = end; continue
-        }
-        if (char == '|' && codeFence == 0) { cells += cell.toString().trim(); cell.clear() }
-        else cell.append(char)
-        cursor++
-    }
-    if (cell.isNotEmpty() || !text.endsWith('|')) cells += cell.toString().trim()
-    return cells.ifEmpty { listOf("") }
-}
-
-internal fun parseExportTable(source: String): ExportTable? {
-    val lines = source.lineSequence().filter { it.isNotBlank() }.toList()
-    if (lines.size < 2) return null
-    val separators = tableCells(lines[1])
-    if (separators.any { !Regex(":?-+:?").matches(it) }) return null
-    val header = tableCells(lines[0])
-    val rows = lines.drop(2).map(::tableCells)
-    val count = maxOf(header.size, separators.size, rows.maxOfOrNull { it.size } ?: 0)
-    // Keep surplus cells from malformed model tables instead of truncating to header width.
-    return ExportTable(
-        List(count) { header.getOrNull(it) ?: "列 ${it + 1}" },
-        rows.map { row -> List(count) { row.getOrNull(it).orEmpty() } },
-    )
-}
-
 internal fun tableColumnGroups(columns: Int, maxColumns: Int = 3): List<IntRange> {
     require(columns > 0 && maxColumns > 0)
     return (0 until columns step maxColumns).map { it..minOf(columns - 1, it + maxColumns - 1) }

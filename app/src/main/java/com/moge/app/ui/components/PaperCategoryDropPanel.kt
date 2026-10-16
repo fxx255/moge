@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -20,6 +22,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.ui.theme.MogeTheme
+import kotlin.math.sign
 
 /** Expands inside the existing search sheet; only the floating dragged card is an overlay. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -31,6 +34,7 @@ internal fun PaperCategoryDropPanel(
     val motion = MogeTheme.motionEnabled
     val scroll = rememberScrollState()
     val density = LocalDensity.current
+    CategoryDropAutoScroll(state, scroll)
     LaunchedEffect(state.held) { if (state.held) scroll.scrollTo(0) }
     androidx.compose.animation.AnimatedVisibility(state.held,
         enter = expandVertically(tween(if (motion) 180 else 0), expandFrom = Alignment.Top) + fadeIn(tween(if (motion) 120 else 0)),
@@ -68,6 +72,32 @@ internal fun PaperCategoryDropPanel(
                     }
                 }
             }
+        }
+    }
+}
+
+/** A held card owns the pointer, so the scroll container cannot receive a second drag gesture. */
+@Composable
+private fun CategoryDropAutoScroll(state: PaperDragState, scroll: ScrollState) {
+    val density = LocalDensity.current
+    val edge = with(density) { 64.dp.toPx() }
+    val speed = with(density) { 520.dp.toPx() }
+    val active = state.held && state.categoriesExpanded
+    val direction = if (active) state.visual?.pointer?.let {
+        dragEdgeScrollDirection(it, state.categoryBounds, state.deleteBounds, edge).sign
+    } ?: 0f else 0f
+    // Restart only when entering/leaving an edge, not on each pointer update.
+    LaunchedEffect(active, direction, scroll, speed) {
+        if (!active || direction == 0f) return@LaunchedEffect
+        var previous = withFrameNanos { it }
+        while (state.held && state.categoriesExpanded) {
+            val frame = withFrameNanos { it }
+            val elapsed = ((frame - previous) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            previous = frame
+            val pointer = state.visual?.pointer ?: break
+            val amount = dragEdgeScrollDirection(pointer, state.categoryBounds, state.deleteBounds, edge)
+            if (amount == 0f || scroll.scrollBy(amount * speed * elapsed) == 0f) break
+            state.refreshTargets()
         }
     }
 }

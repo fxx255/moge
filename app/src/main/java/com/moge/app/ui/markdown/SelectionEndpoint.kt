@@ -8,6 +8,7 @@ internal data class SelectionEndpoint(val x: Float, val top: Float, val bottom: 
 }
 
 internal fun selectionEndpoint(view: TextView, offset: Int, start: Boolean): SelectionEndpoint? {
+    formulaSelectionEndpoint(view, offset, start)?.let { return it }
     val layout = view.layout ?: return null
     val caret = offset.coerceIn(0, view.text.length)
     var line = layout.getLineForOffset(caret)

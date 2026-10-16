@@ -451,6 +451,49 @@ class PaperDragInteractionTest {
         compose.waitForIdle()
     }
 
+    @Test fun `expanded groups scroll with a stationary held card at either edge and stop outside the grid`() {
+        history.value = history.value.copy(categories = (0..29).map { index ->
+            NotebookCategoryEntity(id = "group$index", name = "自建分组 $index")
+        })
+        val drag = renderCard()
+        hold("component-card")
+        unfold("component-card")
+        val grid = compose.onNodeWithTag("drop-category-grid").fetchSemanticsNode().boundsInRoot
+        val firstTarget = PaperDropTarget.Category(null, "未分类")
+        val firstTop = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y
+        compose.mainClock.autoAdvance = false
+        fun point(point: Offset) = compose.runOnIdle { drag.move(point - drag.visual!!.pointer) }
+        fun advance() {
+            // Let layout consume each scroll frame, just as the display does while a finger is held.
+            repeat(24) { compose.mainClock.advanceTimeBy(32); compose.waitForIdle() }
+        }
+        try {
+            point(Offset(grid.center.x, grid.bottom - 3f))
+            advance()
+            val downTop = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y
+            assertTrue("Holding at the lower edge must reveal later groups: first=$firstTop down=$downTop grid=$grid category=${drag.categoryBounds} delete=${drag.deleteBounds} pointer=${drag.visual?.pointer}", downTop < firstTop - 40f)
+            compose.runOnIdle { assertNotEquals(firstTarget, drag.hovered) }
+            point(grid.center)
+            advance()
+            val neutralTop = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y
+            advance()
+            assertEquals(neutralTop, compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y, 1f)
+            point(Offset(grid.center.x, grid.top + 3f))
+            advance()
+            val upTop = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y
+            assertTrue("Holding at the upper edge must return towards earlier groups", upTop > neutralTop + 40f)
+            point(Offset(grid.right + 8f, grid.bottom - 3f))
+            advance()
+            val outsideTop = compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y
+            advance()
+            assertEquals(outsideTop, compose.onNodeWithTag("drop-category-none").fetchSemanticsNode().positionInRoot.y, 1f)
+        } finally {
+            compose.onNodeWithTag("component-card").performTouchInput { cancel() }
+            compose.mainClock.autoAdvance = true
+        }
+        assertTrue(droppedIds.isEmpty())
+    }
+
     @Test fun `cancelled preview retains its size and content until the quick return finishes`() {
         val drag = renderCard()
         val original = compose.onNodeWithTag("component-card").fetchSemanticsNode().boundsInRoot

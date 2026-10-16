@@ -4,8 +4,8 @@ import android.text.Spanned
 
 internal data class MarkdownSelection(val start: Int, val end: Int)
 
-/** A drawable formula is one visible unit, even though its placeholder contains many characters. */
-internal fun completeFormulaSelection(text: CharSequence, start: Int, end: Int): MarkdownSelection {
+/** Snap to complete math items rather than forcing every range to include the whole formula. */
+internal fun snapFormulaSelection(text: CharSequence, start: Int, end: Int): MarkdownSelection {
     var from = minOf(start, end).coerceIn(0, text.length)
     var to = maxOf(start, end).coerceIn(0, text.length)
     if (from == to || text !is Spanned) return MarkdownSelection(from, to)
@@ -14,16 +14,17 @@ internal fun completeFormulaSelection(text: CharSequence, start: Int, end: Int):
         val spanEnd = text.getSpanEnd(span)
         // getSpans may return an adjacent span at a boundary. It is not selected.
         if (spanStart < to && spanEnd > from) {
-            from = minOf(from, spanStart)
-            to = maxOf(to, spanEnd)
+            val tokens = formulaTokenOffsets(text, span).map { it.second }
+            tokens.firstOrNull { from > it.start && from < it.end }?.let { from = it.start }
+            tokens.firstOrNull { to > it.start && to < it.end }?.let { to = it.end }
         }
     }
     return MarkdownSelection(from, to)
 }
 
-/** Copy displayed text, replacing selected formula placeholders with their complete LaTeX. */
+/** Copy original LaTeX for the selected items, preserving full formulas verbatim. */
 internal fun selectedMarkdownText(text: CharSequence, start: Int, end: Int): String {
-    val selection = completeFormulaSelection(text, start, end)
+    val selection = snapFormulaSelection(text, start, end)
     if (text !is Spanned || selection.start == selection.end) {
         return text.subSequence(selection.start, selection.end).toString()
     }
@@ -35,12 +36,16 @@ internal fun selectedMarkdownText(text: CharSequence, start: Int, end: Int): Str
         for (span in formulas) {
             val from = text.getSpanStart(span)
             val to = text.getSpanEnd(span)
-            if (from < cursor) continue
-            append(text, cursor, from)
+            if (to <= cursor) continue
+            if (cursor < from) append(text, cursor, from)
             // Markwon flattens newlines in the placeholder. Use the drawable's
             // actual source so matrices/aligned equations also copy correctly.
-            append(span.drawable.destination.trim())
-            cursor = to
+            val source = span.drawable.destination.trim()
+            val selected = formulaTokenOffsets(text, span).filter { (_, range) ->
+                range.start < selection.end && range.end > selection.start
+            }
+            if (selected.isNotEmpty()) append(source.substring(selected.first().first.start, selected.last().first.end).trim())
+            cursor = minOf(to, selection.end)
         }
         append(text, cursor, selection.end)
     }

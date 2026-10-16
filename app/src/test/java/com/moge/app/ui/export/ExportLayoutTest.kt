@@ -1,5 +1,8 @@
 package com.moge.app.ui.export
 
+import com.moge.app.ui.markdown.parseMarkdownTable
+import com.moge.app.ui.markdown.tableCells
+
 import org.junit.Assert.*
 import org.junit.Test
 import kotlin.random.Random
@@ -45,7 +48,7 @@ class ExportLayoutTest {
     }
 
     @Test fun `table grouping retains every column and surplus model cells`() {
-        val table = parseExportTable("| A | B |\n|---|---|\n| one | two | three | four | five | six | seven |")!!
+        val table = parseMarkdownTable("| A | B |\n|---|---|\n| one | two | three | four | five | six | seven |")!!
         assertEquals(7, table.columns)
         assertEquals((0..6).toList(), tableColumnGroups(table.columns).flatMap { it.toList() })
         assertTrue(tableColumnGroups(table.columns).all { it.count() <= 3 })

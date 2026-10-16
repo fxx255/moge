@@ -92,8 +92,11 @@ internal class PaperDragState {
     var categoryActivationBounds: Rect = Rect.Zero
         set(value) { field = value; visual?.pointer?.let { expandCategories(it, it) }; updateHover() }
     var curvedDeleteZone = false
-    var categoryBounds: Rect = Rect.Zero
-        set(value) { field = value; updateHover() }
+    private var categoryRect by mutableStateOf(Rect.Zero)
+    var categoryBounds: Rect
+        get() = categoryRect
+        set(value) { categoryRect = value; updateHover() }
+    val deleteBounds: Rect get() = visibleTargetBounds(PaperDropTarget.Delete)
     // Resolve live coordinates at release too: scrolling, clipping, and disposal can change
     // which part of a target is visible without another finger movement.
     private val targets = mutableMapOf<PaperDropTarget, () -> Rect>()
@@ -186,6 +189,8 @@ internal class PaperDragState {
                 (target != PaperDropTarget.Delete || !curvedDeleteZone || curvedDeleteContains(bounds, point))
         }
     }
+
+    fun refreshTargets() = updateHover()
 
     fun release(cancelled: Boolean = false): PaperDrop? {
         if (!held) return null
