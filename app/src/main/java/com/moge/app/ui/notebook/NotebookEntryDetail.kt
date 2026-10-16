@@ -22,6 +22,7 @@ import com.moge.app.ui.viewer.PhotoViewer
 internal fun NotebookEntryDetail(
     entry: NotebookEntryEntity, sourceExists: Boolean, category: String,
     onOpenConversation: (String) -> Unit, modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(),
 ) {
     val photos = remember(entry.questionImagePaths) { runCatching {
         RequestRepository.decodePathListStrict(entry.questionImagePaths).filter { it.isNotBlank() }
@@ -29,7 +30,8 @@ internal fun NotebookEntryDetail(
     val figures = remember(entry.figurePaths) { runCatching { RequestRepository.decodePathListStrict(entry.figurePaths) } }
     var viewer by remember(entry.id) { mutableStateOf<Pair<List<String>, Int>?>(null) }
     val onImage: (List<String>, Int) -> Unit = { paths, index -> viewer = paths to index }
-    Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier.verticalScroll(rememberScrollState()).padding(contentPadding).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(category, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text("题目", style = MaterialTheme.typography.titleMedium)
         com.moge.app.ui.document.DocumentCards(RequestRepository.decodePathList(entry.documentPaths))

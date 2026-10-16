@@ -35,19 +35,19 @@ internal class CategoryDragState {
     var held by mutableStateOf(false); private set
     var settling by mutableStateOf(false); private set
     var deleteArmed by mutableStateOf(false); private set
+    var movedBeyondSlop by mutableStateOf(false); private set
     var pending by mutableStateOf(false); private set
     val locked: Boolean get() = held || settling || pending
 
     var rootBounds = Rect.Zero
-    var listBounds = Rect.Zero
-    var deleteBounds = Rect.Zero
+    var listBounds by mutableStateOf(Rect.Zero)
+    var deleteBounds by mutableStateOf(Rect.Zero)
     // Lazy-list layout slots, rather than animated card positions, prevent oscillating swaps.
     var rowLayout: () -> Map<String, Rect> = { emptyMap() }
     private val handles = mutableMapOf<String, () -> Rect>()
     private val origins = mutableMapOf<String, () -> Rect>()
     private var repositoryOrder = emptyList<String>()
     private var pendingSawBusy = false
-    private var moved = false
     private var touchSlop = 0f
 
     fun sync(ids: List<String>, busy: Boolean) {
@@ -100,7 +100,7 @@ internal class CategoryDragState {
         order = repositoryOrder
         visual = CategoryDragVisual(id, name, origin, point - origin.topLeft, point, point)
         touchSlop = slop
-        moved = false
+        movedBeyondSlop = false
         deleteArmed = false
         held = true
         return true
@@ -110,18 +110,18 @@ internal class CategoryDragState {
         if (!held) return
         val current = visual ?: return
         visual = current.copy(pointer = point)
-        if ((point - current.start).getDistance() >= touchSlop && point != current.start) moved = true
+        if ((point - current.start).getDistance() >= touchSlop && point != current.start) movedBeyondSlop = true
         refreshTargets()
     }
 
     fun refreshTargets() {
         val current = visual ?: return
         if (!held) return
-        deleteArmed = moved && rootBounds.contains(current.pointer) &&
+        deleteArmed = movedBeyondSlop && rootBounds.contains(current.pointer) &&
             curvedDeleteContains(deleteBounds, current.pointer)
         // The delete overlay covers the list without resizing it. Its transparent corners
         // are cancellation space, not the underlying list's reorder targets.
-        if (!moved || deleteBounds.contains(current.pointer) || !listBounds.intersect(rootBounds).contains(current.pointer)) return
+        if (!movedBeyondSlop || deleteBounds.contains(current.pointer) || !listBounds.intersect(rootBounds).contains(current.pointer)) return
         val remaining = order.filterNot { it == current.id }
         val rows = rowLayout()
         var insertion = order.indexOf(current.id)
@@ -145,7 +145,7 @@ internal class CategoryDragState {
         val from = repositoryOrder.indexOf(current.id)
         val to = order.indexOf(current.id)
         val drop = when {
-            cancelled || busy || !moved || from < 0 -> null
+            cancelled || busy || !movedBeyondSlop || from < 0 -> null
             deleteArmed -> CategoryDrop.Delete(current.id)
             !deleteBounds.contains(current.pointer) && listBounds.intersect(rootBounds).contains(current.pointer) && to >= 0 && to != from ->
                 CategoryDrop.Reorder(current.id, to - from)

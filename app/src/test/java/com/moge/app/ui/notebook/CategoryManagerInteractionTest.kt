@@ -231,7 +231,7 @@ class CategoryManagerInteractionTest {
         assertEquals(listOf("c"), deleted)
     }
 
-    @Test fun `delete zone appears only while dragging without reducing the list and keeps thirty percent height`() {
+    @Test fun `delete zone appears only while dragging without reducing the list and keeps a smaller screen edge delete target`() {
         render()
         compose.onNodeWithTag("category-delete-zone").assertDoesNotExist()
         val manager = compose.onNodeWithTag("category-manager").fetchSemanticsNode().boundsInRoot
@@ -241,9 +241,13 @@ class CategoryManagerInteractionTest {
         assertTrue(pencil.right <= handle.left + 1f)
         hold("a")
         val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
-        assertEquals(manager.height * 0.3f, zone.height, 1f)
+        assertEquals(manager.height * 0.24f, zone.height, 1f)
         assertEquals(manager.bottom, zone.bottom, 1f)
-        assertEquals(list, compose.onNodeWithTag("category-list").fetchSemanticsNode().boundsInRoot)
+        assertEquals(manager.left, zone.left, 1f)
+        assertEquals(manager.right, zone.right, 1f)
+        val heldList = compose.onNodeWithTag("category-list").fetchSemanticsNode().boundsInRoot
+        assertEquals(list.top, heldList.top, 1f)
+        assertEquals(list.bottom, heldList.bottom, 1f)
         cancel()
         compose.onNodeWithTag("category-delete-zone").assertDoesNotExist()
     }
@@ -256,7 +260,7 @@ class CategoryManagerInteractionTest {
                 CategoryManagerContent(categories.value, false, {}, { _, _ -> }, { _, _ -> }, {}, {})
             }
         } }
-        compose.onNodeWithText("长按右侧三条线拖动排序").assertIsDisplayed()
+        compose.onNodeWithText("长按右侧三条线拖动排序").assertDoesNotExist()
         compose.onNodeWithTag("category-card-d").assertIsDisplayed()
         val card = compose.onNodeWithTag("category-card-a").fetchSemanticsNode().boundsInRoot
         val handle = compose.onNodeWithTag("category-handle-a", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
@@ -288,5 +292,68 @@ class CategoryManagerInteractionTest {
         assertTrue("Expected repository order after reconciliation: a=$a, b=$b", a.top < b.top)
         invokeAction("b", "下移 几何")
         assertEquals(listOf("b" to -1, "b" to 1), reorders)
+    }
+
+    @Test fun `new category scrolls to an inline focused draft and cancellation creates nothing`() {
+        categories.value = (0..23).map { NotebookCategoryEntity(id = "item$it", name = "分类 $it") }
+        render()
+        compose.onNodeWithText("新建分类").performClick()
+        val editor = compose.onNodeWithTag("category-name-editor")
+        editor.assertIsDisplayed().assertIsFocused().assert(hasAnyAncestor(hasTestTag("category-draft")))
+        compose.onNodeWithTag("category-list").assertExists()
+        editor.performTextInput("暂存草稿")
+        compose.onNodeWithContentDescription("取消新建").performClick()
+        compose.onNodeWithTag("category-draft").assertDoesNotExist()
+        assertTrue(created.isEmpty())
+    }
+
+    @Test fun `holding above trash scrolls to the end and leaves room to insert after the last card`() {
+        categories.value = (0..23).map { NotebookCategoryEntity(id = "item$it", name = "分类 $it") }
+        render()
+        hold("item0")
+        val zone = compose.onNodeWithTag("category-delete-zone").fetchSemanticsNode().boundsInRoot
+        compose.mainClock.autoAdvance = false
+        try {
+            val list = compose.onNodeWithTag("category-list")
+            val before = list.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            moveTo(Offset(zone.center.x, zone.top - 12f))
+            // Continuous finger updates must not keep restarting the scroll clock.
+            repeat(24) { frame ->
+                compose.mainClock.advanceTimeBy(16)
+                moveTo(Offset(zone.center.x + frame % 2, zone.top - 12f))
+            }
+            val after = list.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            assertTrue("Auto-scroll must advance while the finger keeps moving", after > before + 1f)
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitForIdle()
+        val last = compose.onNodeWithTag("category-card-item23").fetchSemanticsNode().boundsInRoot
+        assertTrue("The last card must leave a clear insertion gap above trash: $last / $zone", last.bottom < zone.top - 24f)
+        compose.onNodeWithText("松手后确认删除分类").assertDoesNotExist()
+        release()
+        assertEquals(listOf("item0" to 23), reorders)
+        assertTrue(deleted.isEmpty())
+    }
+
+    @Test fun `short lists give a brief edge rebound and return without deleting`() {
+        categories.value = categories.value.take(2)
+        render()
+        hold("a")
+        val list = compose.onNodeWithTag("category-list")
+        val before = list.fetchSemanticsNode().boundsInRoot
+        val card = compose.onNodeWithTag("category-card-b")
+        val cardBefore = card.fetchSemanticsNode().boundsInRoot
+        compose.mainClock.autoAdvance = false
+        try {
+            moveTo(Offset(before.center.x, before.top + 3f))
+            repeat(3) { compose.mainClock.advanceTimeBy(32); compose.waitForIdle() }
+            val nudged = card.fetchSemanticsNode().boundsInRoot
+            assertTrue("Short lists must visibly stretch at the upper edge", nudged.top > cardBefore.top + 1f)
+            compose.mainClock.advanceTimeBy(300)
+            compose.waitForIdle()
+            assertEquals(cardBefore.top, card.fetchSemanticsNode().boundsInRoot.top, 1f)
+            cancel()
+        } finally { compose.mainClock.autoAdvance = true }
+        assertTrue(reorders.isEmpty())
+        assertTrue(deleted.isEmpty())
     }
 }

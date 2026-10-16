@@ -1,0 +1,111 @@
+<div id="category-workspace-preview">
+  <div class="viz-carousel viz-dotted-background" aria-label="分类管理与移动分类样式" data-previous-label="上一种" data-next-label="下一种">
+    <section data-variant="活页作业纸"><div class="cw-stage cw-looseleaf" aria-label="活页作业纸"></div></section>
+    <section data-variant="标签收纳册" hidden><div class="cw-stage cw-pockets" aria-label="标签收纳册"></div></section>
+    <section data-variant="横线索引册" hidden><div class="cw-stage cw-index" aria-label="横线索引册"></div></section>
+  </div>
+  <template id="cw-product-template">
+    <div class="cw-phone">
+      <div class="cw-underlay"><span>历史对话</span><div>幂级数展开与积分求解</div><div>64QAM 调制与解调</div></div>
+      <div class="cw-dim"></div>
+      <div class="cw-sheet">
+        <header><h2><span>管理分类</span></h2><button class="cw-new cursor-interaction">新建分类</button><button class="cw-close cursor-interaction">完成</button></header>
+        <div class="cw-list" aria-label="分类列表"></div>
+      </div>
+      <div class="cw-trash" hidden><i data-lucide="trash-2" aria-hidden="true"></i><span>拖到这里删除分类</span></div>
+    </div>
+  </template>
+</div>
+<style>
+#category-workspace-preview .cw-stage{min-height:640px;display:grid;place-items:center;padding:18px 12px 28px;box-sizing:border-box}
+#category-workspace-preview .cw-phone{--cw-bg:#f7f5ef;--cw-grid:#dde4ec;--cw-paper:#fff;--cw-ink:#1a1b1e;--cw-soft:#606773;--cw-accent:#1f3a8a;--cw-tape:#ffe066;--cw-rule:#cf7772;--cw-border:#d3d6db;--cw-shadow:#28291d25;position:relative;width:min(100%,390px);height:600px;overflow:hidden;border-radius:24px;background:var(--cw-bg);color:var(--cw-ink);font:16px/1.5 system-ui,"Microsoft YaHei",sans-serif;box-shadow:0 12px 32px var(--cw-shadow)}
+#category-workspace-preview .cw-phone[data-theme=chalk]{--cw-bg:#1e2b26;--cw-grid:#2a3a33;--cw-paper:#293b32;--cw-ink:#ecede6;--cw-soft:#b6c1ba;--cw-accent:#f2d675;--cw-tape:#817741;--cw-rule:#ae7772;--cw-border:#4c6054;--cw-shadow:#0005}
+#category-workspace-preview .cw-underlay{position:absolute;inset:0;background-image:linear-gradient(var(--cw-grid) 1px,transparent 1px),linear-gradient(90deg,var(--cw-grid) 1px,transparent 1px);background-size:24px 24px;padding:24px;box-sizing:border-box}
+#category-workspace-preview .cw-underlay>span{font:500 24px Georgia,"SimSun",serif}
+#category-workspace-preview .cw-underlay>div{margin-top:40px;padding:24px 12px;background:var(--cw-paper)}
+#category-workspace-preview .cw-dim{position:absolute;inset:0;background:#0006}
+#category-workspace-preview .cw-sheet{position:absolute;inset:24px 12px 18px;display:flex;flex-direction:column;overflow:hidden;background-color:var(--cw-bg);background-image:linear-gradient(var(--cw-grid) 1px,transparent 1px),linear-gradient(90deg,var(--cw-grid) 1px,transparent 1px);background-size:24px 24px;border:1px solid var(--cw-border);border-radius:20px;box-shadow:0 8px 24px var(--cw-shadow)}
+#category-workspace-preview .cw-sheet:before{content:"";position:absolute;left:27px;top:0;bottom:0;border-left:1px solid var(--cw-rule);opacity:.5;pointer-events:none}
+#category-workspace-preview header{display:flex;gap:2px;align-items:center;padding:14px 8px 10px 19px;z-index:1;background:var(--cw-bg)}
+#category-workspace-preview h2{flex:1;margin:0;font:500 21px Georgia,"SimSun",serif;min-width:0}
+#category-workspace-preview h2 span{background:linear-gradient(transparent 55%,var(--cw-tape) 55%,var(--cw-tape) 93%,transparent 93%)}
+#category-workspace-preview button{font:inherit;color:var(--cw-accent);border:0;background:none;min-height:44px;padding:8px;border-radius:8px;white-space:nowrap}
+#category-workspace-preview button:hover{background:color-mix(in srgb,var(--cw-accent) 9%,transparent)}
+#category-workspace-preview .cw-list{position:relative;overflow:auto;flex:1;padding:12px 16px 180px;scrollbar-width:thin;overscroll-behavior:contain}
+#category-workspace-preview .cw-row{position:relative;display:flex;align-items:center;gap:5px;min-height:76px;margin:0 0 12px;background:var(--cw-paper);border:1px solid var(--cw-border);border-radius:4px 12px 12px 4px;box-shadow:0 2px 4px var(--cw-shadow);padding:0 7px 0 20px;box-sizing:border-box}
+#category-workspace-preview .cw-row:before{content:"";position:absolute;left:6px;top:19px;width:5px;height:5px;border-radius:50%;background:var(--cw-bg);box-shadow:0 31px var(--cw-bg)}
+#category-workspace-preview .cw-row:after{content:"";position:absolute;left:20px;right:12px;bottom:10px;border-bottom:1px solid var(--cw-grid);pointer-events:none}
+#category-workspace-preview .cw-name{flex:1;font-weight:500;min-width:0;overflow-wrap:anywhere}
+#category-workspace-preview .cw-edit,#category-workspace-preview .cw-handle{width:44px;padding:8px;color:var(--cw-soft);display:grid;place-items:center}
+#category-workspace-preview .cw-handle{cursor:grab;touch-action:none}
+#category-workspace-preview .cw-row input{width:100%;min-width:0;box-sizing:border-box;font:inherit;color:var(--cw-ink);background:var(--cw-bg);padding:10px 8px;border:1px solid var(--cw-accent);border-radius:7px}
+#category-workspace-preview .cw-editing .cw-name{flex:1}
+#category-workspace-preview .cw-editing:after{display:none}
+#category-workspace-preview .cw-row.cw-moving{opacity:.4;transform:scale(.98)}
+#category-workspace-preview .cw-trash{position:absolute;left:0;right:0;bottom:0;height:144px;background:linear-gradient(#c93630ee,#c9363080);border-radius:50% 50% 0 0/24% 24% 0 0;z-index:4;text-align:center;pointer-events:none;color:#fff;padding-top:20px;box-sizing:border-box}
+#category-workspace-preview .cw-trash svg{display:block;margin:0 auto 8px}
+#category-workspace-preview .cw-trash span{background:#bc2929;padding:8px 12px;border-radius:8px}
+#category-workspace-preview .cw-trash[hidden]{display:none}
+#category-workspace-preview .cw-pockets .cw-row{border-radius:4px 12px 12px 12px;margin-top:24px;padding-left:17px;box-shadow:0 4px 7px var(--cw-shadow);border-top-width:4px}
+#category-workspace-preview .cw-pockets .cw-row:before{left:0;top:-17px;width:42%;height:17px;background:var(--cw-paper);border:1px solid var(--cw-border);border-bottom:0;border-radius:10px 10px 0 0;box-shadow:none}
+#category-workspace-preview .cw-pockets .cw-row:after{left:10px;right:10px;bottom:6px;border-bottom-width:2px}
+#category-workspace-preview .cw-pockets .cw-sheet:before{display:none}
+#category-workspace-preview .cw-index .cw-sheet{background-image:repeating-linear-gradient(transparent 0,transparent 31px,var(--cw-grid) 31px,var(--cw-grid) 32px)}
+#category-workspace-preview .cw-index .cw-row{background:transparent;border:0;border-radius:0;box-shadow:none;border-bottom:1px solid var(--cw-border);padding-left:25px;margin-bottom:0;min-height:80px}
+#category-workspace-preview .cw-index .cw-row:before{content:attr(data-index);background:var(--cw-tape);border-radius:3px;left:-4px;top:24px;width:21px;height:28px;display:grid;place-items:center;box-shadow:none;font-size:12px}
+#category-workspace-preview .cw-index .cw-row:after{display:none}
+#category-workspace-preview .cw-picker .cw-row{cursor:pointer}
+#category-workspace-preview .cw-picker .cw-edit,#category-workspace-preview .cw-picker .cw-handle{display:none}
+@media(prefers-reduced-motion:no-preference){#category-workspace-preview .cw-row{transition:transform 140ms,opacity 140ms}}
+@media(max-width:360px){#category-workspace-preview header{padding-left:12px}#category-workspace-preview h2{font-size:19px}#category-workspace-preview button{padding:6px}#category-workspace-preview .cw-list{padding-left:12px;padding-right:12px}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('category-workspace-preview');
+  const template = root.querySelector('template');
+  root.querySelectorAll('.cw-stage').forEach(stage => {
+    stage.append(template.content.cloneNode(true));
+    const phone = stage.querySelector('.cw-phone'), list = stage.querySelector('.cw-list');
+    const settings = { theme: 'paper', mode: '管理分类' };
+    let names = ['高数','通信原理','英语','物理','错题回顾','期末复习'], moving = null;
+    const icons = () => { if (globalThis.lucide) lucide.createIcons({attrs:{width:20,height:20}}); };
+    function editor(row, initial) {
+      row.classList.add('cw-editing'); row.draggable = false;
+      row.replaceChildren();
+      const field = document.createElement('input'); field.value = initial; field.placeholder = '分类名称'; field.setAttribute('aria-label','分类名称');
+      const wrap = document.createElement('div'); wrap.className = 'cw-name'; wrap.append(field); row.append(wrap);
+      const save = document.createElement('button'); save.textContent = '保存'; save.className = 'cursor-interaction'; row.append(save);
+      const cancel = document.createElement('button'); cancel.textContent = '取消'; cancel.className = 'cursor-interaction'; row.append(cancel);
+      function commit() { const name = field.value.trim(); if (!name || [...name].length > 80) return; if (initial) names[names.indexOf(initial)] = name; else names.push(name); render(); }
+      save.onclick = commit; cancel.onclick = render;
+      field.onkeydown = e => { if(e.key === 'Enter') commit(); if(e.key === 'Escape') render(); };
+      row.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'}); field.focus(); field.select();
+    }
+    function render() {
+      phone.dataset.theme = settings.theme; phone.classList.toggle('cw-picker',settings.mode !== '管理分类');
+      phone.querySelector('h2 span').textContent = settings.mode;
+      phone.querySelector('.cw-new').hidden = settings.mode !== '管理分类';
+      phone.querySelector('.cw-close').textContent = settings.mode === '管理分类' ? '完成' : '取消';
+      list.replaceChildren();
+      const items = settings.mode === '管理分类' ? names : ['未分类',...names];
+      items.forEach((name,index) => {
+        const row = document.createElement('div'); row.className = 'cw-row'; row.dataset.index = index + 1; row.draggable = settings.mode === '管理分类';
+        const label = document.createElement('span'); label.className = 'cw-name'; label.textContent = name; row.append(label);
+        const edit = document.createElement('button'); edit.className = 'cw-edit cursor-interaction'; edit.setAttribute('aria-label','改名 '+name); edit.innerHTML = '<i data-lucide="pencil" aria-hidden="true"></i>'; edit.onclick = () => editor(row,name); row.append(edit);
+        const handle = document.createElement('button'); handle.className = 'cw-handle'; handle.setAttribute('aria-label','拖动 '+name); handle.innerHTML = '<i data-lucide="grip-horizontal" aria-hidden="true"></i>'; row.append(handle);
+        row.ondragstart = () => { moving = row; row.classList.add('cw-moving'); phone.querySelector('.cw-trash').hidden = false; };
+        row.ondragend = () => { row.classList.remove('cw-moving'); moving = null; phone.querySelector('.cw-trash').hidden = true; };
+        row.ondragover = e => { e.preventDefault(); if(moving && moving !== row) list.insertBefore(moving,e.clientY < row.getBoundingClientRect().top+row.offsetHeight/2 ? row : row.nextSibling); };
+        if(settings.mode !== '管理分类') { row.setAttribute('role','button'); row.onclick = () => { phone.querySelectorAll('.cw-row').forEach(r=>r.style.outline=''); row.style.outline='2px solid var(--cw-accent)'; }; }
+        list.append(row);
+      });
+      if(settings.mode !== '管理分类') { const manage=document.createElement('button'); manage.textContent='管理分类'; manage.className='cursor-interaction'; manage.onclick=()=>{settings.mode='管理分类';render();}; list.append(manage); }
+      icons();
+    }
+    phone.querySelector('.cw-new').onclick = () => { if(list.querySelector('input')) return; const row=document.createElement('div'); row.className='cw-row'; list.append(row); editor(row,''); };
+    list.ondragover = e => { e.preventDefault(); const b=list.getBoundingClientRect(); if(e.clientY>b.bottom-180 && e.clientY<b.bottom-125) list.scrollTop+=12; if(e.clientY<b.top+50) list.scrollTop-=12; };
+    render();
+    if(globalThis.Tweak) { const t=new Tweak({container:stage,onChange:render}); t.addSelect(settings,'theme',{label:'主题',options:[{label:'作业纸',value:'paper'},{label:'黑板',value:'chalk'}]}); t.addSelect(settings,'mode',{label:'界面',options:['管理分类','移动到分类']}); }
+  });
+})();
+</script>

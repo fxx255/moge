@@ -78,6 +78,7 @@ internal fun NotebookContent(
 ) {
     val drag = rememberPaperDragState()
     val paperScroll = rememberPaperScrollState()
+    val detailScroll = remember(state.openEntryId) { PaperScrollState() }
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
         PaperDropTarget.Delete -> onDeleteItems(action.ids)
         is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
@@ -95,105 +96,109 @@ internal fun NotebookContent(
     PageSwipeSurface(enabled = !state.selecting && !drag.held && !state.busy &&
         !manageOpen && !moveOpen && !deleteOpen,
         onRight = onReturnToConversation, rightLabel = "返回对话") {
-        PaperScaffold(
-            title = if (detail) state.detailEntry?.title ?: "收藏详情"
-                else if (state.selecting) "已选 ${state.selectedIds.size} 条" else "我的题册",
-            onBack = back,
-            backgroundOffsetY = { if (detail) 0f else paperScroll.offsetY },
-            actions = {
-                if (detail && state.detailEntry != null) {
-                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
-                        Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
-                    }
-                    IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
-                        Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
-                    }
-                } else if (!detail) {
-                    IconButton(onClick = { manageOpen = true }, enabled = !state.busy) {
-                        Icon(Icons.Outlined.FolderOpen, "管理分类")
-                    }
-                }
-            },
-        ) {
-            AnimatedVisibility(state.selecting && !detail,
-                enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
-                exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
-                Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
-                    }
-                    IconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (detail) {
-                    state.detailEntry?.let { entry ->
-                        NotebookEntryDetail(entry, state.sourceExists,
-                            state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类",
-                            onOpenConversation, Modifier.fillMaxSize())
-                    } ?: NotebookPlaceholder("正在读取收藏，或收藏已移出题册", "重试", onRetry, Modifier.fillMaxSize())
-                } else FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
-                    PaperSearchPanel(
-                        query = state.query, onQuery = onQuery, hint = "搜索收藏标题、题目或解答", enabled = !state.busy,
-                        filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),
-                        expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
-                    ) {
-                        PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
-                            { onCategory(null, false) }, "全部", enabled = !state.busy)
-                        PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, "未分类",
-                            enabled = !state.busy)
-                        state.categories.forEach { category ->
-                            PaperCategoryFilter(state.categoryId == category.id, { onCategory(category.id, false) },
-                                category.name, enabled = !state.busy)
+        PaperPageReveal(state.openEntryId) {
+            PaperScaffold(
+                title = if (detail) state.detailEntry?.title ?: "收藏详情"
+                    else if (state.selecting) "已选 ${state.selectedIds.size} 条" else "我的题册",
+                onBack = back,
+                backgroundOffsetY = { if (detail) detailScroll.offsetY else paperScroll.offsetY },
+                contentBehindHeader = detail,
+                actions = {
+                    if (detail && state.detailEntry != null) {
+                        IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
+                            Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
+                        }
+                        IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
+                            Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
+                        }
+                    } else if (!detail) {
+                        IconButton(onClick = { manageOpen = true }, enabled = !state.busy) {
+                            Icon(Icons.Outlined.FolderOpen, "管理分类")
                         }
                     }
-                    state.categoryError?.let { message ->
-                        Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-                        TextButton(onRetry) { Text("重试读取分类") }
-                    }
-                    if (state.selecting && !drag.held) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
-                        TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
-                    }
-                }) { insets ->
-                    when {
-                        state.error != null -> NotebookPlaceholder(state.error, "重试", onRetry, Modifier.fillMaxSize().padding(insets))
-                        state.loading && state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                },
+            ) { pageInsets ->
+                AnimatedVisibility(state.selecting && !detail,
+                    enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
+                    exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
+                    Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
+                            Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类")
                         }
-                        state.entries.isEmpty() -> NotebookPlaceholder(
-                            if (state.filtered) "没有找到匹配的收藏" else "还没有收藏，解答完成后可通过“收藏到题册”保存题目与解答",
-                            if (state.filtered) "清除筛选" else "去提问",
-                            { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets))
-                        else -> LazyColumn(Modifier.fillMaxSize().nestedScroll(paperScroll), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
-                            top = insets.calculateTopPadding() + 16.dp, bottom = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(state.entries, key = { it.id }) { entry ->
-                                val category = state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类"
-                                val selected = entry.id in state.selectedIds
-                                val selecting = state.selecting
-                                val preview: @Composable () -> Unit = remember(entry, category, selected, selecting) {
-                                    @Composable { NotebookCard(entry, category, selected, selecting, true, {}, Modifier, showTape = false) }
+                        IconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
+                            Icon(Icons.Outlined.Delete, "移出题册", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    if (detail) {
+                        state.detailEntry?.let { entry ->
+                            NotebookEntryDetail(entry, state.sourceExists,
+                                state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类",
+                                onOpenConversation, Modifier.fillMaxSize().nestedScroll(detailScroll), contentPadding = pageInsets)
+                        } ?: NotebookPlaceholder("正在读取收藏，或收藏已移出题册", "重试", onRetry, Modifier.fillMaxSize())
+                    } else FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
+                        PaperSearchPanel(
+                            query = state.query, onQuery = onQuery, hint = "搜索收藏标题、题目或解答", enabled = !state.busy,
+                            filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),
+                            expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
+                        ) {
+                            PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
+                                { onCategory(null, false) }, "全部", enabled = !state.busy)
+                            PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, "未分类",
+                                enabled = !state.busy)
+                            state.categories.forEach { category ->
+                                PaperCategoryFilter(state.categoryId == category.id, { onCategory(category.id, false) },
+                                    category.name, enabled = !state.busy)
+                            }
+                        }
+                        state.categoryError?.let { message ->
+                            Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
+                            TextButton(onRetry) { Text("重试读取分类") }
+                        }
+                        if (state.selecting && !drag.held) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                            TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
+                            TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
+                        }
+                    }) { insets ->
+                        when {
+                            state.error != null -> NotebookPlaceholder(state.error, "重试", onRetry, Modifier.fillMaxSize().padding(insets))
+                            state.loading && state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                            state.entries.isEmpty() -> NotebookPlaceholder(
+                                if (state.filtered) "没有找到匹配的收藏" else "还没有收藏，解答完成后可通过“收藏到题册”保存题目与解答",
+                                if (state.filtered) "清除筛选" else "去提问",
+                                { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets))
+                            else -> LazyColumn(Modifier.fillMaxSize().nestedScroll(paperScroll), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                                top = insets.calculateTopPadding() + 16.dp, bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(state.entries, key = { it.id }) { entry ->
+                                    val category = state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: "未分类"
+                                    val selected = entry.id in state.selectedIds
+                                    val selecting = state.selecting
+                                    val preview: @Composable () -> Unit = remember(entry, category, selected, selecting) {
+                                        @Composable { NotebookCard(entry, category, selected, selecting, true, {}, Modifier, showTape = false) }
+                                    }
+                                    NotebookCard(entry, category, selected, selecting, state.busy,
+                                        onClick = { if (drag.visual == null) { if (state.selecting) onToggleSelection(entry.id) else onOpenEntry(entry.id) } },
+                                        modifier = Modifier.animateItem().testTag("notebook-card-${entry.id}")
+                                            .paperDragSource(drag, entry.id, entry.title, state.selectedIds, !state.busy, onToggleSelection, drop, preview))
                                 }
-                                NotebookCard(entry, category, selected, selecting, state.busy,
-                                    onClick = { if (drag.visual == null) { if (state.selecting) onToggleSelection(entry.id) else onOpenEntry(entry.id) } },
-                                    modifier = Modifier.animateItem().testTag("notebook-card-${entry.id}")
-                                        .paperDragSource(drag, entry.id, entry.title, state.selectedIds, !state.busy, onToggleSelection, drop, preview))
                             }
                         }
                     }
+                    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+                    if (!detail) PaperDragOverlay(drag, Modifier.matchParentSize())
                 }
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))
-                if (!detail) PaperDragOverlay(drag, Modifier.matchParentSize())
             }
         }
     }
     if (manageOpen) CategoryManager(state.categories, state.busy, { manageOpen = false },
         onCreateCategory, onRenameCategory, onReorderCategory, onDeleteCategory)
-    if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { id -> moveOpen = false; onMove(id) }
+    if (moveOpen) CategoryPicker(state.categories, { moveOpen = false },
+        onManage = { moveOpen = false; manageOpen = true }) { id -> moveOpen = false; onMove(id) }
     if (deleteOpen) AlertDialog(onDismissRequest = { deleteOpen = false },
         title = { Text("移出题册？") }, text = { Text("保存的题目与解答快照将被删除，历史对话仍保留。") },
         confirmButton = { TextButton(onClick = { deleteOpen = false; onDelete() }, enabled = !state.busy) {

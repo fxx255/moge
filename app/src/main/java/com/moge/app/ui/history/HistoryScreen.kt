@@ -205,7 +205,8 @@ internal fun HistoryContent(
                 PaperDragOverlay(drag, Modifier.matchParentSize())
             }
         }
-        if (moveOpen) CategoryPicker(state.categories, { moveOpen = false }) { category ->
+        if (moveOpen) CategoryPicker(state.categories, { moveOpen = false },
+            onManage = { moveOpen = false; manageOpen = true }) { category ->
             moveOpen = false; onMoveItems(state.selectedIds, category)
         }
     }

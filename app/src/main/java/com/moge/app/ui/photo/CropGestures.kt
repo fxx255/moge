@@ -6,18 +6,21 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
-internal fun Modifier.cropGestures(state: CropViewportState, saving: Boolean, motionEnabled: Boolean): Modifier =
-    pointerInput(state, state.viewport, saving, motionEnabled) {
+internal fun Modifier.cropGestures(
+    state: CropViewportState, saving: Boolean, motionEnabled: Boolean,
+    contentInset: Offset = Offset.Zero,
+): Modifier = pointerInput(state, state.viewport, saving, motionEnabled, contentInset) {
         if (saving) return@pointerInput
         val handleRadius = 30.dp.toPx()
         val minimumSize = 24.dp.toPx()
         awaitEachGesture {
             val first = awaitFirstDown(requireUnconsumed = false)
             state.interrupt()
-            var mode = cropDragMode(first.position, state.cropRect, handleRadius)
+            var mode = cropDragMode(first.position - contentInset, state.cropRect, handleRadius)
             var multiTouch = false
             while (true) {
                 val event = awaitPointerEvent()
@@ -27,7 +30,7 @@ internal fun Modifier.cropGestures(state: CropViewportState, saving: Boolean, mo
                     multiTouch = true
                     val zoom = event.calculateZoom().takeIf { it.isFinite() && it > 0f } ?: 1f
                     val pan = event.calculatePan()
-                    val focus = event.calculateCentroid()
+                    val focus = event.calculateCentroid() - contentInset
                     if (pan.x.isFinite() && pan.y.isFinite() && focus.x.isFinite() && focus.y.isFinite()) {
                         state.transform(zoom, pan, focus)
                     }

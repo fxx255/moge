@@ -18,9 +18,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NotebookScreenTest {
     @get:Rule val compose = createComposeRule()
     private fun entry(id: String, title: String) = NotebookEntryEntity(id = id, sourceConversationId = "source",
@@ -61,8 +63,13 @@ class NotebookScreenTest {
         compose.onNodeWithText("收藏一").performTouchInput { longClick() }
         compose.onNodeWithText("全选当前结果").performClick()
         compose.onNodeWithContentDescription("移动分类").performClick()
+        compose.onNodeWithContentDescription("改名 待复习").assertDoesNotExist()
         compose.onAllNodesWithText("待复习").onLast().performClick()
         assertEquals("category", moved)
+        compose.onNodeWithContentDescription("移动分类").performClick()
+        compose.onNodeWithText("管理分类").performClick()
+        compose.onNodeWithText("新建分类").assertIsDisplayed()
+        compose.onNodeWithContentDescription("改名 待复习").assertIsDisplayed()
     }
     @Test fun `removing favorites requires confirmation that preserves history`() {
         render()
@@ -80,7 +87,8 @@ class NotebookScreenTest {
         compose.onNodeWithContentDescription("管理分类").performClick()
         compose.onNodeWithText("新建分类").performClick()
         compose.onNode(hasSetTextAction() and hasAnyAncestor(isDialog())).performTextInput("考前复习")
-        compose.onNodeWithText("保存").performClick()
+        compose.onNodeWithTag("category-name-editor").assertTextContains("考前复习")
+        compose.onNodeWithText("保存").assertIsEnabled().performClick()
         assertEquals("考前复习", created)
         val actions = compose.onNodeWithTag("category-card-category").fetchSemanticsNode().config[SemanticsActions.CustomActions]
         compose.runOnIdle {
@@ -100,6 +108,12 @@ class NotebookScreenTest {
         assertTrue(state.value.uncategorizedOnly)
         compose.onNodeWithContentDescription("清除搜索").performClick()
         assertEquals("", state.value.query)
+        compose.onNodeWithContentDescription("管理分类").performClick()
+        compose.onNodeWithText("管理分类").assertIsDisplayed()
+        compose.onNodeWithText("新建分类").performClick()
+        compose.onNodeWithTag("category-name-editor").assertIsFocused().performTextInput("大字分类")
+        compose.onNodeWithText("保存").assertIsDisplayed().performClick()
+        assertEquals("大字分类", created)
     }
     @Test fun `snapshot reader shows source link only while history exists`() {
         val detail = entry("a", "收藏详情")

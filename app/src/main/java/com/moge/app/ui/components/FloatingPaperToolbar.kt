@@ -1,5 +1,6 @@
 package com.moge.app.ui.components
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.SubcomposeLayout
 
@@ -31,7 +34,15 @@ internal fun FloatingPaperToolbar(
                 }, content = toolbar)
         }.single().measure(constraints.copy(minHeight = 0))
         val body = subcompose(FloatingToolbarSlot.Content) {
-            content(PaddingValues(top = header.height.toDp()))
+            Box(Modifier.drawWithContent {
+                // The sheet covers the middle of this band, but its upper rounded
+                // cutouts must reveal page paper rather than scrolling card pixels.
+                clipRect(top = PaperSearchPanelCornerRadius.toPx().coerceAtMost(size.height)) {
+                    this@drawWithContent.drawContent()
+                }
+            }) {
+                content(PaddingValues(top = header.height.toDp()))
+            }
         }.single().measure(constraints)
         layout(body.width, body.height) {
             body.placeRelative(0, 0)
