@@ -120,6 +120,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setAnswerFirst(value) }
     }
 
+    fun setQuestionPhotoPreprocessing(value: Boolean) {
+        viewModelScope.launch { settings.setQuestionPhotoPreprocessing(value) }
+    }
+
     fun setKeepScreenOnInConversation(value: Boolean) {
         viewModelScope.launch { settings.setKeepScreenOnInConversation(value) }
     }

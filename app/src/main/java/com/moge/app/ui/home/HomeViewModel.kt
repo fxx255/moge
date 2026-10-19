@@ -8,12 +8,18 @@ import com.moge.app.core.IoDispatcher
 import com.moge.app.data.credential.AiCredentialStore
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.SolveMode
+import com.moge.app.domain.ConversationMode
+import com.moge.app.imaging.PhotoPreparationResult
+import com.moge.app.imaging.PhotoPreparationStage
+import com.moge.app.imaging.QuestionPhotoPreprocessor
+import com.moge.app.ui.Routes
 import com.moge.app.ui.capture.CaptureBatch
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.ui.components.PhotoArrivals
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +43,7 @@ data class HomeUiState(
     val photos: List<String> = emptyList(),
     /** 待裁剪的照片队列；第一张就是裁剪界面正在处理的那张。 */
     val cropQueue: List<String> = emptyList(),
+    val preparingPhoto: PhotoPreparationStage? = null,
     val note: String = "",
     val confirmOpen: Boolean = false,
     val message: String? = null,
@@ -58,7 +65,11 @@ class HomeViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val captureStore: CaptureStore,
     @param:IoDispatcher private val io: CoroutineDispatcher,
+    private val photoPreprocessor: QuestionPhotoPreprocessor,
 ) : ViewModel() {
+
+    private val conversationMode = ConversationMode.fromName(savedState[Routes.ARG_CAPTURE_MODE])
+    private var preparationJob: Job? = null
 
     private val _state = MutableStateFlow(
         HomeUiState(
@@ -76,6 +87,7 @@ class HomeViewModel @Inject constructor(
                 .collect { prefs -> _state.update { it.copy(mode = prefs.defaultSolveMode) } }
         }
         refreshModels()
+        prepareCropHead()
     }
 
     /** 从设置页回来要重读：用户可能刚加了模型或换了识题模型。 */
@@ -114,6 +126,7 @@ class HomeViewModel @Inject constructor(
             return
         }
         update { it.copy(cropQueue = it.cropQueue + path) }
+        prepareCropHead()
     }
 
     fun onPicked(uris: List<Uri>) {
@@ -134,22 +147,48 @@ class HomeViewModel @Inject constructor(
             }
             if (uris.size > room) showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入")
             update { it.copy(cropQueue = it.cropQueue + imported) }
+            prepareCropHead()
         }
     }
 
     /** 裁剪界面「确定」：队首照片进入照片条；队列空了就打开确认面板。 */
-    fun onCropDone() = update { current ->
-        val head = current.cropQueue.firstOrNull() ?: return@update current
-        PhotoArrivals.markNew(listOf(head))
-        val rest = current.cropQueue.drop(1)
-        current.copy(photos = current.photos + head, cropQueue = rest, confirmOpen = current.confirmOpen || rest.isEmpty())
+    fun onCropDone() {
+        if (state.value.preparingPhoto != null) return
+        update { current ->
+            val head = current.cropQueue.firstOrNull() ?: return@update current
+            PhotoArrivals.markNew(listOf(head))
+            val rest = current.cropQueue.drop(1)
+            current.copy(photos = current.photos + head, cropQueue = rest, confirmOpen = current.confirmOpen || rest.isEmpty())
+        }
+        prepareCropHead()
+    }
+
+    /** Persist the queue before native work; never reprocess a prepared head after recreation. */
+    private fun prepareCropHead() {
+        if (preparationJob?.isActive == true) return
+        val head = state.value.cropQueue.firstOrNull() ?: return
+        if (savedState.get<String>(KEY_PREPARED) == head) return
+        _state.update { it.copy(preparingPhoto = PhotoPreparationStage.DETECTING) }
+        preparationJob = viewModelScope.launch {
+            try {
+                val result = photoPreprocessor.prepare(head, conversationMode) { stage ->
+                    _state.update { it.copy(preparingPhoto = stage) }
+                }
+                savedState[KEY_PREPARED] = head
+                if (result == PhotoPreparationResult.ORIGINAL_RETAINED) showMessage("预处理未完成，已保留原图")
+            } finally {
+                _state.update { it.copy(preparingPhoto = null) }
+            }
+        }
     }
 
     /** 裁剪界面「重拍」：丢掉队首这张，回到取景。 */
     fun onRetake() {
+        if (state.value.preparingPhoto != null) return
         val head = state.value.cropQueue.firstOrNull() ?: return
         update { it.copy(cropQueue = it.cropQueue.drop(1)) }
         viewModelScope.launch { captureStore.discard(listOf(head)) }
+        prepareCropHead()
     }
 
     fun removePhoto(path: String) {
@@ -164,6 +203,7 @@ class HomeViewModel @Inject constructor(
 
     /** 放弃这次拍题：删掉还没交出去的照片。 */
     fun discardAll() {
+        preparationJob?.cancel()
         val all = state.value.photos + state.value.cropQueue
         update { it.copy(photos = emptyList(), cropQueue = emptyList(), note = "", confirmOpen = false) }
         viewModelScope.launch { captureStore.discard(all) }
@@ -195,5 +235,6 @@ class HomeViewModel @Inject constructor(
         const val KEY_CROP = "capture_crop_queue"
         const val KEY_NOTE = "capture_note"
         const val KEY_CONFIRM = "capture_confirm"
+        const val KEY_PREPARED = "capture_prepared_photo"
     }
 }

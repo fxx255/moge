@@ -46,7 +46,7 @@ fun PaperScaffold(
     val density = LocalDensity.current
     var headerPixels by remember { mutableIntStateOf(0) }
     val header: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().onSizeChanged { headerPixels = it.height }
+        Row(Modifier.fillMaxWidth().headerInputShield().onSizeChanged { headerPixels = it.height }
             .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (onBack != null) IconButton(onClick = onBack) {

@@ -82,6 +82,7 @@ import com.moge.app.ui.capture.rememberDisplayRotation
 import com.moge.app.ui.components.GridPaper
 import com.moge.app.ui.components.paperCard
 import com.moge.app.ui.photo.PhotoCropDialog
+import com.moge.app.ui.photo.PhotoPreparationDialog
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.viewer.PhotoViewer
 import kotlinx.coroutines.delay
@@ -233,7 +234,8 @@ fun HomeScreen(
         },
     )
 
-    state.cropQueue.firstOrNull()?.let { path ->
+    state.preparingPhoto?.let { PhotoPreparationDialog(it) }
+    state.cropQueue.firstOrNull()?.takeIf { state.preparingPhoto == null }?.let { path ->
         PhotoCropDialog(
             path = path,
             onCropped = vm::onCropDone,

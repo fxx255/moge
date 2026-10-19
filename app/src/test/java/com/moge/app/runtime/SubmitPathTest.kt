@@ -341,6 +341,32 @@ class SubmitPathTest {
         }
     }
 
+    @Test fun `captionless transcribed followup keeps the requested supplement and retry context`() = runBlocking {
+        stubCapturing(reply = "请补发星座图，以核对第3问")
+        every { aiCredentialStore.questionVisionProfileId() } returns "vision-1"
+        val transcription = "补图：内圈四点位于坐标轴上，外圈四点位于正方形顶点。"
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } returns transcription
+        val photo = java.io.File.createTempFile("supplement-transcribed", ".png")
+        try {
+            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            val first = manager.submit(GenerationManager.Submission("c1", "帮我核对第3问", emptyList()))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId))
+            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath)))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(second.requestId))
+            val sent = capturedMessages.last()
+            assertEquals(listOf("user", "assistant", "user"), sent.map { it.role })
+            assertEquals("帮我核对第3问", sent[0].content)
+            assertTrue(sent[1].content.contains("请补发星座图"))
+            assertEquals(PhotoTurnPrompt.FOLLOW_UP + "\n\n" + transcription, sent[2].content)
+            assertEquals(0, capturedImageCounts.last())
+            val retry = preparer.prepareRetry(requestRepository.get(second.requestId)!!)
+            assertEquals(sent, retry.history)
+            assertEquals(transcription, db.requestDao().getMessage(second.userMessageId)!!.transcript)
+        } finally { photo.delete() }
+    }
+
     @Test
     fun `vision follow up includes a bounded prior photo`() = runBlocking {
         stubCapturing(visionEnabled = true)

@@ -169,6 +169,38 @@ class SelectionAutoScrollUiTest {
         compose.mainClock.autoAdvance = true
     }
 
+    @Test fun `crossing the start handle past the end continues selecting and scrolling down`() {
+        show()
+        compose.mainClock.autoAdvance = false
+        var anchor = 0
+        var crossedEnd = 0
+        compose.runOnUiThread {
+            val view = body()
+            selectVisibleWord(view)
+            anchor = view.selectionEnd
+            val controller = requireNotNull(markdownSelectionController(view))
+            val point = endpoint(view, true)
+            controller.beginDrag(true, point.first, point.second)
+            controller.moveDrag(point.first, edge(true))
+            assertEquals(anchor, view.selectionStart)
+            assertTrue(view.selectionEnd > anchor)
+            crossedEnd = view.selectionEnd
+            assertSamplesEndpoint(view, start = false)
+        }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.runOnUiThread {
+            val view = body()
+            val controller = requireNotNull(markdownSelectionController(view))
+            assertEquals(anchor, view.selectionStart)
+            assertTrue("The exchanged end handle must continue selecting offscreen text", view.selectionEnd > crossedEnd + 300)
+            assertSamplesEndpoint(view, start = false)
+            controller.endDrag()
+            assertTrue(controller.selecting)
+            assertFalse(controller.magnifier.isShowing)
+        }
+        compose.mainClock.autoAdvance = true
+    }
+
     @Test fun `lens stays with the finger at both horizontal edges and below the upper scroll edge`() {
         show(offset = 2600)
         compose.mainClock.autoAdvance = false
@@ -177,12 +209,13 @@ class SelectionAutoScrollUiTest {
             selectVisibleWord(view)
             val controller = requireNotNull(markdownSelectionController(view))
             val point = endpoint(view, true)
+            val anchor = view.selectionEnd
             // Grab away from the anchor: only window placement follows the finger.
             controller.beginDrag(true, point.first - 17f, point.second + 12f)
             val y = (edge(false) + edge(true)) / 2f
             for (x in listOf(1f, view.rootView.width - 1f)) {
                 controller.moveDrag(x, y)
-                assertSamplesEndpoint(view, start = true)
+                assertSamplesEndpoint(view, start = view.selectionEnd == anchor)
                 if (x < view.rootView.width / 2f) assertTrue(controller.magnifier.screenBounds.centerX() < view.rootView.width / 2f)
                 else assertTrue(controller.magnifier.screenBounds.centerX() > view.rootView.width / 2f)
             }

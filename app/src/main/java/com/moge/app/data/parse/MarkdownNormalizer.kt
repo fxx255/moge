@@ -14,6 +14,9 @@ internal fun normalizeReplyMarkdown(raw: String): String {
             .replace("\\r\\n\\r\\n", "\n\n")
             .replace("\\n\\n", "\n\n")
             .replace("\\r\\n", "\n")
+        // A parenthesized step is not a TeX command. Make it a separate paragraph,
+        // so CommonMark cannot fold its break back into the preceding heading.
+        normalized = normalized.replace(Regex("""\\n(?=[ \t]*(?:\(\d+\)|（\d+）))"""), "\n\n")
         normalized = normalized.replace(
             Regex("""\\n(?=\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```))"""),
             "\n",

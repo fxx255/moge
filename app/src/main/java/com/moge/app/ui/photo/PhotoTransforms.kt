@@ -1,16 +1,11 @@
 package com.moge.app.ui.photo
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import com.moge.app.data.image.decodePhotoBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.util.UUID
 
 /** Shared invalidation for thumbnails and viewers after an app-owned photo is edited. */
 object PhotoEdits {
@@ -31,19 +26,8 @@ fun rotatePhotoBitmap(source: Bitmap, quarterTurns: Int): Bitmap {
 
 /** Write beside the original, then replace atomically. Failure must never truncate the original. */
 fun savePhotoBitmap(path: String, bitmap: Bitmap) {
-    val original = File(path)
-    val temporary = File(original.parentFile, ".${original.name}.${UUID.randomUUID()}.editing")
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    val format = if (bounds.outMimeType == "image/png" || bitmap.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-    try {
-        temporary.outputStream().use { output ->
-            check(bitmap.compress(format, 100, output)) { "无法保存照片" }
-            output.fd.sync()
-        }
-        Files.move(temporary.toPath(), original.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        PhotoEdits.changed()
-    } finally { temporary.delete() }
+    com.moge.app.data.image.writePhotoBitmap(path, bitmap)
+    PhotoEdits.changed()
 }
 
 fun rotatePhotoAndSave(path: String, quarterTurns: Int = -1) {

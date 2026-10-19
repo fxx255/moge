@@ -52,8 +52,7 @@ internal class MarkdownSelectionController(
     private var contentGestureMoved = false
     private val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
     private val location = IntArray(2)
-    private val startHandle by lazy { Handle(true) }
-    private val endHandle by lazy { Handle(false) }
+    private val handles by lazy { listOf(Handle(true), Handle(false)) }
     internal val magnifier = SelectionMagnifier(view, handleColor, selectionSurfaceColor)
 
     fun touch(event: MotionEvent): Boolean {
@@ -169,8 +168,7 @@ internal class MarkdownSelectionController(
         actionMode = null
         host.release(this)
         if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnPreDrawListener(this)
-        startHandle.popup.dismiss()
-        endHandle.popup.dismiss()
+        handles.forEach { it.popup.dismiss() }
         magnifier.dismiss()
         (view.text as? Spannable)?.let { Selection.removeSelection(it) }
     }
@@ -195,8 +193,7 @@ internal class MarkdownSelectionController(
 
     private fun updateHandles() {
         if (!active || view.layout == null) return
-        startHandle.place(endpoint(true))
-        endHandle.place(endpoint(false))
+        handles.forEach { it.place(endpoint(it.start)) }
     }
 
     internal fun beginDrag(start: Boolean, x: Float, y: Float) {
@@ -255,20 +252,35 @@ internal class MarkdownSelectionController(
         view.getLocationOnScreen(location)
         val bounds = host.viewport
         val y = (pointerY - fingerOffsetY).coerceIn(bounds.top, maxOf(bounds.top, bounds.bottom - 1))
-        val offset = view.getOffsetForPosition(pointerX - fingerOffsetX - location[0], y - location[1])
         val text = view.text as? Spannable ?: return
-        // Handles may shrink the range, but never cross or collapse it.
+        val offset = view.getOffsetForPosition(pointerX - fingerOffsetX - location[0], y - location[1])
+            .coerceIn(0, text.length)
+        if (offset != fixedOffset && dragStart != (offset < fixedOffset)) {
+            dragStart = offset < fixedOffset
+            // Keep the same PopupWindow receiving the gesture under the finger.
+            // Only its endpoint role, shape and accessible label change.
+            handles.forEach { it.start = !it.start }
+        }
+        // At the exact anchor retain a nonempty range on the current side;
+        // crossing to the other side reverses roles without lifting the finger.
         if (dragStart) Selection.setSelection(text, offset.coerceIn(0, (fixedOffset - 1).coerceAtLeast(0)), fixedOffset)
         else Selection.setSelection(text, fixedOffset, offset.coerceIn((fixedOffset + 1).coerceAtMost(text.length), text.length))
         updateHandles()
         updateMagnifier()
     }
 
-    private inner class Handle(private val start: Boolean) : View(view.context) {
+    private inner class Handle(initialStart: Boolean) : View(view.context) {
+        var start = initialStart
+            set(value) {
+                field = value
+                updateRoleAppearance()
+            }
         private val size = (48f * host.density).roundToInt()
-        private val drawable = SelectionHandleDrawable(handleColor, start, host.density)
+        private val startDrawable = SelectionHandleDrawable(handleColor, true, host.density)
+        private val endDrawable = SelectionHandleDrawable(handleColor, false, host.density)
+        private val drawable get() = if (start) startDrawable else endDrawable
         // The touch target extends outward, so short selected words do not stack both targets.
-        private val anchorX = if (start) size - 6f * host.density else 6f * host.density
+        private val anchorX get() = if (start) size - 6f * host.density else 6f * host.density
         val popup = PopupWindow(this, size, size, false).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             isClippingEnabled = false
@@ -276,8 +288,12 @@ internal class MarkdownSelectionController(
             inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
         }
         init {
-            contentDescription = if (start) "选区起点" else "选区终点"
+            updateRoleAppearance()
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+        private fun updateRoleAppearance() {
+            contentDescription = if (start) "选区起点" else "选区终点"
+            invalidate()
         }
         override fun onDraw(canvas: Canvas) {
             val left = if (start) anchorX - drawable.intrinsicWidth else anchorX

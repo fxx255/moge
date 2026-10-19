@@ -53,8 +53,8 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.5.1"
+        versionCode = 32
+        versionName = "0.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -180,6 +180,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation(libs.androidx.exifinterface)
+    // 本机题目检测与纸间扫描书页展平；识别模型随包提供，不上传照片。
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("org.opencv:opencv:4.12.0")
 
     // 回答渲染：Markdown + 本地 JLatexMath 公式（不用 WebView / CDN）
     implementation(libs.markwon.core)

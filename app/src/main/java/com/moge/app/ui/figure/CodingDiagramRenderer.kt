@@ -190,10 +190,10 @@ object CodingDiagramRenderer {
         d.label("输入信息", 32f, y - 28, 23f)
         d.label("序列 u", 32f, y + 4, 23f)
         d.line(P(151f, y), P(taps.last() + 22, y))
-        // The reference uses wide blank delay rectangles for K=3 and compact rectangles for K=4.
+        // Number each one-step delay from the input; retain the reference box proportions.
         for (i in 1..code.memory) {
             val boxWidth = if (code.memory == 2) 144f else 82f
-            d.box(taps[i - 1] + 32, y, boxWidth, "", if (code.memory == 2) 50f else 58f)
+            d.box(taps[i - 1] + 32, y, boxWidth, "D" + subscript(i), if (code.memory == 2) 50f else 58f)
             d.arrow(P(taps[i - 1] + 30, y), P(taps[i - 1], y))
         }
         d.label("uⱼ", taps.first() + 7, y - 35, 23f)

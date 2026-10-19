@@ -59,6 +59,9 @@ internal fun rememberMarkdownRenderSource(view: TextView, source: String, widthP
     (view as? MarkdownRenderSourceOwner)?.renderSource = MarkdownRenderSource(source, formulaMaxWidthPx(view, widthPx))
 }
 
+// Compose supplies all colors and typography directly; an AppCompat view would
+// require an AppCompat theme and replace the native selection behavior used here.
+@SuppressLint("AppCompatCustomView")
 internal fun createMarkdownTextView(
     context: Context,
     textColor: Int,

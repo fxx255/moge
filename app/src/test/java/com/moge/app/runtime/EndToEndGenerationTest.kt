@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.credential.AiCredentialStore
+import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.credential.AiModelProfile
 import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiResolvedIdentity
@@ -58,6 +59,76 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class EndToEndGenerationTest {
+
+    @Test fun `captionless supplemental photo keeps context and nonempty text in chat completions`() = runBlocking {
+        verifySupplementalPhoto(AiApiProtocol.CHAT_COMPLETIONS)
+    }
+
+    @Test fun `captionless supplemental photo keeps context and nonempty text in responses`() = runBlocking {
+        verifySupplementalPhoto(AiApiProtocol.RESPONSES)
+    }
+
+    private suspend fun verifySupplementalPhoto(protocol: AiApiProtocol) {
+        val identity = credentials.resolveActiveIdentity()!!.copy(visionEnabled = true, apiProtocol = protocol)
+        every { credentials.resolveActiveIdentity() } returns identity
+        every { credentials.resolveIdentityFor("p1") } returns identity
+        fun enqueueReply(text: String) {
+            server.enqueue(if (protocol == AiApiProtocol.CHAT_COMPLETIONS) sse(text, "stop")
+                else MockResponse().setHeader("Content-Type", "application/json").setBody(buildJsonObject {
+                    put("output", buildJsonArray { add(buildJsonObject {
+                        put("type", "message"); put("role", "assistant")
+                        put("content", buildJsonArray { add(buildJsonObject {
+                            put("type", "output_text"); put("text", text)
+                        }) })
+                    }) })
+                }.toString()))
+        }
+        val photo = java.io.File.createTempFile("supplemental-constellation", ".png")
+        try {
+            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            val firstReply = "请补发星座图，以确认第3问的判决域。"
+            enqueueReply("""{"reply":"$firstReply"}""")
+            val first = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath)))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId).status)
+            withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+            enqueueReply("""{"reply":"根据补图，更正第3问的边界。"}""")
+            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath)))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(second.requestId).status)
+            withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+            enqueueReply("""{"reply":"右上角标的是第二个星座点。"}""")
+            val third = manager.submit(GenerationManager.Submission("c1", "右上角标的是什么？", emptyList()))
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(third.requestId).status)
+            withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+
+            val bodies = List(3) { Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject }
+            fun messages(index: Int) = bodies[index][if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!
+                .jsonArray.map { it.jsonObject }
+            fun imageText(message: kotlinx.serialization.json.JsonObject) =
+                message["content"]!!.jsonArray.first().jsonObject["text"]!!.jsonPrimitive.content
+            val secondMessages = messages(1)
+            val exchange = secondMessages.filter { it["role"]!!.jsonPrimitive.content != "system" }
+            assertEquals(listOf("user", "assistant", "user"), exchange.map { it["role"]!!.jsonPrimitive.content })
+            assertEquals(PhotoTurnPrompt.INITIAL_QUESTION, imageText(exchange[0]))
+            assertTrue(exchange[1]["content"]!!.jsonPrimitive.content.contains(firstReply))
+            assertEquals(PhotoTurnPrompt.FOLLOW_UP, imageText(exchange[2]))
+            val blocks = exchange[2]["content"]!!.jsonArray.map { it.jsonObject }
+            assertEquals(if (protocol == AiApiProtocol.RESPONSES) "input_text" else "text", blocks[0]["type"]!!.jsonPrimitive.content)
+            assertTrue(blocks[0]["text"]!!.jsonPrimitive.content.isNotBlank())
+            assertEquals(if (protocol == AiApiProtocol.RESPONSES) "input_image" else "image_url", blocks[1]["type"]!!.jsonPrimitive.content)
+            assertEquals(exchange.last(), secondMessages.last())
+            assertTrue(secondMessages.filter { it["role"]!!.jsonPrimitive.content == "system" }
+                .any { it["content"]!!.jsonPrimitive.content.contains("不必重新输出整题") })
+            // Rebuilding history must not relabel the initial image as a follow-up,
+            // or the supplemental image as a request for a complete new solution.
+            val historicalUsers = messages(2).filter { it["role"]!!.jsonPrimitive.content == "user" }
+            assertEquals(PhotoTurnPrompt.INITIAL_QUESTION, imageText(historicalUsers[0]))
+            assertEquals(PhotoTurnPrompt.FOLLOW_UP, imageText(historicalUsers[1]))
+            assertEquals("右上角标的是什么？", historicalUsers[2]["content"]!!.jsonPrimitive.content)
+            assertEquals("", db.requestDao().getMessage(second.userMessageId)!!.content)
+        } finally { photo.delete() }
+    }
 
     @Test fun `chat resume restores partial prose without adding solving instructions`() = runBlocking {
         db.conversationDao().insertConversation(ConversationEntity(id = "chat", title = "续写", conversationMode = "CHAT"))

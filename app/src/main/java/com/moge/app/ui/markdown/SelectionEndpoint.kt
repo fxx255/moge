@@ -17,7 +17,16 @@ internal fun selectionEndpoint(view: TextView, offset: Int, start: Boolean): Sel
     val previousRow = !start && line > 0 && caret == layout.getLineStart(line)
     if (previousRow) line--
     val x = if (previousRow) {
-        if (layout.getParagraphDirection(line) > 0) layout.getLineRight(line) else layout.getLineLeft(line)
+        // An otherwise blank selected row paints to the paragraph edge.
+        // getLineRight() is zero on an empty row and would stack both handles
+        // on its left edge despite the full-width highlight.
+        val blankRow = view.text.getOrNull(caret - 1) == '\n' &&
+            view.text.subSequence(layout.getLineStart(line), caret).all { it.isWhitespace() }
+        if (blankRow) {
+            if (layout.getParagraphDirection(line) > 0) layout.width.toFloat() else 0f
+        } else {
+            if (layout.getParagraphDirection(line) > 0) layout.getLineRight(line) else layout.getLineLeft(line)
+        }
     } else layout.getPrimaryHorizontal(caret)
     val top = layout.getLineTop(line).toFloat()
     val fullHeight = layout.getLineBottom(line) - top

@@ -2,6 +2,8 @@ package com.moge.app.ui.photo
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.os.SystemClock
+import android.view.MotionEvent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsEnabled
@@ -15,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -34,6 +37,29 @@ class PhotoCropDialogTest {
         listOf("自由", "1:1", "4:3", "3:4", "16:9", "3:1").forEach {
             compose.onNodeWithText(it).assertDoesNotExist()
         }
+    }
+
+    @Test fun `outside touches retain the crop until the cancel button is pressed`() {
+        var dismissed = 0
+        val file = photo()
+        val original = file.readBytes()
+        compose.setContent {
+            MogeTheme { PhotoCropDialog(file.absolutePath, onCropped = {}, onDismiss = { dismissed++ }) }
+        }
+        compose.runOnIdle {
+            val dialog = ShadowDialog.getLatestDialog()
+            // Outside-window events are delivered by Android, rather than a Compose node.
+            for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_OUTSIDE)) {
+                val event = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+                    action, -20f, -20f, 0)
+                try { dialog.dispatchTouchEvent(event) } finally { event.recycle() }
+            }
+            assertEquals(0, dismissed)
+        }
+        compose.onNodeWithText("确定").assertIsEnabled()
+        compose.onNodeWithText("取消").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        assertEquals(1, dismissed)
+        org.junit.Assert.assertArrayEquals(original, file.readBytes())
     }
 
     @Test fun `only free cropping is offered initially after rotation and for the next photo`() {

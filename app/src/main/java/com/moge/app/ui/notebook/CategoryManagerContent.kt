@@ -111,11 +111,12 @@ internal fun CategoryManagerContent(
         cancelEdit()
     }
     BackHandler(enabled = creating || renameId != null) { cancelEdit() }
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(creating, imeBottom) {
+    LaunchedEffect(creating) {
         if (creating) {
-            withFrameNanos { }
-            if (motion) list.animateScrollToItem(categories.size) else list.scrollToItem(categories.size)
+            // Reveal the draft once, before it requests focus. IME padding and
+            // focused-field relocation then own the keyboard transition; restarting
+            // an animated scroll for every inset frame produces a second movement.
+            list.scrollToItem(categories.size)
         }
     }
     LaunchedEffect(categories.map { it.id }) {
@@ -227,9 +228,11 @@ internal fun CategoryManagerContent(
             LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth()
                 .testTag("category-list").onGloballyPositioned { drag.listBounds = it.boundsInRoot() }
                 .graphicsLayer { translationY = bounce },
-                // Keep the last slot and an insertion gap reachable above the screen-edge trash.
-                // Reserve this space before lifting too, so a hold never resizes the viewport.
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = deleteHeight + 80.dp),
+                // Editing cannot start a drag. Omit its trash/insertion gap so the
+                // draft stays near the keyboard instead of scrolling to the top.
+                // Browsing still reserves the gap before lifting a card.
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp,
+                    bottom = if (creating) 12.dp else deleteHeight + 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = !drag.held) {
                 if (displayed.isEmpty() && !creating) item {
                     Text("暂无分类", modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium)

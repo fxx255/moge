@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.components.GridPaper
 import com.moge.app.ui.components.PaperHeaderBackdrop
+import com.moge.app.ui.components.headerInputShield
 import com.moge.app.domain.ConversationMode
 
 /** The list continues beneath both overlays; padding keeps its first and last items reachable. */
@@ -43,6 +44,7 @@ internal fun ConversationScaffold(
                 PaperHeaderBackdrop(Modifier.align(Alignment.TopCenter).fillMaxWidth()
                     .height(with(density) { headerPixels.toDp() } + 40.dp))
                 Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().testTag("conversation-header")
+                    .headerInputShield()
                     .onSizeChanged { headerPixels = it.height }
                     .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

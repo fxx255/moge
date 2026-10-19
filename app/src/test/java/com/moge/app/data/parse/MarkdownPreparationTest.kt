@@ -1,9 +1,36 @@
 package com.moge.app.data.parse
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownPreparationTest {
+    @Test fun escapedBreaksBeforeParenthesizedStepsBecomeParagraphsWithoutDamagingLatexOrCode() {
+        val source = "所以二维条件密度用联合高斯 pdf，而不是用 erfc/Q 函数。\n\n" +
+            "分步解答：\\n(1)\n\n\$\$\n" +
+            "E_s=\\frac{4b^2+4\\cdot 4b^2}{8}=\\frac{5}{2} b^2=10\\Rightarrow b^2\n\n=4\n\$\$"
+        val prepared = prepareReplyMarkdown(source)
+        assertTrue(prepared.contains("分步解答：\n\n(1)"))
+        assertTrue(prepared.contains("\\frac{4b^2+4\\cdot 4b^2}{8}"))
+        assertEquals(prepared, prepareReplyMarkdown(prepared))
+        assertEquals("步骤\n\n（2）继续", prepareReplyMarkdown("步骤\\n（2）继续"))
+        val protected = "`\\n(1)`\n\n```text\n\\n(2)\n```\n\n" +
+            "\$\$\\nu+\\nabla+\\neq+\\notin\$\$"
+        assertEquals(protected, prepareReplyMarkdown(protected))
+    }
+
+    @Test fun cjkBoldBoundariesAreRepairedIdempotentlyWithoutChangingCodeMathOrEscapedMarkers() {
+        val protected = "`前**“代码。”**后`\n\n```text\n前**“代码。”**后\n```\n\n" +
+            "    前**“缩进代码。”**后\n\n\t前**“制表符缩进代码。”**后\n\n" +
+            "\$\$\\text{前**“公式。”**后}\$\$\n\n" +
+            """前\*\*“转义。”\*\*后""" + "\n\n**未闭合。后\n\n**正常加粗**，前**正常**后\n\n"
+        val prose = "前**“重点。”**后"
+        assertEquals(protected, prepareReplyMarkdown(protected))
+        val prepared = prepareReplyMarkdown(protected + prose)
+        assertTrue(prepared.startsWith(protected))
+        assertEquals(prepared, prepareReplyMarkdown(prepared))
+    }
+
     @Test fun screenshotStateAndOutputSequencesBecomeMathWithoutChangingTheirOrder() {
         val source = "**输出结果顺序：** 题目明确按 \$00,10,11,01\$ 给前一时刻度量，" +
             "所以答案也应按同一顺序写为 \$3,1,3,3\$；若改按 \$00,01,10,11\$ 才是 \$3,3,1,3\$。"

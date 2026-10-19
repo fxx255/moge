@@ -34,6 +34,7 @@ data class UserSettings(
     /** 只影响展示：完整解答仍然生成并保存在本机。 */
     val answerFirst: Boolean = false,
     val keepScreenOnInConversation: Boolean = false,
+    val questionPhotoPreprocessing: Boolean = true,
     val historyAutoCleanupEnabled: Boolean = true,
     val historyRetentionDays: Int = DEFAULT_HISTORY_RETENTION_DAYS,
 ) {
@@ -57,6 +58,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             nickname = prefs[KEY_NICKNAME].orEmpty(),
             answerFirst = prefs[KEY_ANSWER_FIRST] ?: false,
             keepScreenOnInConversation = prefs[KEY_KEEP_SCREEN_ON] ?: false,
+            questionPhotoPreprocessing = prefs[KEY_QUESTION_PHOTO_PREPROCESSING] ?: true,
             historyAutoCleanupEnabled = prefs[KEY_HISTORY_AUTO_CLEANUP] ?: true,
             historyRetentionDays = (prefs[KEY_HISTORY_RETENTION_DAYS] ?: UserSettings.DEFAULT_HISTORY_RETENTION_DAYS)
                 .coerceIn(1, UserSettings.MAX_HISTORY_RETENTION_DAYS),
@@ -92,6 +94,10 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         store.edit { it[KEY_KEEP_SCREEN_ON] = value }
     }
 
+    suspend fun setQuestionPhotoPreprocessing(value: Boolean) {
+        store.edit { it[KEY_QUESTION_PHOTO_PREPROCESSING] = value }
+    }
+
     suspend fun setHistoryAutoCleanupEnabled(value: Boolean) {
         store.edit { it[KEY_HISTORY_AUTO_CLEANUP] = value }
     }
@@ -109,6 +115,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         val KEY_NICKNAME = stringPreferencesKey("nickname")
         val KEY_ANSWER_FIRST = booleanPreferencesKey("answer_first")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_in_conversation")
+        val KEY_QUESTION_PHOTO_PREPROCESSING = booleanPreferencesKey("question_photo_preprocessing")
         val KEY_HISTORY_AUTO_CLEANUP = booleanPreferencesKey("history_auto_cleanup")
         val KEY_HISTORY_RETENTION_DAYS = intPreferencesKey("history_retention_days")
     }

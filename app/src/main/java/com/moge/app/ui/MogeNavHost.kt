@@ -39,6 +39,9 @@ import kotlinx.coroutines.flow.filterNotNull
 
 object Routes {
     const val HOME = "home"
+    const val ARG_CAPTURE_MODE = "captureConversationMode"
+    const val HOME_ROUTE = "$HOME?$ARG_CAPTURE_MODE={$ARG_CAPTURE_MODE}"
+    fun capture(mode: com.moge.app.domain.ConversationMode): String = "$HOME?$ARG_CAPTURE_MODE=${mode.name}"
     const val NOTEBOOK = "notebook"
     const val ARG_NOTEBOOK_ENTRY_ID = "notebookEntryId"
     const val NOTEBOOK_ROUTE = "notebook?$ARG_NOTEBOOK_ENTRY_ID={$ARG_NOTEBOOK_ENTRY_ID}"
@@ -162,7 +165,9 @@ fun MogeNavHost(
             else if (openedCard == (targetState.id to initialState.id)) paperPageExit(true)
             else ExitTransition.None
         }) {
-        composable(Routes.HOME) {
+        composable(Routes.HOME_ROUTE, arguments = listOf(
+            navArgument(Routes.ARG_CAPTURE_MODE) { type = NavType.StringType; defaultValue = "SOLVE" },
+        )) {
             HomeScreen(
                 onOpenNotebook = back,
                 onOpenSettings = { ordinary(Routes.SETTINGS) },
@@ -211,7 +216,7 @@ fun MogeNavHost(
                 onOpenHistory = { ordinary(Routes.HISTORY) },
                 onOpenNotebook = { openNotebook(null) },
                 onNewConversation = { newPage(0) },
-                onTakePhoto = { ordinary(Routes.HOME) },
+                onTakePhoto = { vm.resolveCaptureMode { mode -> ordinary(Routes.capture(mode)) } },
                 vm = vm,
                 onResumeConversation = previousConversation?.let { { resume(0) } },
                 onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },

@@ -73,7 +73,10 @@ fun PhotoCropDialog(
 
     Dialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surface) {
           Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {

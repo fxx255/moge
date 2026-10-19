@@ -80,6 +80,7 @@ import com.moge.app.ui.markdown.AnswerMarkdownBody
 import com.moge.app.ui.markdown.InlineFigure
 import com.moge.app.ui.markdown.MarkdownAnswer
 import com.moge.app.ui.photo.PhotoThumb
+import com.moge.app.ui.photo.QuestionPhoto
 import com.moge.app.ui.markdown.StreamingMarkdownBody
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.theme.MonoFamily
@@ -126,14 +127,14 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
 @Composable
 private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int) -> Unit) {
     if (paths.isEmpty()) return
-    Row(
-        Modifier.excludePageSwipe().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         paths.forEachIndexed { index, path ->
             key(path) {
-            PhotoArrival(path, surface = "question", Modifier.size(width = 160.dp, height = 120.dp)) {
-                PhotoThumb(path, "照片 ${index + 1}", onClick = { onOpenImages(paths, index) }, modifier = Modifier.matchParentSize())
+            PhotoArrival(path, surface = "question", Modifier.fillMaxWidth()) {
+                QuestionPhoto(path, "照片 ${index + 1}", onClick = { onOpenImages(paths, index) })
             }
             }
         }

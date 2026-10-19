@@ -3,6 +3,7 @@ package com.moge.app.data.parse
 /** Repair model formatting only in prose; code examples must retain their literal escapes. */
 internal fun prepareReplyMarkdown(source: String): String {
     val out = StringBuilder(source.length)
+    val codeRanges = mutableListOf<IntRange>()
     var proseStart = 0
     var scanFrom = 0
     while (scanFrom < source.length) {
@@ -26,17 +27,19 @@ internal fun prepareReplyMarkdown(source: String): String {
             closing.range.last + 1
         }
         out.append(sanitizeReplyLatex(normalizeReplyMarkdown(source.substring(proseStart, token.range.first))))
+        val codeStart = out.length
         out.append(source, token.range.first, end)
+        codeRanges += codeStart until out.length
         proseStart = end
         scanFrom = end
     }
     out.append(sanitizeReplyLatex(normalizeReplyMarkdown(source.substring(proseStart))))
-    return out.toString()
+    return normalizeCjkStrongEmphasis(out.toString(), codeRanges)
 }
 
 private val CODE_TOKEN = Regex("(?m)^[ \\t]{0,3}(`{3,}|~{3,})[^\\n]*(?:\\n|$)|`+")
 
-private fun String.isEscapedMarkdownToken(index: Int): Boolean {
+internal fun String.isEscapedMarkdownToken(index: Int): Boolean {
     var backslashes = 0
     var before = index - 1
     while (before >= 0 && this[before--] == '\\') backslashes++

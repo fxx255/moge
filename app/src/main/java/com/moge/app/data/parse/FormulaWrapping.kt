@@ -14,6 +14,7 @@ internal fun wrapLongFormulas(
     val out = ArrayList<String>()
     var fence: String? = null
     var inDisplay = false
+    var displayIndent = ""
     val block = StringBuilder()
     val lines = markdown.split('\n')
     var index = 0
@@ -56,6 +57,7 @@ internal fun wrapLongFormulas(
             }
             block.append('\n').append(rest.substring(0, close))
             out += splitFormulaBlocks(trimSegment(block.toString()), maxWidthPx, measure)
+                .map { it.prependIndent(displayIndent) }
             block.setLength(0)
             inDisplay = false
             rest = rest.substring(close + 2)
@@ -63,6 +65,7 @@ internal fun wrapLongFormulas(
                 index++
                 continue
             }
+            rest = displayIndent + rest
         }
         // Same-line pairs remain inline. An unmatched final opener may follow prose.
         val delimiters = mathDelimiters(rest)
@@ -80,6 +83,7 @@ internal fun wrapLongFormulas(
                 continue
             }
             if (prefix.isNotBlank()) out += wrapInlineLine(prefix, maxWidthPx, measure)
+            displayIndent = formulaContinuationIndent(rest)
             block.append(body)
             inDisplay = true
         } else {
@@ -89,6 +93,7 @@ internal fun wrapLongFormulas(
     }
     if (inDisplay && block.toString().isNotBlank()) {
         out += splitFormulaBlocks(trimSegment(block.toString()), maxWidthPx, measure)
+            .map { it.prependIndent(displayIndent) }
     }
     return out.joinToString("\n")
 }
@@ -172,18 +177,33 @@ private fun isTableSeparatorRow(line: String): Boolean {
 
 private const val DISPLAY_DELIMITER = "$$"
 
+/** Promoted math and its trailing prose must remain inside the original list item. */
+private fun formulaContinuationIndent(line: String): String {
+    val leading = line.takeWhile { it == ' ' || it == '\t' }
+    val marker = LIST_MARKER.find(line.substring(leading.length))?.value.orEmpty()
+    return leading + " ".repeat(marker.length)
+}
+
+private val LIST_MARKER = Regex("""^(?:\d{1,9}[.)]|[-+*])[ \t]+""")
+
 private fun splitFormulaBlocks(latex: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
     if (latex.isEmpty()) return emptyList()
     // Blank source lines are ordinary TeX whitespace, but Markwon treats them
     // as the end of a math block and strands the name above its equation.
     val continuous = latex.replace(Regex("\n[ \t]*\n+"), "\n")
-    return splitFormula(continuous, maxWidthPx, measure).flatMap { listOf(DISPLAY_DELIMITER, it, DISPLAY_DELIMITER) }
+    return formulaBlockLines(splitFormula(continuous, maxWidthPx, measure))
 }
+
+private fun formulaBlockLines(rows: List<String>): List<String> =
+    rows.flatMap { listOf(DISPLAY_DELIMITER, it, DISPLAY_DELIMITER) }
 
 private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
     if (!line.contains(DISPLAY_DELIMITER)) return listOf(line)
     val out = mutableListOf<String>()
     val text = StringBuilder()
+    val indent = formulaContinuationIndent(line)
+    var continuation = false
+    fun prose() = if (continuation) indent + text.toString().trimStart() else text.toString()
     val delimiters = mathDelimiters(line)
     var i = 0
     while (i < line.length) {
@@ -195,9 +215,23 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
             }
             val latex = line.substring(i + 2, close)
             if (measure(latex) > maxWidthPx) {
-                text.toString().trim().takeIf { it.isNotEmpty() }?.let { out += it }
-                out += splitFormulaBlocks(latex, maxWidthPx, measure)
-                text.setLength(0)
+                val rows = splitFormula(latex, maxWidthPx, measure)
+                if (rows.size == 1 && measure(rows.single()) <= maxWidthPx) {
+                    // A wrapped frame is still one inline object. Preserve its
+                    // paragraph, punctuation and list rather than adding block gaps.
+                    text.append(DISPLAY_DELIMITER).append(rows.single()).append(DISPLAY_DELIMITER)
+                } else {
+                    val before = prose()
+                    val markerOnly = LIST_MARKER.matches(before.trimStart())
+                    if (!markerOnly) before.trimEnd().takeIf { it.isNotBlank() }?.let { out += it }
+                    out += formulaBlockLines(rows).mapIndexed { index, block ->
+                        // An empty bullet cannot interrupt a paragraph; keep its
+                        // first math delimiter beside the original marker.
+                        if (markerOnly && index == 0) before + block else block.prependIndent(indent)
+                    }
+                    text.setLength(0)
+                    continuation = true
+                }
             } else {
                 text.append(DISPLAY_DELIMITER).append(latex).append(DISPLAY_DELIMITER)
             }
@@ -207,7 +241,8 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
             i++
         }
     }
-    text.toString().trim().takeIf { it.isNotEmpty() }?.let { out += it }
+    // Two trailing spaces (or a backslash) are an authored Markdown hard break.
+    prose().takeIf { it.isNotBlank() }?.let { out += it }
     return out.ifEmpty { listOf(line) }
 }
 
@@ -218,6 +253,7 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
     if (measure(value) <= maxWidthPx) return listOf(value)
     wrapFormulaGroup(value, FormulaGroupKind.Frame, maxWidthPx, measure)?.let { return it }
     splitSetBuilderFormula(value, maxWidthPx, measure)?.let { return it }
+    splitTrailingFormulaCondition(value, maxWidthPx, measure)?.let { return it }
     wrapFormulaGroup(value, FormulaGroupKind.Delimiter, maxWidthPx, measure)?.let { return it }
     // 拆成独立显示块时消费掉行分隔符，不能把 \\ 留在上一段末尾或下一段开头。
     val rowBreaks = splitPoints(value, 0)

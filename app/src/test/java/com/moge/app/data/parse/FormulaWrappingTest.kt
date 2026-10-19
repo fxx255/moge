@@ -12,6 +12,13 @@ class FormulaWrappingTest {
     private val d = "$$"
     private val measure: (String) -> Int = { it.length * 10 }
 
+    @Test fun `short inline formulas preserve authored hard breaks and indentation`() {
+        for (ending in listOf("  ", "\\")) {
+            val source = "  首行 ${d}x=1${d}。$ending\n  次行 ${d}y=2${d}。"
+            assertEquals(source, wrapLongFormulas(source, 1000, measure))
+        }
+    }
+
     @Test fun `set builder conditions wrap inside paired braces without stranding the name`() {
         val latex = "\\mathcal D_1=\\left\\{(x,y):y\\ge0,\\ \\sqrt3x+y\\ge3+\\sqrt3," +
             "\\ (1+\\sqrt3)x+(1-\\sqrt3)y\\ge1+\\sqrt3\\right\\}."

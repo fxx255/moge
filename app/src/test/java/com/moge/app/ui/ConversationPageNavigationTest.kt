@@ -80,9 +80,20 @@ class ConversationPageNavigationTest {
                 navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
             )) { }
             composable(Routes.HISTORY) { }
+            composable(Routes.HOME_ROUTE, arguments = listOf(
+                navArgument(Routes.ARG_CAPTURE_MODE) { type = NavType.StringType; defaultValue = "SOLVE" },
+            )) { }
         }
         composeNavigator.backStack.value.forEach(composeNavigator::onTransitionComplete)
         return requireNotNull(nav.currentBackStackEntry)
+    }
+
+    @Test fun `camera route retains chat mode and returns to the same conversation`() {
+        val source = start("saved-chat")
+        navigate { nav.navigate(Routes.capture(com.moge.app.domain.ConversationMode.CHAT)) }
+        assertEquals("CHAT", nav.currentBackStackEntry!!.arguments!!.getString(Routes.ARG_CAPTURE_MODE))
+        navigate { nav.popBackStack() }
+        assertSame(source, nav.currentBackStackEntry)
     }
 
     private fun draft(entry: NavBackStackEntry): DraftViewModel =

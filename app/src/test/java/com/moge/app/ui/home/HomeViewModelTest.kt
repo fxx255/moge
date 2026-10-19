@@ -12,6 +12,8 @@ import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
 import com.moge.app.ui.capture.CaptureStore
 import io.mockk.every
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -44,6 +46,9 @@ class HomeViewModelTest {
     private lateinit var store: CaptureStore
     private val credentials = mockk<AiCredentialStore>(relaxed = true)
     private val preferences = MutableStateFlow(UserSettings(defaultSolveMode = SolveMode.CHECK_WORK))
+    private val preprocessor = mockk<com.moge.app.imaging.QuestionPhotoPreprocessor> {
+        coEvery { prepare(any(), any(), any()) } returns com.moge.app.imaging.PhotoPreparationResult.SKIPPED
+    }
     private val settings = mockk<SettingsRepository> {
         every { settings } returns preferences
     }
@@ -63,7 +68,33 @@ class HomeViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     private fun vm(handle: SavedStateHandle = SavedStateHandle()) =
-        HomeViewModel(handle, credentials, settings, store, Dispatchers.Unconfined)
+        HomeViewModel(handle, credentials, settings, store, Dispatchers.Unconfined, preprocessor)
+
+    @Test fun `camera passes conversation mode and restored prepared head is not processed twice`() {
+        val handle = SavedStateHandle(mapOf(com.moge.app.ui.Routes.ARG_CAPTURE_MODE to "CHAT"))
+        val first = vm(handle)
+        val path = shot()
+        first.onCaptured(path)
+        coVerify(exactly = 1) { preprocessor.prepare(path, com.moge.app.domain.ConversationMode.CHAT, any()) }
+        vm(handle)
+        coVerify(exactly = 1) { preprocessor.prepare(path, any(), any()) }
+    }
+
+    @Test fun `crop is withheld during preparation then resumes with original after failure`() {
+        val finished = kotlinx.coroutines.CompletableDeferred<com.moge.app.imaging.PhotoPreparationResult>()
+        coEvery { preprocessor.prepare(any(), any(), any()) } coAnswers { finished.await() }
+        val vm = vm()
+        val path = shot()
+        vm.onCaptured(path)
+        assertTrue(vm.state.value.preparingPhoto != null)
+        vm.onCropDone()
+        assertTrue(vm.state.value.photos.isEmpty())
+        finished.complete(com.moge.app.imaging.PhotoPreparationResult.ORIGINAL_RETAINED)
+        assertNull(vm.state.value.preparingPhoto)
+        assertTrue(File(path).exists())
+        vm.onCropDone()
+        assertEquals(listOf(path), vm.state.value.photos)
+    }
 
     private fun shot(): String = store.newCameraFile().apply { writeBytes(byteArrayOf(9)) }.absolutePath
 

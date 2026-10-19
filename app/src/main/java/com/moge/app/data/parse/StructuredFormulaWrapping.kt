@@ -1,5 +1,26 @@
 package com.moge.app.data.parse
 
+/** Keep a domain such as (0 < w < 1) intact when it fits on its own row. */
+internal fun splitTrailingFormulaCondition(
+    latex: String,
+    maxWidthPx: Int,
+    measure: (String) -> Int,
+): List<String>? {
+    val group = formulaGroups(latex).lastOrNull { it.kind == FormulaGroupKind.Delimiter } ?: return null
+    if (latex.substring(group.end).any { !it.isWhitespace() && it !in ".,;" }) return null
+    val body = latex.substring(group.bodyStart, group.bodyEnd)
+    if (!CONDITION_RELATION.containsMatchIn(body)) return null
+    val prefix = latex.substring(0, group.start)
+    val space = TRAILING_MATH_SPACE.find(prefix) ?: return null
+    val expression = trimSegment(prefix.substring(0, space.range.first))
+    val condition = latex.substring(group.start)
+    if (expression.isEmpty() || measure(condition) > maxWidthPx) return null
+    return splitFormula(expression, maxWidthPx, measure) + condition
+}
+
+private val CONDITION_RELATION = Regex("""[<>=]|\\(?:leq?|geq?|neq?|in)\b""")
+private val TRAILING_MATH_SPACE = Regex("""(?:\s|\\(?:quad\b|qquad\b|[,;:! ]))+$""")
+
 /** Prefer one continuous delimiter/frame around the wrapped mathematical object. */
 internal fun wrapFormulaGroup(
     latex: String,

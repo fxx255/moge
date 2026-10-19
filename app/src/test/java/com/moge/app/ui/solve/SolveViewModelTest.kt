@@ -145,6 +145,9 @@ class SolveViewModelTest {
     }
 
     private lateinit var captureStore: CaptureStore
+    private val preprocessor = mockk<com.moge.app.imaging.QuestionPhotoPreprocessor> {
+        coEvery { prepare(any(), any(), any()) } returns com.moge.app.imaging.PhotoPreparationResult.SKIPPED
+    }
 
     private fun vm(conversationId: String? = null, capture: CaptureBatch? = null): SolveViewModel {
         val args = buildMap<String, Any?> {
@@ -153,7 +156,7 @@ class SolveViewModelTest {
         }
         val handle = SavedStateHandle(args)
         lastHandle = handle
-        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true)).also { model ->
+        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true), preprocessor).also { model ->
             models.put(UUID.randomUUID().toString(), model)
             // stateIn(WhileSubscribed) 需要订阅者才会合成状态：模拟页面一直在看。
             collectors.launch { model.uiState.collect { } }
@@ -539,6 +542,23 @@ class SolveViewModelTest {
     }
 
     // ---------------- P6：拍题首问与追问配图 ----------------
+
+    @Test fun `gallery uses fixed saved chat mode before handing image to crop screen`() = runBlocking {
+        val existing = conversations.createConversation("图片对话", SolveMode.DETAILED,
+            com.moge.app.domain.ConversationMode.CHAT)
+        val model = vm(existing.id)
+        model.awaitState { it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        var captureMode: com.moge.app.domain.ConversationMode? = null
+        model.resolveCaptureMode { captureMode = it }
+        model.awaitState { captureMode != null }
+        assertEquals(com.moge.app.domain.ConversationMode.CHAT, captureMode)
+        val image = ClipboardImageFixture(ApplicationProvider.getApplicationContext<Context>())
+        var cropPaths: List<String>? = null
+        model.importPicked(listOf(image.uri)) { cropPaths = it }
+        model.awaitState { !it.importingPhotos && cropPaths != null }
+        coVerify(exactly = 1) { preprocessor.prepare(cropPaths!!.single(), com.moge.app.domain.ConversationMode.CHAT, any()) }
+        assertTrue(model.uiState.value.photos.isEmpty())
+    }
 
     @Test
     fun `captured photos wait in original composer and send only after confirmation`() {

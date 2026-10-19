@@ -107,6 +107,7 @@ class SolveViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val captureStore: CaptureStore,
     private val storedFigureRepair: StoredFigureRepair,
+    private val photoPreprocessor: com.moge.app.imaging.QuestionPhotoPreprocessor,
 ) : ViewModel() {
 
     /** 当前会话；null = 还没发出第一问的新题目。建好后写回 [savedState]，旋转/重建后仍指向它。 */
@@ -411,6 +412,26 @@ class SolveViewModel @Inject constructor(
     /** 追问拍照的目标文件（落在私有 photos 目录，裁剪原地改写）。 */
     fun newCameraFile(): File = captureStore.newCameraFile()
 
+    /** Resolve saved chat mode from storage even if the first UI snapshot has not arrived. */
+    private suspend fun photoConversationMode(): ConversationMode {
+        draftReady.await()
+        val id = conversationId.value ?: return selectedMode.value
+        val conversation = conversationRepository.getConversation(id) ?: return selectedMode.value
+        return ConversationMode.fromName(conversation.conversationMode)
+    }
+
+    fun resolveCaptureMode(onReady: (ConversationMode) -> Unit) {
+        viewModelScope.launch {
+            try {
+                onReady(photoConversationMode())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notice.value = "暂时无法打开相机，请稍后再试"
+            }
+        }
+    }
+
     /** 追问时从相册选的图：复制进私有目录后交给页面逐张裁剪。 */
     fun importPicked(uris: List<android.net.Uri>, onImported: (List<String>) -> Unit) {
         if (uris.isEmpty() || switchingBranch.value || submitting.value) return
@@ -423,7 +444,15 @@ class SolveViewModel @Inject constructor(
         importingPhotos.value = true
         viewModelScope.launch {
             try {
-                onImported(captureStore.importFromGallery(uris.take(room)))
+                val importMode = photoConversationMode()
+                val imported = captureStore.importFromGallery(uris.take(room))
+                for (path in imported) {
+                    val result = photoPreprocessor.prepare(path, importMode)
+                    if (result == com.moge.app.imaging.PhotoPreparationResult.ORIGINAL_RETAINED) {
+                        notice.value = "预处理未完成，已保留原图"
+                    }
+                }
+                onImported(imported)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

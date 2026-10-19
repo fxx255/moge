@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import io.noties.markwon.Markwon
 import com.moge.app.data.parse.normalizeReplyMarkdown
+import com.moge.app.data.parse.prepareReplyMarkdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -57,6 +58,29 @@ class MarkdownBoldRenderTest {
 
     private fun boldSpans(text: Spanned): List<Any> =
         text.getSpans(0, text.length, boldSpanClass).toList()
+
+    @Test
+    fun `评分句末标点后的中文不应阻止双星号闭合`() {
+        val score = "参考评分：8/20，合理浮动范围为7—9分（非官方阅卷分数）。"
+        val rest = "你抓住了主题，修改应优先做到："
+        val priorities = "画面写准确、论点写直接、句子写完整、字数控制住。"
+        val text = render(prepareReplyMarkdown("**$score**$rest**$priorities**"))
+        assertEquals(score + rest + priorities, text.toString())
+        assertEquals(listOf(score, priorities), boldSpans(text).sortedBy(text::getSpanStart).map {
+            text.substring(text.getSpanStart(it), text.getSpanEnd(it))
+        })
+    }
+
+    @Test
+    fun `中文紧贴带引号的加粗时保留完整标点和嵌套样式`() {
+        val expectedContent = render("**“重点与 `code`、*斜体*。”**").toString()
+        val text = render(prepareReplyMarkdown("前**“重点与 `code`、*斜体*。”**后"))
+        assertEquals("前${expectedContent}后", text.toString())
+        val span = boldSpans(text).single()
+        assertEquals(expectedContent, text.substring(text.getSpanStart(span), text.getSpanEnd(span)))
+        assertTrue(text.getSpans(0, text.length,
+            io.noties.markwon.core.spans.EmphasisSpan::class.java).isNotEmpty())
+    }
 
     @Test
     fun `加粗中的数字系数变量不会留下美元符号且仍保留加粗`() {

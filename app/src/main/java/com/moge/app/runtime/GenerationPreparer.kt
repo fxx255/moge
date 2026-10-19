@@ -85,7 +85,7 @@ class GenerationPreparer @Inject constructor(
             RequestSnapshot.PHOTO_ROUTE_DIRECT -> {
                 val encoded = encodeAll(submission.attachmentPaths)
                 if (encoded.failure != null) return failure(owner, encoded.failure)
-                // 保留用户原问题；纯照片题（没打字）用默认看图提示词。
+                // Preserve explicit instructions; captionless follow-ups must not restart the whole solution.
                 encoded.copy(outgoingText = submission.userText.ifBlank { defaultImagePrompt(initial) })
             }
             RequestSnapshot.PHOTO_ROUTE_TRANSCRIBE ->
@@ -325,7 +325,11 @@ class GenerationPreparer @Inject constructor(
         return PhotoOutcome(
             imageBase64s = emptyList(),
             outgoingText = buildString {
-                if (prompt.isNotBlank()) append(prompt).append("\n\n")
+                val instruction = prompt.ifBlank {
+                    if (snapshot.originalHistory.any { it.role == "assistant" && it.text.isNotBlank() })
+                        defaultImagePrompt(snapshot) else ""
+                }
+                if (instruction.isNotBlank()) append(instruction).append("\n\n")
                 append(transcription)
             }.trim(),
             transcript = transcription,
@@ -417,8 +421,8 @@ class GenerationPreparer @Inject constructor(
                     if (message.text.isBlank()) note else "${message.text}\n$note"
                 }
                 // Photo-only messages retain the user's empty original text in Room.
-                // Restore the same instruction used for the first request, also on retry.
-                message.text.isBlank() -> defaultImagePrompt(snapshot)
+                // Classify each historical image using only the replies preceding it.
+                message.text.isBlank() -> defaultImagePrompt(snapshot, index)
                 else -> message.text
             }
             ChatMessage(message.role, text, imageBase64s = images, documentPaths = message.documentPaths)
@@ -426,12 +430,11 @@ class GenerationPreparer @Inject constructor(
     }
 
     companion object {
-        private fun defaultImagePrompt(snapshot: RequestSnapshot): String =
-            if (ConversationMode.fromName(snapshot.conversationMode) == ConversationMode.CHAT)
-                "请描述这些图片。" else DEFAULT_VISION_PROMPT
+        private fun defaultImagePrompt(snapshot: RequestSnapshot, historyEnd: Int = snapshot.originalHistory.size): String =
+            PhotoTurnPrompt.defaultText(ConversationMode.fromName(snapshot.conversationMode),
+                snapshot.originalHistory.take(historyEnd).any { it.role == "assistant" && it.text.isNotBlank() })
 
-        const val DEFAULT_VISION_PROMPT =
-            "请先准确识别图片中的题目，再给出细致解答。数学公式使用 LaTeX，并写出完整推导过程。"
+        const val DEFAULT_VISION_PROMPT = PhotoTurnPrompt.INITIAL_QUESTION
 
         const val VISION_TRANSCRIBE_PROMPT =
             "你是题目转写器。请把图片中的题目完整转写为 Markdown：中文保持原文；" +

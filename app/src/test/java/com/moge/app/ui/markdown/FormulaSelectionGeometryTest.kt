@@ -53,6 +53,46 @@ class FormulaSelectionGeometryTest {
         measure(view, width)
     }
 
+    @Test fun `blank row between formulas places handles on the two highlight edges`() {
+        for (size in listOf(26f, 40f)) {
+            val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), Color.BLACK, Color.BLUE, fontSizePx = size)
+            view.layoutParams = android.view.ViewGroup.LayoutParams(740, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            renderMarkdown(view, "\$\$\nb^2=4\n\$\$\n\n\$\$\n,b=2.\n\$\$", 740, Color.BLACK, Color.BLUE)
+            measure(view); load(view)
+            val from = view.text.indexOf("\n\n") + 1
+            assertTrue("The rendered formulas must have a blank row between them", from > 0)
+            val to = from + 1
+            val path = android.graphics.Path()
+            markdownSelectionPath(view, from, to, path)
+            val highlight = RectF().also { path.computeBounds(it, true) }
+            val start = requireNotNull(selectionEndpoint(view, from, true))
+            val end = requireNotNull(selectionEndpoint(view, to, false))
+            assertEquals(highlight.left, start.x, .1f)
+            assertEquals(highlight.right, end.x, .1f)
+            assertTrue(end.x - start.x > view.width * .8f)
+            assertEquals(start.centerY, end.centerY, .1f)
+            assertEquals("\n", selectedMarkdownText(view.text, from, to))
+        }
+    }
+
+    @Test fun `escaped step break renders before a wrapped equation without literal escapes`() {
+        val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), Color.BLACK, Color.BLUE, fontSizePx = 26f)
+        view.layoutParams = android.view.ViewGroup.LayoutParams(320, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        val formula = "E_s=\\frac{4b^2+4\\cdot 4b^2}{8}=\\frac{5}{2}b^2=10\\Rightarrow b^2\n\n=4"
+        renderMarkdown(view, "**分步解答**：\\n(1)\n\n\$\$\n$formula\n\$\$", 320, Color.BLACK, Color.BLUE)
+        measure(view, 320); load(view, 320)
+        val text = view.text as Spanned
+        assertFalse(text.contains("\\n(1)"))
+        val headingEnd = text.indexOf('：') + 1
+        val step = text.indexOf("(1)")
+        assertTrue(text.subSequence(headingEnd, step).contains('\n'))
+        assertTrue(view.layout.getLineForOffset(step) > view.layout.getLineForOffset(headingEnd - 1))
+        val spans = text.getSpans(0, text.length, BaselineLatexSpan::class.java)
+        assertTrue("The equation must retain readable separately rendered rows", spans.size > 1)
+        assertTrue(spans.all { it.drawable.hasResult() })
+        assertTrue(spans.any { it.drawable.destination.contains("=4") })
+    }
+
     @Test fun `selection probe preserves real formula dimensions and measures individual math items`() {
         LatexEngine.init(RuntimeEnvironment.getApplication())
         for (source in listOf(formula, "a+b=c-\\sqrt{x^2+1}", "\\mathcal D_1=x_1+x_2")) {
