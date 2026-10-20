@@ -32,6 +32,38 @@ import java.util.zip.DeflaterOutputStream
 class PhotoBitmapDecoderTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun `destructive edits retain original pixels beyond the preview budget and save losslessly`() {
+        val width = 2304
+        val height = 2048
+        val file = temporary.newFile("original.jpg")
+        val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        source.setHasAlpha(false)
+        source.eraseColor(Color.rgb(241, 239, 231))
+        source.setPixel(113, 95, Color.rgb(71, 83, 97))
+        source.setPixel(114, 95, Color.rgb(163, 177, 191))
+        try { writePhotoBitmap(file.path, source) } finally { source.recycle() }
+        val info = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, info)
+        assertEquals("image/png", info.outMimeType)
+        assertEquals(width, info.outWidth)
+        assertEquals(height, info.outHeight)
+        val edited = requireNotNull(decodePhotoBitmap(file.path, preserveResolution = true))
+        try {
+            assertEquals(width, edited.width)
+            assertEquals(height, edited.height)
+            assertEquals(Color.rgb(71, 83, 97), edited.getPixel(113, 95))
+            assertEquals(Color.rgb(163, 177, 191), edited.getPixel(114, 95))
+        } finally { edited.recycle() }
+        val cropped = requireNotNull(decodePhotoCrop(file.path, 0, preserveResolution = true) { w, h ->
+            Rect(0, 0, w - 1, h - 1)
+        })
+        try {
+            assertEquals(width - 1, cropped.width)
+            assertEquals(height - 1, cropped.height)
+            assertEquals(Color.rgb(163, 177, 191), cropped.getPixel(114, 95))
+        } finally { cropped.recycle() }
+    }
+
     @Test fun `sampling bounds both edges and pixel count without integer overflow`() {
         listOf(8192 to 6144, 4096 to 4096, Int.MAX_VALUE to Int.MAX_VALUE, Int.MAX_VALUE to 1).forEach { (w, h) ->
             val sample = photoSampleSize(w, h, 4096, MAX_PHOTO_PIXELS)

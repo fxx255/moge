@@ -22,8 +22,13 @@ internal fun snapFormulaSelection(text: CharSequence, start: Int, end: Int): Mar
     return MarkdownSelection(from, to)
 }
 
-/** Copy original LaTeX for the selected items, preserving full formulas verbatim. */
-internal fun selectedMarkdownText(text: CharSequence, start: Int, end: Int): String {
+/** Copy original LaTeX, optionally keeping math boundaries when pasted beside prose. */
+internal fun selectedMarkdownText(
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    delimitFormulas: Boolean = false,
+): String {
     val selection = snapFormulaSelection(text, start, end)
     if (text !is Spanned || selection.start == selection.end) {
         return text.subSequence(selection.start, selection.end).toString()
@@ -44,7 +49,16 @@ internal fun selectedMarkdownText(text: CharSequence, start: Int, end: Int): Str
             val selected = formulaTokenOffsets(text, span).filter { (_, range) ->
                 range.start < selection.end && range.end > selection.start
             }
-            if (selected.isNotEmpty()) append(source.substring(selected.first().first.start, selected.last().first.end).trim())
+            if (selected.isNotEmpty()) {
+                val latex = source.substring(selected.first().first.start, selected.last().first.end).trim()
+                if (!delimitFormulas) append(latex)
+                else if ('\n' in latex) {
+                    // Markwon requires multiline math delimiters on separate
+                    // lines, including when neighboring prose is pasted later.
+                    if (isNotEmpty() && last() != '\n') append('\n')
+                    append("\$\$\n").append(latex).append("\n\$\$\n")
+                } else append("\$\$").append(latex).append("\$\$")
+            }
             cursor = minOf(to, selection.end)
         }
         append(text, cursor, selection.end)

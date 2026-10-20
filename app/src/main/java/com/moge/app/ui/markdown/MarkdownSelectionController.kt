@@ -3,7 +3,10 @@ package com.moge.app.ui.markdown
 import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Region
 import android.graphics.drawable.ColorDrawable
 import android.text.Selection
 import android.text.Spannable
@@ -19,6 +22,8 @@ import android.view.ViewTreeObserver
 import android.widget.PopupWindow
 import android.widget.TextView
 import java.text.BreakIterator
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
@@ -52,6 +57,10 @@ internal class MarkdownSelectionController(
     private var contentGestureMoved = false
     private val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
     private val location = IntArray(2)
+    private val selectionPath = Path()
+    private val selectionBounds = RectF()
+    private val selectionClip = Region()
+    private val paintedSelection = Region()
     private val handles by lazy { listOf(Handle(true), Handle(false)) }
     internal val magnifier = SelectionMagnifier(view, handleColor, selectionSurfaceColor)
 
@@ -100,21 +109,24 @@ internal class MarkdownSelectionController(
         val word = formula?.let { MarkdownSelection(it.start, it.end) }
             ?: selectionWord(view.text.toString(), offset)
         begin(word.start, word.end)
+        if (!active) return false
         selectionStartedDuringTouch = true
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         return true
     }
 
     internal fun begin(start: Int, end: Int) {
-        if (start == end || view.text !is Spannable) return
+        val text = view.text as? Spannable ?: return
+        val range = snapFormulaSelection(text, start, end)
         // Finish the old menu before establishing the replacement range. Its
         // destruction callback must never clear a newly created selection or
         // leave a second pre-draw listener registered on the same TextView.
         finish()
+        if (!hasVisibleRange(range.start, range.end)) return
         host.claim(this)
         active = true
         view.requestFocus()
-        Selection.setSelection(view.text as Spannable, start, end)
+        Selection.setSelection(text, range.start, range.end)
         view.viewTreeObserver.addOnPreDrawListener(this)
         actionMode = view.startActionMode(object : ActionMode.Callback2() {
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
@@ -174,13 +186,27 @@ internal class MarkdownSelectionController(
     }
 
     override fun onPreDraw(): Boolean {
-        if (!view.isAttachedToWindow || !view.hasSelection() || !view.isShown) finish()
+        if (!view.isAttachedToWindow || !view.hasSelection() || !view.isShown ||
+            (!dragging && !hasVisibleRange(view.selectionStart, view.selectionEnd))) finish()
         else {
             updateHandles()
             if (dragging) updateMagnifier()
             if (dragging) actionMode?.hide(1_000) else actionMode?.invalidateContentRect()
         }
         return true
+    }
+
+    private fun hasVisibleRange(start: Int, end: Int): Boolean {
+        if (start < 0 || end < 0 || start == end) return false
+        markdownSelectionPath(view, start, end, selectionPath)
+        selectionPath.computeBounds(selectionBounds, true)
+        if (selectionBounds.isEmpty) return false
+        selectionClip.set(floor(selectionBounds.left).toInt(), floor(selectionBounds.top).toInt(),
+            ceil(selectionBounds.right).toInt(), ceil(selectionBounds.bottom).toInt())
+        // Layout can return zero-width contours at both paragraph edges for a
+        // terminating newline. Their combined bounds have area, but no pixels
+        // are highlighted. Test the filled region rather than just its bounds.
+        return paintedSelection.setPath(selectionPath, selectionClip)
     }
 
     private fun endpoint(start: Boolean): Pair<Float, Float> {
@@ -225,6 +251,12 @@ internal class MarkdownSelectionController(
         dragging = false
         magnifier.dismiss()
         host.stopScrolling()
+        // Keep a temporary empty range alive during crossing, then release its
+        // popups and menu if the finger stops on an invisible separator.
+        if (!hasVisibleRange(view.selectionStart, view.selectionEnd)) {
+            finish()
+            return
+        }
         actionMode?.hide(0)
         actionMode?.invalidateContentRect()
         updateHandles()

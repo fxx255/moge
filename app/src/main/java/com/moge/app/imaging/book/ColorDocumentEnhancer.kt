@@ -10,11 +10,6 @@ import kotlin.math.*
 internal object ColorDocumentEnhancer {
     private const val ANALYSIS_EDGE = 720
     private const val STRIPE_ROWS = 96
-    private val tone = IntArray(256) { value ->
-        val ink = 255 * ((value * 245.0 / 255 - 35) / 210).coerceIn(0.0, 1.0).pow(2.2)
-        val paper = ((value - 210) / 22.0).coerceIn(0.0, 1.0)
-        (ink + (255 - ink) * paper * paper * (3 - 2 * paper)).roundToInt()
-    }
 
     fun apply(bitmap: Bitmap, boundary: List<Corner>? = null, book: Boolean = false): Bitmap {
         val scale = min(1.0, ANALYSIS_EDGE.toDouble() / max(bitmap.width, bitmap.height))
@@ -83,30 +78,32 @@ internal object ColorDocumentEnhancer {
             field.put(0, 0, values)
             if (book) {
                 BookPageModel.refineGutter(rgb, background, field)
-                BookPageModel.compensateInk(bitmap, field)
             }
             rgb.release(); background.release(); smooth.release()
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             output = result
-            render(bitmap, result, field, book)
+            render(bitmap, result, field)
             PaperBoundary.whitenCanvas(result, boundary)
             return result
         } catch (error: Throwable) { output?.recycle(); throw error }
         finally { listOf(rgba, rgb, background, field, smooth, kernel).forEach { it.release() } }
     }
 
-    private fun render(input: Bitmap, output: Bitmap, field: Mat, book: Boolean) {
+    private fun render(input: Bitmap, output: Bitmap, field: Mat) {
         val width = input.width
-        // Two extra source rows on either side avoid bilateral seams between stripes.
-        val pixels = IntArray(width * (STRIPE_ROWS + 4))
+        val radius = (max(input.width, input.height) / 900).coerceIn(1, 3)
+        // Halo rows keep the nearby-ink mask continuous across stripe boundaries.
+        val pixels = IntArray(width * (STRIPE_ROWS + radius * 2))
         val illumination = FloatArray(pixels.size * 4)
-        val values = ByteArray(pixels.size); val denoised = ByteArray(pixels.size)
-        val transform = Mat(2, 3, CvType.CV_64F); val tile = Mat(); val valueMat = Mat(); val soft = Mat()
+        val values = ByteArray(pixels.size); val nearbyInk = ByteArray(pixels.size)
+        val transform = Mat(2, 3, CvType.CV_64F); val tile = Mat(); val valueMat = Mat(); val minimum = Mat()
+        val supportKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT,
+            Size((radius * 2 + 1).toDouble(), (radius * 2 + 1).toDouble()))
         val sx = field.cols().toDouble() / width; val sy = field.rows().toDouble() / input.height
         try {
             for (y in 0 until input.height step STRIPE_ROWS) {
                 val rows = min(STRIPE_ROWS, input.height - y)
-                val start = max(0, y - 2); val end = min(input.height, y + rows + 2); val count = end - start
+                val start = max(0, y - radius); val end = min(input.height, y + rows + radius); val count = end - start
                 transform.put(0, 0, sx, 0.0, (sx - 1) / 2, 0.0, sy, (start + .5) * sy - .5)
                 Imgproc.warpAffine(field, tile, transform, Size(width.toDouble(), count.toDouble()),
                     Imgproc.INTER_LINEAR or Imgproc.WARP_INVERSE_MAP, Core.BORDER_REPLICATE)
@@ -118,27 +115,23 @@ internal object ColorDocumentEnhancer {
                     val g = min(255f, ((color ushr 8) and 255) * 255f / max(32f, illumination[offset + 1]))
                     val b = min(255f, (color and 255) * 255f / max(32f, illumination[offset + 2]))
                     val hi = maxOf(r, g, b)
-                    val adjusted = if (book) {
-                        val lo = minOf(r, g, b)
-                        val chroma = if (hi > 0) (((hi - lo) / hi - .035f) / .065f).coerceIn(0f, 1f) else 0f
-                        val neutral = (255 - (255 - hi) * illumination[offset + 3]).coerceIn(0f, 255f)
-                        hi * chroma + neutral * (1 - chroma)
-                    } else hi
                     illumination[offset] = r; illumination[offset + 1] = g; illumination[offset + 2] = b
                     illumination[offset + 3] = hi
-                    values[p] = adjusted.roundToInt().toByte()
+                    values[p] = hi.roundToInt().toByte()
                 }
                 valueMat.create(count, width, CvType.CV_8U)
                 valueMat.put(0, 0, values, 0, width * count)
-                Imgproc.bilateralFilter(valueMat, soft, 5, 20.0, 1.2); soft.get(0, 0, denoised)
+                // This minimum is a support mask only. Never filter, dilate or
+                // erode the actual glyph pixels: their native edge tones survive.
+                Imgproc.erode(valueMat, minimum, supportKernel); minimum.get(0, 0, nearbyInk)
                 for (p in (y - start) * width until (y - start + rows) * width) {
                     val offset = p * 4; val r = illumination[offset]; val g = illumination[offset + 1]
                     val b = illumination[offset + 2]; val hi = illumination[offset + 3]; val lo = minOf(r, g, b)
-                    val v = tone[denoised[p].toInt() and 255]
                     // Remove tiny neutral-paper color fluctuations without flattening pink
                     // boxes or colored ink. Keep their hue and relative channel ordering.
                     val saturation = if (hi > 0) (hi - lo) / hi else 0f
                     val chroma = ((saturation - .035f) / .065f).coerceIn(0f, 1f)
+                    val v = DocumentInkTone.value(values[p].toInt() and 255, nearbyInk[p].toInt() and 255, chroma)
                     val gain = if (hi > 0) v / hi else 0f
                     val red = (v - (hi - r) * gain * chroma).roundToInt().coerceIn(0, 255)
                     val green = (v - (hi - g) * gain * chroma).roundToInt().coerceIn(0, 255)
@@ -147,6 +140,6 @@ internal object ColorDocumentEnhancer {
                 }
                 output.setPixels(pixels, (y - start) * width, width, 0, y, width, rows)
             }
-        } finally { transform.release(); tile.release(); valueMat.release(); soft.release() }
+        } finally { listOf(transform, tile, valueMat, minimum, supportKernel).forEach { it.release() } }
     }
 }

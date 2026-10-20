@@ -173,7 +173,7 @@ internal fun cropAndSave(
     cropRect: Rect,
     quarterTurns: Int = 0,
 ) {
-    val cropped = decodePhotoCrop(path, quarterTurns) { width, height ->
+    val cropped = decodePhotoCrop(path, quarterTurns, preserveResolution = true) { width, height ->
         val bounds = cropBoundsInSource(
             previewSize = IntSize(preview.width, preview.height), sourceSize = IntSize(width, height),
             viewport = viewport, zoom = zoom, imageOffset = imageOffset, cropRect = cropRect,

@@ -3,6 +3,7 @@ package com.moge.app.ui.solve
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
+import android.text.Spanned
 import android.view.Display
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.moge.app.ui.markdown.BaselineLatexSpan
 import com.moge.app.ui.markdown.markdownSelectionController
 import com.moge.app.ui.markdown.selectionEndpoint
 import com.moge.app.ui.theme.MogeTheme
@@ -66,6 +68,79 @@ class SelectionAutoScrollDeviceTest {
         val density = view.resources.displayMetrics.density
         return (position[0] + view.totalPaddingLeft + view.layout.getPrimaryHorizontal(offset)) to
             (position[1] + view.totalPaddingTop + view.layout.getLineBottom(line) + 14f * density)
+    }
+
+    @Test fun formulaSeparatorCannotLeaveHandlesAndAValidSelectionStillDismisses() {
+        val formula = "x^2+y^2"
+        var edits = 0
+        compose.setContent { MogeTheme {
+            SolveList(SolveUiState(conversationId = "test", items = listOf(
+                SolveItem.Question("question", "\$\$\n$formula\n\$\$\n\n这一步", emptyList(), "", false))),
+                {}, {}, { _, _ -> }, {}, {}, onEdit = { edits++ })
+        } }
+        compose.waitForIdle()
+        lateinit var view: TextView
+        lateinit var span: BaselineLatexSpan
+        compose.waitUntil(10_000) {
+            var loaded = false
+            instrumentation.runOnMainSync {
+                val root = compose.activity.findViewById<ViewGroup>(android.R.id.content)
+                views(root).singleOrNull { it.text.contains("这一步") }?.let { candidate ->
+                    val text = candidate.text as? Spanned
+                    val math = text?.getSpans(0, text.length, BaselineLatexSpan::class.java)?.singleOrNull()
+                    if (candidate.layout != null && math?.drawable?.hasResult() == true) {
+                        view = candidate
+                        span = math
+                        loaded = true
+                    }
+                }
+            }
+            loaded
+        }
+        try {
+            var point = 0f to 0f
+            instrumentation.runOnMainSync {
+                displayId = requireNotNull(view.display).displayId
+                val text = view.text as Spanned
+                val separator = text.getSpanEnd(span)
+                assertEquals('\n', text[separator])
+                val caret = requireNotNull(selectionEndpoint(view, separator, true))
+                val position = IntArray(2).also(view::getLocationOnScreen)
+                point = position[0] + caret.x - 1f to position[1] + caret.centerY
+                assertEquals(separator, view.getOffsetForPosition(caret.x - 1f, caret.centerY))
+            }
+            var time = SystemClock.uptimeMillis()
+            inject(MotionEvent.ACTION_DOWN, point.first, point.second, time)
+            SystemClock.sleep(800)
+            inject(MotionEvent.ACTION_UP, point.first, point.second, time)
+            instrumentation.runOnMainSync {
+                val selection = requireNotNull(markdownSelectionController(view))
+                assertFalse("Long pressing a formula separator must not leave touching handles", selection.selecting)
+                assertFalse(view.hasSelection())
+                val text = view.text as Spanned
+                selection.begin(text.getSpanStart(span), text.getSpanEnd(span))
+                assertTrue(selection.selecting)
+                view.onTextContextMenuItem(android.R.id.copy)
+                val clipboard = view.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                assertEquals("\$\$$formula\$\$", clipboard.primaryClip!!.getItemAt(0).text.toString())
+                val from = text.indexOf("这一步")
+                selection.begin(from, from + 3)
+                assertTrue(selection.selecting)
+                val caret = requireNotNull(selectionEndpoint(view, from, true))
+                val position = IntArray(2).also(view::getLocationOnScreen)
+                point = position[0] + caret.x + view.textSize / 2f to position[1] + caret.centerY
+            }
+            time = SystemClock.uptimeMillis()
+            inject(MotionEvent.ACTION_DOWN, point.first, point.second, time)
+            inject(MotionEvent.ACTION_UP, point.first, point.second, time)
+            instrumentation.runOnMainSync {
+                assertFalse(requireNotNull(markdownSelectionController(view)).selecting)
+                assertFalse(view.hasSelection())
+                assertEquals("Dismissing selection must not also edit the question", 0, edits)
+            }
+        } finally {
+            instrumentation.runOnMainSync { markdownSelectionController(view)?.finish() }
+        }
     }
 
     @Test fun handlesExtendBeyondScreenAccelerateAndStopOnRelease() {

@@ -125,7 +125,7 @@ class QuestionSelectionTest {
             view.performClick()
             assertEquals(0, edits)
             view.onTextContextMenuItem(android.R.id.copy)
-            assertEquals("x^2+y^2", clipboard().primaryClip!!.getItemAt(0).text.toString())
+            assertEquals("\$\$x^2+y^2\$\$", clipboard().primaryClip!!.getItemAt(0).text.toString())
         }
     }
 }

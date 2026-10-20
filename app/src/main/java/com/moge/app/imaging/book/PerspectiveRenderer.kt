@@ -2,6 +2,7 @@ package com.moge.app.imaging.book
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import com.moge.app.data.image.requirePhotoEditingCapacity
 import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -26,9 +27,8 @@ internal object PerspectiveRenderer {
         val aspect = sqrt(top * bottom / (left * right)).coerceIn(.15, 6.0)
         var width = max(max(top, bottom), max(left, right) * aspect) + 1
         var height = (width - 1) / aspect + 1
-        val scale = minOf(1.0, BookImageLimits.MAX_EDGE / max(width, height), sqrt(BookImageLimits.maxPixels.toDouble() / (width * height)))
-        width = max(32.0, (width * scale).roundToInt().toDouble())
-        height = max(32.0, (height * scale).roundToInt().toDouble())
+        width = max(2.0, width.roundToInt().toDouble())
+        height = max(2.0, height.roundToInt().toDouble())
         var outW = width.toInt(); var outH = height.toInt()
         val from = MatOfPoint2f(*corners.map { Point(it.x.toDouble() * w, it.y.toDouble() * h) }.toTypedArray())
         val to = MatOfPoint2f(Point(0.0, 0.0), Point(width - 1, 0.0), Point(width - 1, height - 1), Point(0.0, height - 1))
@@ -70,13 +70,6 @@ internal object PerspectiveRenderer {
                     outW = ceil((width - 1) * cosine + (height - 1) * sine + 1).toInt()
                     outH = ceil((height - 1) * cosine + (width - 1) * sine + 1).toInt()
                     m[2] += (outW - width) / 2; m[5] += (outH - height) / 2
-                    // Keep rotated outputs under the existing size/pixel budget as well.
-                    val fit = minOf(1.0, BookImageLimits.MAX_EDGE.toDouble() / max(outW, outH),
-                        sqrt(BookImageLimits.maxPixels.toDouble() / (outW.toDouble() * outH)))
-                    if (fit < 1) {
-                        for (i in m.indices) m[i] *= fit
-                        outW = max(32, (outW * fit).toInt()); outH = max(32, (outH * fit).toInt())
-                    }
                     boundary = arrayOf(Point(0.0, 0.0), Point(width - 1, 0.0), Point(width - 1, height - 1), Point(0.0, height - 1)).map {
                         Point(m[0] * it.x + m[1] * it.y + m[2], m[3] * it.x + m[4] * it.y + m[5])
                     }.toTypedArray()
@@ -91,6 +84,9 @@ internal object PerspectiveRenderer {
                 } finally { rotation.release() }
             }
             Core.invert(transform, inverse)
+            // Source bitmap and native geometry already exist; budget only the
+            // additional destination here, rather than counting those twice.
+            requirePhotoEditingCapacity(outW, outH, bytesPerPixel = 4)
             val output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             result = output
             if (grid == null) renderPerspective(source, output, inverse, boundary)

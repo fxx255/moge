@@ -8,6 +8,7 @@ import android.text.Selection
 import android.text.Spannable
 import android.text.Spanned
 import android.widget.TextView
+import com.moge.app.ui.solve.userMathSource
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -34,6 +35,25 @@ class MarkdownSelectionTest {
         .getSpans(0, view.text.length, BaselineLatexSpan::class.java).sortedBy { (view.text as Spanned).getSpanStart(it) }
     private fun clipboard() = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
+    @Test fun `copied series followed immediately by prose retains both formula boundaries`() {
+        val first = "=\\sum_{n=0}^{\\infty}(-1)^n\\frac{(2n-1)!!}{2^n n!}u^n"
+        val second = "=\\sum_{n=0}^{\\infty}(-1)^n\\frac{(2n)!}{4^n(n!)^2}u^n"
+        val original = render("\$\$\n$first\n\$\$\n\n\$\$\n$second\n\$\$")
+        val text = original.text as Spannable
+        val formulas = spans(original)
+        Selection.setSelection(text, text.getSpanStart(formulas.first()), text.getSpanEnd(formulas.last()))
+        original.onTextContextMenuItem(android.R.id.copy)
+        val copied = clipboard().primaryClip!!.getItemAt(0).text.toString()
+        for (prose in listOf("这一步没看懂", "why is this equal", "\n这一步没看懂")) {
+            val source = requireNotNull(userMathSource(copied + prose))
+            assertFalse(source.incomplete)
+            assertEquals(prose, listOf(first, second), source.formulas)
+            val sent = render(source.renderSource)
+            assertEquals(prose, listOf(first, second), spans(sent).map { it.drawable.destination.trim() })
+            assertTrue(sent.text.toString().endsWith(prose.trimStart()))
+        }
+    }
+
     @Test fun `selection within a fraction snaps to that item and copies through native menu`() {
         val view = render("前文 \$\$$formula\$\$ 后文")
         val text = view.text as Spannable
@@ -44,7 +64,7 @@ class MarkdownSelectionTest {
         assertEquals(start, view.selectionStart)
         assertEquals(start + formula.indexOf('+'), view.selectionEnd)
         assertTrue(view.onTextContextMenuItem(android.R.id.copy))
-        assertEquals("\\frac{1}{2}", clipboard().primaryClip!!.getItemAt(0).text.toString())
+        assertEquals("\$\$\\frac{1}{2}\$\$", clipboard().primaryClip!!.getItemAt(0).text.toString())
     }
 
     @Test fun `exact formula boundaries and backward selection preserve complete source`() {
@@ -58,7 +78,7 @@ class MarkdownSelectionTest {
         assertEquals(end, view.selectionStart)
         assertEquals(start, view.selectionEnd)
         view.onTextContextMenuItem(android.R.id.copy)
-        assertEquals(formula, clipboard().primaryClip!!.getItemAt(0).text.toString())
+        assertEquals("\$\$$formula\$\$", clipboard().primaryClip!!.getItemAt(0).text.toString())
     }
 
     @Test fun `text ending at formula boundary does not include neighboring formula`() {
@@ -90,6 +110,12 @@ class MarkdownSelectionTest {
         val span = spans(view).single()
         assertFalse(text.toString().contains("\n1 & 2"))
         assertEquals(latex, selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)))
+        Selection.setSelection(text as Spannable, text.getSpanStart(span), text.getSpanEnd(span))
+        view.onTextContextMenuItem(android.R.id.copy)
+        val copied = clipboard().primaryClip!!.getItemAt(0).text.toString()
+        val source = requireNotNull(userMathSource(copied + "这个矩阵"))
+        assertEquals(listOf(latex), source.formulas)
+        assertEquals(latex, spans(render(source.renderSource)).single().drawable.destination.trim())
     }
 
     @Test fun `plain native selection retains exact selected characters`() {

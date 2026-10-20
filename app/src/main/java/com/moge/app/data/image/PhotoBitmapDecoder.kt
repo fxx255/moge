@@ -31,8 +31,21 @@ internal fun photoSampleSize(width: Int, height: Int, maxEdge: Int, maxPixels: L
     }
 }
 
-private fun decodeOptions(width: Int, height: Int, maxEdge: Int) = BitmapFactory.Options().apply {
-    inSampleSize = photoSampleSize(width, height, maxEdge.coerceIn(1, MAX_PHOTO_EDGE), photoPixelBudget())
+/** Destructive edits must retain pixels or fail, never silently overwrite a reduced preview. */
+internal fun requirePhotoEditingCapacity(width: Int, height: Int, bytesPerPixel: Int = 8) {
+    val runtime = Runtime.getRuntime()
+    val available = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
+    // Decoding/EXIF rotation can hold two bitmaps. Later stages check their own
+    // additional destination; do not budget the whole pipeline a second time.
+    require(width > 0 && height > 0 && width.toLong() * height <=
+        (available - 16L * 1024 * 1024).coerceAtLeast(0) / bytesPerPixel) { "内存不足以保留照片原始分辨率，请选取较小区域" }
+}
+
+private fun decodeOptions(width: Int, height: Int, maxEdge: Int, preserveResolution: Boolean = false) = BitmapFactory.Options().apply {
+    inSampleSize = if (preserveResolution) {
+        requirePhotoEditingCapacity(width, height)
+        1
+    } else photoSampleSize(width, height, maxEdge.coerceIn(1, MAX_PHOTO_EDGE), photoPixelBudget())
     // Keep HDR/wide-gamut images out of F16/hardware buffers on vendor renderers.
     inPreferredConfig = Bitmap.Config.ARGB_8888
     inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
@@ -82,10 +95,12 @@ private fun orientOwned(source: Bitmap, orientation: Int, quarterTurns: Int): Bi
     }
 }
 
-/** A bounded software bitmap for thumbnails, viewers, editing and model input. */
-fun decodePhotoBitmap(path: String, maxEdge: Int = MAX_PHOTO_EDGE, quarterTurns: Int = 0): Bitmap? = runCatching {
+/** Bounded previews by default; destructive edits explicitly request original pixels. */
+fun decodePhotoBitmap(
+    path: String, maxEdge: Int = MAX_PHOTO_EDGE, quarterTurns: Int = 0, preserveResolution: Boolean = false,
+): Bitmap? = runCatching {
     val info = photoInfo(path) ?: return@runCatching null
-    val bitmap = BitmapFactory.decodeFile(path, decodeOptions(info.width, info.height, maxEdge))
+    val bitmap = BitmapFactory.decodeFile(path, decodeOptions(info.width, info.height, maxEdge, preserveResolution))
         ?: return@runCatching null
     orientOwned(bitmap, info.orientation, quarterTurns)
 }.onFailure { Log.w("MogePhoto", "Photo decoding failed", it) }.getOrNull()
@@ -95,6 +110,7 @@ fun decodePhotoBitmap(path: String, maxEdge: Int = MAX_PHOTO_EDGE, quarterTurns:
 fun decodePhotoCrop(
     path: String, quarterTurns: Int,
     maxEdge: Int = MAX_PHOTO_EDGE,
+    preserveResolution: Boolean = false,
     cropInOrientedPixels: (width: Int, height: Int) -> Rect,
 ): Bitmap? {
     val region = runCatching {
@@ -114,14 +130,14 @@ fun decodePhotoCrop(
             raw.bottom.roundToInt().coerceIn(top + 1, info.height))
         val decoder = BitmapRegionDecoder.newInstance(path, false) ?: return@runCatching null
         try {
-            decoder.decodeRegion(rectangle, decodeOptions(rectangle.width(), rectangle.height(), maxEdge))
+            decoder.decodeRegion(rectangle, decodeOptions(rectangle.width(), rectangle.height(), maxEdge, preserveResolution))
                 ?.let { orientOwned(it, info.orientation, quarterTurns) }
         } finally { decoder.recycle() }
-    }.onFailure { Log.w("MogePhoto", "Region decoding unavailable; using bounded photo fallback", it) }.getOrNull()
+    }.onFailure { Log.w("MogePhoto", "Region decoding unavailable; using whole-photo fallback", it) }.getOrNull()
     if (region != null) return region
 
     // Some vendor codecs cannot decode regions (e.g. certain HEIF implementations).
-    val source = decodePhotoBitmap(path, quarterTurns = quarterTurns) ?: return null
+    val source = decodePhotoBitmap(path, quarterTurns = quarterTurns, preserveResolution = preserveResolution) ?: return null
     return runCatching {
         try {
             val selected = selectedCrop(source.width, source.height, cropInOrientedPixels)

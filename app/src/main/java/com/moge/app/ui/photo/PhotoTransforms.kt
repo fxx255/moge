@@ -31,6 +31,7 @@ fun savePhotoBitmap(path: String, bitmap: Bitmap) {
 }
 
 fun rotatePhotoAndSave(path: String, quarterTurns: Int = -1) {
-    val rotated = decodePhotoBitmap(path, quarterTurns = quarterTurns) ?: error("无法读取照片，图片可能过大或格式不受支持")
+    val rotated = decodePhotoBitmap(path, quarterTurns = quarterTurns, preserveResolution = true)
+        ?: error("无法以原始分辨率读取照片，图片可能过大或格式不受支持")
     try { savePhotoBitmap(path, rotated) } finally { rotated.recycle() }
 }

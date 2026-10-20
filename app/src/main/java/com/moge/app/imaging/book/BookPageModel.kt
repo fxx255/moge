@@ -1,6 +1,5 @@
 package com.moge.app.imaging.book
 
-import android.graphics.Bitmap
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import kotlin.math.*
@@ -82,55 +81,4 @@ internal object BookPageModel {
         }
     }
 
-    /** Estimate ink core tones at native resolution; compensate contrast, never grow/erode ink. */
-    fun compensateInk(bitmap: Bitmap, field: Mat) {
-        val w = bitmap.width; val h = bitmap.height; val fw = field.cols(); val fh = field.rows()
-        val values = FloatArray(fw * fh * 4).also { field.get(0, 0, it) }
-        val cell = max(96.0, max(w, h) / 8.0)
-        val cols = ceil(w / cell).toInt(); val rows = ceil(h / cell).toInt()
-        val histogram = Array(cols * rows) { IntArray(256) }; val totals = IntArray(cols * rows)
-        val pixels = IntArray(w)
-        for (y in 0 until h step 2) {
-            bitmap.getPixels(pixels, 0, w, 0, y, w, 1)
-            val fy = ((y + .5) * fh / h).toInt().coerceAtMost(fh - 1)
-            for (x in 0 until w step 2) {
-                val fx = ((x + .5) * fw / w).toInt().coerceAtMost(fw - 1); val i = (fy * fw + fx) * 4
-                val color = pixels[x]
-                val r = min(255f, ((color ushr 16) and 255) * 255f / max(32f, values[i]))
-                val g = min(255f, ((color ushr 8) and 255) * 255f / max(32f, values[i + 1]))
-                val b = min(255f, (color and 255) * 255f / max(32f, values[i + 2]))
-                val hi = maxOf(r, g, b); val lo = minOf(r, g, b)
-                if (hi > 0 && (hi - lo) / hi >= .12f) continue
-                val cellIndex = (y.toLong() * rows / h).toInt() * cols + (x.toLong() * cols / w).toInt()
-                histogram[cellIndex][hi.roundToInt()]++; totals[cellIndex]++
-            }
-        }
-        val cores = FloatArray(cols * rows * 2); val known = mutableListOf<Int>()
-        for (p in totals.indices) {
-            val hist = histogram[p]; val total = totals[p]
-            if (total <= 32 || hist.take(170).sum() <= total * .015) continue
-            val rank = max(1, ceil(total * .01).toInt()); var sum = 0; var core = 0
-            while (core < 255) { sum += hist[core]; if (sum >= rank) break; core++ }
-            core = min(core, 150)
-            cores[p * 2] = core.toFloat(); cores[p * 2 + 1] = 1f; known += core
-        }
-        known.sort()
-        val target = if (known.isEmpty()) 35f else known[known.size / 2].toFloat()
-        val grid = Mat(rows, cols, CvType.CV_32FC2); val smooth = Mat(); val expanded = Mat()
-        try {
-            grid.put(0, 0, cores); Imgproc.GaussianBlur(grid, smooth, Size(), .7)
-            smooth.get(0, 0, cores)
-            for (p in totals.indices) {
-                val weight = cores[p * 2 + 1]
-                cores[p * 2] = if (weight > .02f) cores[p * 2] / weight else target
-                cores[p * 2 + 1] = 1f
-            }
-            grid.put(0, 0, cores)
-            Imgproc.resize(grid, expanded, field.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)
-            val coreField = FloatArray(fw * fh * 2).also { expanded.get(0, 0, it) }
-            for (p in 0 until fw * fh) values[p * 4 + 3] =
-                ((255 - target) / max(105f, 255 - coreField[p * 2])).coerceIn(.9f, 1.2f)
-            field.put(0, 0, values)
-        } finally { grid.release(); smooth.release(); expanded.release() }
-    }
 }

@@ -156,7 +156,7 @@ internal fun createMarkdownTextView(
 
         override fun onTextContextMenuItem(id: Int): Boolean {
             if (id == android.R.id.copy && hasSelection()) {
-                val selected = selectedMarkdownText(text, selectionStart, selectionEnd)
+                val selected = selectedMarkdownText(text, selectionStart, selectionEnd, delimitFormulas = true)
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("选中的文字", selected))
                 if (conversationSelection?.selecting == true) conversationSelection.finish()

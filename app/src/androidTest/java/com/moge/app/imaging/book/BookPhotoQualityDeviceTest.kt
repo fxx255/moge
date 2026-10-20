@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.data.image.decodePhotoBitmap
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -22,6 +23,71 @@ import org.opencv.android.OpenCVLoader
 @RunWith(AndroidJUnit4::class)
 class BookPhotoQualityDeviceTest {
     @Before fun loadNativeProcessor() { assertTrue(OpenCVLoader.initLocal()) }
+
+    @Test fun cleanupRemovesFaintShowThroughWithoutThickeningStrokesOrBlurringEdges() {
+        val source = Bitmap.createBitmap(720, 900, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.rgb(240, 238, 232))
+        try {
+            val canvas = Canvas(source)
+            val paint = Paint().apply { color = Color.rgb(185, 183, 179) }
+            canvas.drawText("Back side printing", 50f, 250f, paint.apply { textSize = 32f })
+            canvas.drawRect(55f, 280f, 57f, 310f, paint)
+            paint.color = Color.rgb(25, 24, 23)
+            canvas.drawRect(100f, 90f, 103f, 200f, paint)
+            paint.color = Color.rgb(150, 149, 145)
+            canvas.drawRect(99f, 90f, 100f, 200f, paint)
+            canvas.drawRect(103f, 90f, 104f, 200f, paint)
+            paint.color = Color.rgb(25, 24, 23)
+            canvas.drawRect(300f, 400f, 600f, 401f, paint)
+            val result = ColorDocumentEnhancer.apply(source, book = true)
+            try {
+                assertEquals(source.width, result.width)
+                assertEquals(source.height, result.height)
+                assertTrue("White paper must stay clean", Color.red(result.getPixel(400, 200)) >= 250)
+                assertTrue("Faint reverse-side marks must fade", Color.red(result.getPixel(55, 290)) >= 240)
+                for (y in listOf(94, 95, 96, 97, 191, 192, 193)) {
+                    assertTrue("Stroke cores survive across stripe boundaries", Color.red(result.getPixel(101, y)) < 40)
+                    assertTrue("Gray glyph edges must not become black", Color.red(result.getPixel(99, y)) > 140)
+                    assertTrue("Cleanup must not bleed into neighboring paper", Color.red(result.getPixel(98, y)) >= 250)
+                }
+                assertTrue("Single-pixel rules must not be smoothed away", Color.red(result.getPixel(450, 400)) < 40)
+            } finally { result.recycle() }
+        } finally { source.recycle() }
+    }
+
+    @Test fun fullSizePageIsNotReducedToThePreviewPixelBudget() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val input = File(context.cacheDir, "full-size-page.png")
+        val source = Bitmap.createBitmap(2304, 2048, Bitmap.Config.ARGB_8888)
+        try {
+            source.eraseColor(Color.rgb(240, 238, 232))
+            source.setPixel(113, 95, Color.BLACK)
+            input.outputStream().use { assertTrue(source.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally { source.recycle() }
+        try {
+            val output = BookPageProcessor().render(input.path)
+            try {
+                assertEquals(2304, output.width)
+                assertEquals(2048, output.height)
+                assertTrue("Native one-pixel detail survives", Color.red(output.getPixel(113, 95)) < 40)
+            } finally { output.recycle() }
+        } finally { input.delete() }
+    }
+
+    @Test fun suppliedTextAndHandwritingRetainNativeDetail() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val directory = File(context.filesDir, "photo-preprocess/detail")
+        assumeTrue(File(directory, "text.jpg").isFile && File(directory, "notes.jpg").isFile)
+        val label = InstrumentationRegistry.getArguments().getString("photoRun", "current")
+        for (name in listOf("text", "notes")) {
+            val output = BookPageProcessor().render(File(directory, "$name.jpg").path)
+            try {
+                File(directory, "$name-$label.png").outputStream().use {
+                    assertTrue(output.compress(Bitmap.CompressFormat.PNG, 100, it))
+                }
+            } finally { output.recycle() }
+        }
+    }
 
     @Test fun warmShadowIsNeutralizedWhileColoredPanelsAndThinRulesSurvive() {
         val width = 720

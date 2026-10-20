@@ -75,6 +75,55 @@ class FormulaSelectionGeometryTest {
         }
     }
 
+    @Test fun `zero width separator after a display formula cannot leave touching handles`() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+        val host = SelectionScrollHost(scope, 1f) { _, _ -> }
+        try {
+            val view = createMarkdownTextView(activity.get(), Color.BLACK, Color.BLUE, fontSizePx = 26f,
+                selectionScrollHost = host)
+            activity.get().setContentView(view)
+            renderMarkdown(view, "\$\$\n=\\sum_{n=0}^{\\infty}(-1)^n\\frac{(2n)!}{4^n(n!)^2}u^n\n\$\$\n\n这一步", 740, Color.BLACK, Color.BLUE)
+            measure(view); load(view)
+            host.viewport = RectF(0f, 0f, 740f, 1000f)
+            val text = view.text as Spanned
+            val formula = text.getSpans(0, text.length, BaselineLatexSpan::class.java).single()
+            val from = text.getSpanEnd(formula)
+            assertEquals('\n', text[from])
+            val path = android.graphics.Path()
+            markdownSelectionPath(view, from, from + 1, path)
+            val highlight = RectF().also { path.computeBounds(it, true) }
+            val painted = android.graphics.Region().apply {
+                setPath(path, android.graphics.Region(-1000, -1000, 2000, 2000))
+            }
+            assertTrue("The separator must reproduce the invisible selection: $highlight, $painted", painted.isEmpty)
+            val selection = requireNotNull(markdownSelectionController(view))
+            selection.begin(from, from + 1)
+            assertFalse("An invisible separator must not open handles or a floating menu", selection.selecting)
+            assertFalse(view.hasSelection())
+
+            selection.begin(text.getSpanStart(formula), from + 1)
+            val position = IntArray(2).also(view::getLocationOnScreen)
+            val initial = requireNotNull(selectionEndpoint(view, view.selectionStart, true))
+            selection.beginDrag(true, position[0] + initial.x, position[1] + initial.centerY)
+            val separator = requireNotNull(selectionEndpoint(view, from, true))
+            selection.moveDrag(position[0] + separator.x, position[1] + separator.centerY)
+            assertEquals(from, view.selectionStart)
+            assertEquals(from + 1, view.selectionEnd)
+            view.viewTreeObserver.dispatchOnPreDraw()
+            assertTrue("Dragging across a separator must retain the gesture", selection.dragging)
+            selection.endDrag()
+            assertFalse("Releasing over an invisible range must dismiss its handles", selection.selecting)
+            assertFalse(view.hasSelection())
+
+            selection.begin(text.getSpanStart(formula), from)
+            Selection.setSelection(view.text as Spannable, from, from + 1)
+            view.viewTreeObserver.dispatchOnPreDraw()
+            assertFalse("A range that becomes invisible must not leave stale popups", selection.selecting)
+            assertFalse(view.hasSelection())
+        } finally { host.dispose(); scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); activity.pause().stop().destroy() }
+    }
+
     @Test fun `escaped step break renders before a wrapped equation without literal escapes`() {
         val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), Color.BLACK, Color.BLUE, fontSizePx = 26f)
         view.layoutParams = android.view.ViewGroup.LayoutParams(320, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
