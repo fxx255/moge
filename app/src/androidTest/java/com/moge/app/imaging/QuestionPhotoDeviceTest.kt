@@ -23,11 +23,10 @@ class QuestionPhotoDeviceTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val directory get() = File(context.filesDir, "photo-preprocess").apply { mkdirs() }
 
-    @Test fun localOcrAndNativePreparationRunBeforeCroppingWhileChatAndOrdinaryPhotosStayUnchanged() = runBlocking {
+    @Test fun enabledSolveProcessesAllPhotosWhileChatAndDisabledSolveKeepOriginals() = runBlocking {
         val settings = SettingsRepository(context)
         val enabled = settings.current().questionPhotoPreprocessing
-        val classifier = QuestionPhotoClassifier()
-        val processor = QuestionPhotoPreprocessor(settings, classifier, BookPageProcessor(), Dispatchers.IO)
+        val processor = QuestionPhotoPreprocessor(settings, BookPageProcessor(), Dispatchers.IO)
         val file = File(directory, "synthetic-question.png")
         val bitmap = Bitmap.createBitmap(800, 1000, Bitmap.Config.ARGB_8888)
         try {
@@ -44,8 +43,6 @@ class QuestionPhotoDeviceTest {
         val original = file.readBytes()
         try {
             settings.setQuestionPhotoPreprocessing(true)
-            val evidence = classifier.inspect(file.path)
-            assertTrue("Bundled OCR should identify this exercise: ${evidence.text}", evidence.isQuestion)
             assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(file.path, ConversationMode.CHAT))
             assertArrayEquals(original, file.readBytes())
             settings.setQuestionPhotoPreprocessing(false)
@@ -54,7 +51,7 @@ class QuestionPhotoDeviceTest {
             settings.setQuestionPhotoPreprocessing(true)
             val stages = mutableListOf<PhotoPreparationStage>()
             assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(file.path, ConversationMode.SOLVE, stages::add))
-            assertEquals(listOf(PhotoPreparationStage.DETECTING, PhotoPreparationStage.PROCESSING), stages)
+            assertEquals(listOf(PhotoPreparationStage.PROCESSING), stages)
             val result = requireNotNull(decodePhotoBitmap(file.path))
             try {
                 assertTrue(result.width >= 700 && result.height >= 900)
@@ -66,26 +63,27 @@ class QuestionPhotoDeviceTest {
                 plain.eraseColor(Color.rgb(40, 110, 170))
                 scenery.outputStream().use { plain.compress(Bitmap.CompressFormat.PNG, 100, it) }
             } finally { plain.recycle() }
-            val before = scenery.readBytes()
-            assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(scenery.path, ConversationMode.SOLVE))
-            assertArrayEquals(before, scenery.readBytes())
+            assertEquals("Even a photo without question text is processed", PhotoPreparationResult.PROCESSED,
+                processor.prepare(scenery.path, ConversationMode.SOLVE))
+            val processedScenery = requireNotNull(decodePhotoBitmap(scenery.path))
+            try {
+                assertEquals(400, processedScenery.width)
+                assertEquals(600, processedScenery.height)
+            } finally { processedScenery.recycle() }
         } finally { settings.setQuestionPhotoPreprocessing(enabled) }
     }
 
     /** Optional local photograph, supplied by the validation script rather than committed user data. */
-    @Test fun suppliedBookPhotoRunsLocalDetectionAndProducesAReadableResult() = runBlocking {
+    @Test fun suppliedBookPhotoIsProcessedBeforeManualCropping() = runBlocking {
         val file = File(directory, "input.jpg")
         assumeTrue(file.isFile)
         val settings = SettingsRepository(context)
         val enabled = settings.current().questionPhotoPreprocessing
         try {
             settings.setQuestionPhotoPreprocessing(true)
-            val classifier = QuestionPhotoClassifier()
-            val evidence = classifier.inspect(file.path)
-            assertTrue("Question must be detected in the supplied textbook page", evidence.isQuestion)
             val output = File(directory, "book-result.jpg")
             file.copyTo(output, overwrite = true)
-            val processor = QuestionPhotoPreprocessor(settings, classifier, BookPageProcessor(), Dispatchers.IO)
+            val processor = QuestionPhotoPreprocessor(settings, BookPageProcessor(), Dispatchers.IO)
             assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(output.path, ConversationMode.SOLVE))
             val result = requireNotNull(decodePhotoBitmap(output.path))
             try { assertTrue(result.width > 500 && result.height > 500) } finally { result.recycle() }

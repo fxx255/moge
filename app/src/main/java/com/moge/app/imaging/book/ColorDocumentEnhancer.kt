@@ -77,6 +77,9 @@ internal object ColorDocumentEnhancer {
                 }
                 values[p * 4 + 3] = 255f
             }
+            if (book) {
+                WarmPaperShadowModel.fit(bytes)?.refine(bytes, values)
+            }
             field.put(0, 0, values)
             if (book) {
                 BookPageModel.refineGutter(rgb, background, field)

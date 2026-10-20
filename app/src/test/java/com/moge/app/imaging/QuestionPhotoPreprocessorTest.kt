@@ -35,36 +35,25 @@ class QuestionPhotoPreprocessorTest {
     private val settings = mockk<SettingsRepository> {
         coEvery { current() } returns UserSettings()
     }
-    private val classifier = mockk<QuestionPhotoClassifier>()
     private val pages = mockk<BookPageProcessor>()
-    private val processor = QuestionPhotoPreprocessor(settings, classifier, pages, Dispatchers.Unconfined)
-    private val question = QuestionPhotoEvidence("已知 x+1=3，求 x 的值。", listOf(TextRegion(.1f, .1f, .8f, .8f)))
+    private val processor = QuestionPhotoPreprocessor(settings, pages, Dispatchers.Unconfined)
 
     @Test fun `chat bypasses even settings and disabled solve never inspects images`() = runBlocking {
         assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare("unused", ConversationMode.CHAT))
         coVerify(exactly = 0) { settings.current() }
         coEvery { settings.current() } returns UserSettings(questionPhotoPreprocessing = false)
         assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare("unused", ConversationMode.SOLVE))
-        coVerify(exactly = 0) { classifier.inspect(any()) }
-        verify(exactly = 0) { pages.render(any(), any()) }
+        verify(exactly = 0) { pages.render(any()) }
     }
 
-    @Test fun `ordinary photo keeps exact original bytes`() = runBlocking {
+    @Test fun `enabled solve processes any photo and saves complete upright result`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
-        coEvery { classifier.inspect(original.path) } returns QuestionPhotoEvidence("美好的一天", question.regions)
-        assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(original.path, ConversationMode.SOLVE))
-        assertEquals("original", original.readText())
-        verify(exactly = 0) { pages.render(any(), any()) }
-    }
-
-    @Test fun `accepted question saves complete upright result and reports ordered stages`() = runBlocking {
-        val original = temporary.newFile().apply { writeText("original") }
-        coEvery { classifier.inspect(original.path) } returns question
         val output = Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
-        every { pages.render(original.path, question) } returns output
+        every { pages.render(original.path) } returns output
         val stages = mutableListOf<PhotoPreparationStage>()
         assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE, stages::add))
-        assertEquals(listOf(PhotoPreparationStage.DETECTING, PhotoPreparationStage.PROCESSING), stages)
+        assertEquals(listOf(PhotoPreparationStage.PROCESSING), stages)
+        verify(exactly = 1) { pages.render(original.path) }
         val saved = BitmapFactory.decodeFile(original.path)
         assertEquals(80, saved.width)
         assertEquals(120, saved.height)
@@ -75,12 +64,11 @@ class QuestionPhotoPreprocessorTest {
 
     @Test fun `native failure and failed save retain original without leaving temporary files`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
-        coEvery { classifier.inspect(original.path) } returns question
-        every { pages.render(original.path, question) } throws UnsatisfiedLinkError("native unavailable")
+        every { pages.render(original.path) } throws UnsatisfiedLinkError("native unavailable")
         assertEquals(PhotoPreparationResult.ORIGINAL_RETAINED, processor.prepare(original.path, ConversationMode.SOLVE))
         assertEquals("original", original.readText())
         val output = mockk<Bitmap>(relaxed = true) { every { compress(any(), any(), any()) } returns false }
-        every { pages.render(original.path, question) } returns output
+        every { pages.render(original.path) } returns output
         assertEquals(PhotoPreparationResult.ORIGINAL_RETAINED, processor.prepare(original.path, ConversationMode.SOLVE))
         assertEquals("original", original.readText())
         assertEquals(listOf(original.name), temporary.root.listFiles()!!.map { it.name })
@@ -89,13 +77,13 @@ class QuestionPhotoPreprocessorTest {
 
     @Test fun `cancellation is propagated and never becomes fallback success`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
-        coEvery { classifier.inspect(original.path) } throws CancellationException("leaving capture")
+        every { pages.render(original.path) } throws CancellationException("leaving capture")
         try {
             processor.prepare(original.path, ConversationMode.SOLVE)
             fail("Cancellation must be propagated")
         } catch (_: CancellationException) { }
         assertEquals("original", original.readText())
-        verify(exactly = 0) { pages.render(any(), any()) }
+        verify(exactly = 1) { pages.render(original.path) }
     }
 
     @Test fun `preprocessing defaults on and preference persists across repository recreation`() = runBlocking {

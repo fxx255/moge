@@ -16,14 +16,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
-enum class PhotoPreparationStage { DETECTING, PROCESSING }
+enum class PhotoPreparationStage { PROCESSING }
 enum class PhotoPreparationResult { PROCESSED, SKIPPED, ORIGINAL_RETAINED }
 
 /** Only newly acquired, private photos enter here, before user cropping or draft display. */
 @Singleton
 class QuestionPhotoPreprocessor @Inject internal constructor(
     private val settings: SettingsRepository,
-    private val classifier: QuestionPhotoClassifier,
     private val pages: BookPageProcessor,
     @param:IoDispatcher private val io: CoroutineDispatcher,
 ) {
@@ -37,17 +36,14 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
     ): PhotoPreparationResult {
         if (mode != ConversationMode.SOLVE) return PhotoPreparationResult.SKIPPED
         return try {
-            if (!shouldPrepareQuestionPhoto(mode, settings.current().questionPhotoPreprocessing)) {
+            if (!settings.current().questionPhotoPreprocessing) {
                 return PhotoPreparationResult.SKIPPED
             }
             processing.withLock {
                 withContext(io) {
-                    onStage(PhotoPreparationStage.DETECTING)
-                    val evidence = classifier.inspect(path)
-                    if (!evidence.isQuestion) return@withContext PhotoPreparationResult.SKIPPED
                     coroutineContext.ensureActive()
                     onStage(PhotoPreparationStage.PROCESSING)
-                    val rendered = pages.render(path, evidence)
+                    val rendered = pages.render(path)
                     try {
                         coroutineContext.ensureActive()
                         writePhotoBitmap(path, rendered)

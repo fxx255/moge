@@ -168,7 +168,7 @@ class HomeViewModel @Inject constructor(
         if (preparationJob?.isActive == true) return
         val head = state.value.cropQueue.firstOrNull() ?: return
         if (savedState.get<String>(KEY_PREPARED) == head) return
-        _state.update { it.copy(preparingPhoto = PhotoPreparationStage.DETECTING) }
+        _state.update { it.copy(preparingPhoto = PhotoPreparationStage.PROCESSING) }
         preparationJob = viewModelScope.launch {
             try {
                 val result = photoPreprocessor.prepare(head, conversationMode) { stage ->

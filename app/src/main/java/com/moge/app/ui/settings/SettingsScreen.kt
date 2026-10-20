@@ -112,7 +112,7 @@ fun SettingsScreen(
             VisionSection(state = models, onSelect = vm::setVisionProfile)
             SettingsSection("使用偏好") {
                 ConversationScreenOnSetting(prefs.keepScreenOnInConversation, vm::setKeepScreenOnInConversation)
-                SwitchRow("题目图像预处理", "默认识别题目、展平书页并净化背景；仅用于解题模式",
+                SwitchRow("题目图像预处理", "解题照片直接展平书页并净化背景；对话照片不处理",
                     prefs.questionPhotoPreprocessing, vm::setQuestionPhotoPreprocessing)
             }
             PreferencesSection(

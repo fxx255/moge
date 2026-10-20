@@ -234,7 +234,7 @@ fun HomeScreen(
         },
     )
 
-    state.preparingPhoto?.let { PhotoPreparationDialog(it) }
+    if (state.preparingPhoto != null) PhotoPreparationDialog()
     state.cropQueue.firstOrNull()?.takeIf { state.preparingPhoto == null }?.let { path ->
         PhotoCropDialog(
             path = path,
