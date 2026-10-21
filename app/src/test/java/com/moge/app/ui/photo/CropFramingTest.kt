@@ -43,6 +43,26 @@ class CropFramingTest {
         assertEquals(current, fitCropFraming(current, viewport))
     }
 
+    @Test fun `offcenter shrinking keeps the moved selection in view without changing source pixels`() {
+        for (image in listOf(IntSize(4000, 2000), IntSize(2000, 4000), IntSize(4000, 4000))) {
+            val initial = initialCropFraming(image, viewport)
+            val selected = initial.copy(cropRect = Rect(initial.cropRect.topLeft,
+                initial.cropRect.center))
+            val fitted = fitCropFraming(selected, viewport)
+            val moved = fitted.copy(cropRect = moveCropRect(fitted.cropRect, Offset(150f, 150f),
+                visibleImageBounds(image, viewport, fitted.zoom, fitted.imageOffset)))
+            val expected = pixels(image, moved)
+            for (pan in listOf(Offset.Zero, Offset(-900f, 750f), Offset(850f, -1100f))) {
+                val shrunk = transformLinkedCropFraming(moved, viewport, moved.zoom * .8f, pan, Offset(40f, 960f))
+                assertEquals(expected, pixels(image, shrunk))
+                assertEquals(moved.cropRect.width * .8f, shrunk.cropRect.width, .001f)
+                assertEquals(moved.cropRect.height * .8f, shrunk.cropRect.height, .001f)
+                assertTrue(shrunk.cropRect.left >= -.001f && shrunk.cropRect.top >= -.001f)
+                assertTrue(shrunk.cropRect.right <= 1000.001f && shrunk.cropRect.bottom <= 1000.001f)
+            }
+        }
+    }
+
     @Test fun `invalid or unmeasured frame cannot start an animation`() {
         val empty = CropFraming(1f, Offset.Zero, Rect.Zero)
         assertEquals(empty, fitCropFraming(empty, viewport))

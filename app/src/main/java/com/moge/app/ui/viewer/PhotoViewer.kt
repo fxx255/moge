@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.photo.rotatePhotoAndSave
 import com.moge.app.ui.theme.MogeTheme
@@ -61,6 +62,7 @@ fun PhotoViewer(
     initialIndex: Int,
     onDismiss: () -> Unit,
     rotatable: Boolean = false,
+    preferProcessed: Boolean = true,
 ) {
     if (paths.isEmpty()) {
         LaunchedEffect(Unit) { onDismiss() }
@@ -78,13 +80,15 @@ fun PhotoViewer(
     )
 
     // 每次操作前都重新解析：用户可能刚在设置里清过图表缓存，或者切换过日夜主题
-    fun withCurrentFile(action: suspend (String) -> String?) {
+    fun withCurrentFile(processed: Boolean = preferProcessed, action: suspend (String) -> String?) {
         val stored = paths.getOrNull(pagerState.currentPage) ?: return
         busy = true
         message = null
         scope.launch {
             val result = runCatching {
-                val path = withContext(Dispatchers.IO) { resolver.resolve(stored, dark) }
+                val path = withContext(Dispatchers.IO) {
+                    resolver.resolve(stored, dark)?.let { if (processed) QuestionPhotoFiles.displayPath(it) else it }
+                }
                     ?: error("图片文件不存在")
                 action(path)
             }
@@ -128,6 +132,7 @@ fun PhotoViewer(
                     pageLabel = "图片 ${page + 1}，共 ${paths.size} 张",
                     onTapToClose = { if (!busy) onDismiss() },
                     onSwipeDownToClose = { if (!busy) onDismiss() },
+                    preferProcessed = preferProcessed,
                 )
             }
 
@@ -156,7 +161,7 @@ fun PhotoViewer(
                         IconButton(
                             enabled = !busy,
                             onClick = {
-                                withCurrentFile { path ->
+                                withCurrentFile(processed = false) { path ->
                                     withContext(Dispatchers.IO) { rotatePhotoAndSave(path) }
                                     null
                                 }

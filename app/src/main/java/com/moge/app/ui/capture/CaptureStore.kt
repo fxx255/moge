@@ -3,6 +3,7 @@ package com.moge.app.ui.capture
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.domain.SolveMode
 import com.moge.app.ui.photo.importPhoto
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -66,7 +67,10 @@ class CaptureStore @Inject constructor(
     /** 用户删掉的照片：只删本目录里、确实没被提交过的文件。 */
     suspend fun discard(paths: Collection<String>) = withContext(Dispatchers.IO) {
         val root = photosDir().canonicalPath + File.separator
-        paths.map(::File).filter { it.canonicalPath.startsWith(root) }.forEach { it.delete() }
+        paths.map(::File).filter { it.canonicalPath.startsWith(root) }.forEach {
+            it.delete()
+            QuestionPhotoFiles.discard(it.path)
+        }
     }
 
     companion object {

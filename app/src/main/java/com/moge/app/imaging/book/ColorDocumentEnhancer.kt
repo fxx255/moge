@@ -10,6 +10,15 @@ import kotlin.math.*
 internal object ColorDocumentEnhancer {
     private const val ANALYSIS_EDGE = 720
     private const val STRIPE_ROWS = 96
+    // Byte illumination and corrected RGB keep the stripes compact. The 256 KiB
+    // table covers each source-channel/light pair, avoiding per-pixel division.
+    // Geometry and source dimensions remain unchanged; tone curves still follow.
+    private val correctedChannels = IntArray(256 * 256) { index ->
+        min(255f, (index ushr 8) * 255f / max(32, index and 255)).roundToInt()
+    }
+
+    private fun correctChannel(channel: Int, light: Byte): Int =
+        correctedChannels[(channel shl 8) or (light.toInt() and 255)]
 
     fun apply(bitmap: Bitmap, boundary: List<Corner>? = null, book: Boolean = false): Bitmap {
         val scale = min(1.0, ANALYSIS_EDGE.toDouble() / max(bitmap.width, bitmap.height))
@@ -79,11 +88,15 @@ internal object ColorDocumentEnhancer {
             if (book) {
                 BookPageModel.refineGutter(rgb, background, field)
             }
+            field.convertTo(field, CvType.CV_8U)
             rgb.release(); background.release(); smooth.release()
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             output = result
             render(bitmap, result, field)
             PaperBoundary.whitenCanvas(result, boundary)
+            // All pixels have now been written with alpha 255. Mark the completed
+            // image opaque so PNG can omit its redundant alpha channel.
+            result.setHasAlpha(false)
             return result
         } catch (error: Throwable) { output?.recycle(); throw error }
         finally { listOf(rgba, rgb, background, field, smooth, kernel).forEach { it.release() } }
@@ -94,7 +107,7 @@ internal object ColorDocumentEnhancer {
         val radius = (max(input.width, input.height) / 900).coerceIn(1, 3)
         // Halo rows keep the nearby-ink mask continuous across stripe boundaries.
         val pixels = IntArray(width * (STRIPE_ROWS + radius * 2))
-        val illumination = FloatArray(pixels.size * 4)
+        val light = ByteArray(pixels.size * 4)
         val values = ByteArray(pixels.size); val nearbyInk = ByteArray(pixels.size)
         val transform = Mat(2, 3, CvType.CV_64F); val tile = Mat(); val valueMat = Mat(); val minimum = Mat()
         val supportKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT,
@@ -107,17 +120,16 @@ internal object ColorDocumentEnhancer {
                 transform.put(0, 0, sx, 0.0, (sx - 1) / 2, 0.0, sy, (start + .5) * sy - .5)
                 Imgproc.warpAffine(field, tile, transform, Size(width.toDouble(), count.toDouble()),
                     Imgproc.INTER_LINEAR or Imgproc.WARP_INVERSE_MAP, Core.BORDER_REPLICATE)
-                tile.get(0, 0, illumination)
+                tile.get(0, 0, light)
                 input.getPixels(pixels, 0, width, 0, start, width, count)
                 for (p in 0 until width * count) {
                     val color = pixels[p]; val offset = p * 4
-                    val r = min(255f, ((color ushr 16) and 255) * 255f / max(32f, illumination[offset]))
-                    val g = min(255f, ((color ushr 8) and 255) * 255f / max(32f, illumination[offset + 1]))
-                    val b = min(255f, (color and 255) * 255f / max(32f, illumination[offset + 2]))
+                    val r = correctChannel((color ushr 16) and 255, light[offset])
+                    val g = correctChannel((color ushr 8) and 255, light[offset + 1])
+                    val b = correctChannel(color and 255, light[offset + 2])
                     val hi = maxOf(r, g, b)
-                    illumination[offset] = r; illumination[offset + 1] = g; illumination[offset + 2] = b
-                    illumination[offset + 3] = hi
-                    values[p] = hi.roundToInt().toByte()
+                    pixels[p] = (255 shl 24) or (r shl 16) or (g shl 8) or b
+                    values[p] = hi.toByte()
                 }
                 valueMat.create(count, width, CvType.CV_8U)
                 valueMat.put(0, 0, values, 0, width * count)
@@ -125,13 +137,22 @@ internal object ColorDocumentEnhancer {
                 // erode the actual glyph pixels: their native edge tones survive.
                 Imgproc.erode(valueMat, minimum, supportKernel); minimum.get(0, 0, nearbyInk)
                 for (p in (y - start) * width until (y - start + rows) * width) {
-                    val offset = p * 4; val r = illumination[offset]; val g = illumination[offset + 1]
-                    val b = illumination[offset + 2]; val hi = illumination[offset + 3]; val lo = minOf(r, g, b)
+                    val color = pixels[p]
+                    val r = (color ushr 16) and 255; val g = (color ushr 8) and 255; val b = color and 255
+                    val hi = maxOf(r, g, b); val lo = minOf(r, g, b)
                     // Remove tiny neutral-paper color fluctuations without flattening pink
                     // boxes or colored ink. Keep their hue and relative channel ordering.
-                    val saturation = if (hi > 0) (hi - lo) / hi else 0f
+                    val saturation = if (hi > 0) (hi - lo).toFloat() / hi else 0f
                     val chroma = ((saturation - .035f) / .065f).coerceIn(0f, 1f)
-                    val v = DocumentInkTone.value(values[p].toInt() and 255, nearbyInk[p].toInt() and 255, chroma)
+                    val brightness = values[p].toInt() and 255
+                    val nearbyMinimum = nearbyInk[p].toInt() and 255
+                    if (chroma == 0f) {
+                        // The original formula reduces to a single gray value.
+                        // Colored panels and ink retain the full channel calculation.
+                        pixels[p] = DocumentInkTone.neutralArgb(brightness, nearbyMinimum)
+                        continue
+                    }
+                    val v = DocumentInkTone.value(brightness, nearbyMinimum, chroma)
                     val gain = if (hi > 0) v / hi else 0f
                     val red = (v - (hi - r) * gain * chroma).roundToInt().coerceIn(0, 255)
                     val green = (v - (hi - g) * gain * chroma).roundToInt().coerceIn(0, 255)

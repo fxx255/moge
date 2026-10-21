@@ -90,17 +90,93 @@ class CropViewportStateTest {
             assertEquals(fittedZoom, state.zoom, .001f)
             state.transform(.0001f, Offset.Zero, state.cropRect.center)
             assertEquals(Offset.Zero, state.imageOffset)
+            assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
             val full = displayedImageRect(image, state.viewport, state.zoom, state.imageOffset)
             assertTrue(full.left >= -.01f && full.top >= -.01f && full.right <= 1000.01f && full.bottom <= 1000.01f)
         }
     }
 
-    @Test fun `continuous pinch out follows fingers then quickly animates back without changing source pixels`() {
+    @Test fun `pinching a moved fitted crop preserves its source area through the recovery animation`() {
+        mount(gestures = true)
+        compose.mainClock.autoAdvance = false
+        try {
+            lateinit var selected: PixelCrop
+            var fittedZoom = 0f
+            compose.runOnIdle {
+                selectAndMove()
+                selected = pixels()
+                fittedZoom = state.zoom
+            }
+            val area = compose.onNodeWithTag("crop-area")
+            area.performTouchInput {
+                down(0, center - Offset(width * .35f, 0f))
+                down(1, center + Offset(width * .35f, 0f))
+                moveTo(0, center - Offset(width * .29f, 0f), delayMillis = 32)
+                moveTo(1, center + Offset(width * .29f, 0f), delayMillis = 32)
+            }
+            compose.runOnIdle {
+                assertTrue(state.zoom < fittedZoom)
+                assertEquals(selected, pixels())
+                assertFalse(isWholePhotoSelected(image, state.viewport, state.framing))
+            }
+            area.performTouchInput {
+                val pan = Offset(width * .03f, height * .04f)
+                moveTo(0, center - Offset(width * .29f, 0f) + pan, delayMillis = 32)
+                moveTo(1, center + Offset(width * .29f, 0f) + pan, delayMillis = 32)
+                up(0)
+                moveTo(1, center + Offset(width * .29f, 0f) + pan * 2f, delayMillis = 32)
+            }
+            compose.runOnIdle { assertEquals("Pan and a remaining finger keep the same source selection", selected, pixels()) }
+            val shrunkZoom = state.zoom
+            area.performTouchInput { up(1) }
+            compose.mainClock.advanceTimeBy(48)
+            compose.runOnIdle {
+                assertTrue(state.zoom > shrunkZoom && state.zoom < fittedZoom)
+                assertEquals(selected, pixels())
+            }
+            compose.mainClock.advanceTimeBy(160)
+            compose.runOnIdle {
+                assertEquals(fittedZoom, state.zoom, .001f)
+                assertEquals(selected, pixels())
+            }
+        } finally { compose.mainClock.autoAdvance = true }
+    }
+
+    @Test fun `whole photo scale and slight overshrink retain selection until the extra reset margin is crossed`() {
+        mount()
+        compose.runOnIdle {
+            selectAndMove()
+            val selected = pixels()
+            val minimumZoom = minimumCropZoom(image, state.viewport)
+            state.transform(minimumZoom * 1.02f / state.zoom, Offset(80f, -60f), Offset(50f, 900f))
+            assertEquals(selected, pixels())
+            assertFalse(isWholePhotoSelected(image, state.viewport, state.framing))
+            state.transform(minimumZoom / state.zoom, Offset(80f, -60f), state.cropRect.center)
+            assertEquals("Whole-photo fitted scale alone must not reset", selected, pixels())
+            assertFalse(isWholePhotoSelected(image, state.viewport, state.framing))
+            state.transform(.95f, Offset.Zero, state.cropRect.center)
+            assertEquals("A slight overshrink still retains the selected content", selected, pixels())
+            state.fitSelection(false)
+            assertEquals("Releasing inside the margin restores the selection", selected, pixels())
+            state.transform(minimumZoom * .89f / state.zoom, Offset(80f, -60f), state.cropRect.center)
+            assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
+            assertEquals(PixelCrop(0, 0, image.width, image.height), pixels())
+            state.transform(.2f, Offset(100f, 300f), state.cropRect.center)
+            state.fitSelection(false)
+            assertEquals(minimumZoom, state.zoom, .0001f)
+            assertEquals(Offset.Zero, state.imageOffset)
+            assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
+            assertEquals(PixelCrop(0, 0, image.width, image.height), pixels())
+        }
+    }
+
+    @Test fun `continuous deep pinch resets to whole photo then quickly recovers with interruptible animation`() {
         mount(gestures = true)
         compose.mainClock.autoAdvance = false
         try {
             val area = compose.onNodeWithTag("crop-area")
-            val fitted = state.zoom
+            compose.runOnIdle { selectAndMove() }
+            val fitted = minimumCropZoom(image, state.viewport)
             area.performTouchInput {
                 down(0, center - Offset(width * .3f, 0f))
                 down(1, center + Offset(width * .3f, 0f))
@@ -110,6 +186,8 @@ class CropViewportStateTest {
             var earlier = 0f
             compose.runOnIdle {
                 assertTrue("Pinching must continue below the whole-photo fitted scale", state.zoom < fitted / 2f)
+                assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
+                assertEquals(PixelCrop(0, 0, image.width, image.height), pixels())
                 earlier = state.zoom
             }
             area.performTouchInput {
@@ -141,6 +219,12 @@ class CropViewportStateTest {
     }
 
     private fun pixels() = cropBoundsInSource(image, image, state.viewport, state.zoom, state.imageOffset, state.cropRect)
+
+    private fun selectAndMove() {
+        state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-state.cropRect.width / 2f, -state.cropRect.height / 2f), 24f)
+        state.fitSelection(false)
+        state.drag(CropDragMode.MOVE_CROP, Offset(state.viewport.width * .08f, 0f), 24f)
+    }
 
     @Test fun `auto fitted crop survives repeated pinch out and edge drags on fractional bounds`() {
         mount()

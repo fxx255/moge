@@ -20,6 +20,7 @@ import com.moge.app.domain.SolveMode
 import com.moge.app.domain.ConversationMode
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
+import com.moge.app.runtime.QuestionPhotoPreparation
 import com.moge.app.runtime.StoredFigureRepair
 import com.moge.app.ui.Routes
 import com.moge.app.ui.capture.CaptureBatch
@@ -107,7 +108,7 @@ class SolveViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val captureStore: CaptureStore,
     private val storedFigureRepair: StoredFigureRepair,
-    private val photoPreprocessor: com.moge.app.imaging.QuestionPhotoPreprocessor,
+    private val photoPreparation: QuestionPhotoPreparation,
 ) : ViewModel() {
 
     /** 当前会话；null = 还没发出第一问的新题目。建好后写回 [savedState]，旋转/重建后仍指向它。 */
@@ -271,6 +272,7 @@ class SolveViewModel @Inject constructor(
             draftRestored = true
             draftLoaded.value = true
             draftReady.complete(Unit)
+            preparePhotos(photos.value)
         }
     }
 
@@ -285,6 +287,7 @@ class SolveViewModel @Inject constructor(
         selectedMode.value = mode
         savedState["draftConversationMode"] = mode.name
         saveDraft()
+        preparePhotos(photos.value)
     }
 
     private fun editMetaSlot(id: String) = id + "__editing"
@@ -444,14 +447,7 @@ class SolveViewModel @Inject constructor(
         importingPhotos.value = true
         viewModelScope.launch {
             try {
-                val importMode = photoConversationMode()
                 val imported = captureStore.importFromGallery(uris.take(room))
-                for (path in imported) {
-                    val result = photoPreprocessor.prepare(path, importMode)
-                    if (result == com.moge.app.imaging.PhotoPreparationResult.ORIGINAL_RETAINED) {
-                        notice.value = "预处理未完成，已保留原图"
-                    }
-                }
                 onImported(imported)
             } catch (e: CancellationException) {
                 throw e
@@ -529,6 +525,25 @@ class SolveViewModel @Inject constructor(
         PhotoArrivals.markNew(added)
         photos.value = photos.value + added
         saveDraft()
+        preparePhotos(added)
+    }
+
+    /** Capture ownership before suspension; native work belongs to the application runtime. */
+    private fun preparePhotos(paths: List<String>) {
+        if (paths.isEmpty()) return
+        val owner = conversationId.value
+        val newMode = selectedMode.value
+        viewModelScope.launch {
+            try {
+                val mode = owner?.let { conversationRepository.getConversation(it) }
+                    ?.let { ConversationMode.fromName(it.conversationMode) } ?: newMode
+                photoPreparation.enqueue(paths, mode)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Optional presentation work never blocks adding or sending the originals.
+            }
+        }
     }
 
     fun removePhoto(path: String) {
@@ -684,6 +699,8 @@ class SolveViewModel @Inject constructor(
             conversationId.value = targetId
             savedState[Routes.ARG_CONVERSATION_ID] = targetId
         }
+        // persistAttachments can copy an external original. Queue its durable path too.
+        preparePhotos(pinned)
         // 题册封面取首张题目照片；写失败只影响题册缩略图，不影响这一轮解题。
         pinned.firstOrNull()?.let { cover -> runCatching { conversationRepository.setCoverIfEmpty(targetId, cover) } }
         if (consumesInput) consumeDraft(targetId, revisionAtSend, slotAtSend, editAtSend)

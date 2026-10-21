@@ -32,6 +32,22 @@ import java.util.zip.DeflaterOutputStream
 class PhotoBitmapDecoderTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun `failed encoder leaves the original untouched and removes partial output`() {
+        val file = temporary.newFile("original.jpg").apply { writeText("original") }
+        assertThrows(java.io.IOException::class.java) {
+            writePhotoFileAtomically(file.path) { partial ->
+                partial.writeText("incomplete")
+                throw java.io.IOException("Encoder interrupted")
+            }
+        }
+        assertEquals("original", file.readText())
+        assertThrows(IllegalStateException::class.java) {
+            writePhotoFileAtomically(file.path) { }
+        }
+        assertEquals("original", file.readText())
+        assertEquals(listOf("original.jpg"), temporary.root.list()!!.toList())
+    }
+
     @Test fun `destructive edits retain original pixels beyond the preview budget and save losslessly`() {
         val width = 2304
         val height = 2048

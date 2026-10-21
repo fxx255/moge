@@ -31,10 +31,10 @@ import com.moge.app.ui.theme.MogeTheme
  * 裁剪 / 旋转改写原文件后，[PhotoEdits.revision] 变化会让缩略图重新解码。
  */
 @Composable
-fun PhotoThumb(path: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PhotoThumb(path: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, preferProcessed: Boolean = false) {
     var displaySize by remember { mutableStateOf(IntSize.Zero) }
     val thumbnail = if (displaySize == IntSize.Zero) Thumbnail.Loading
-        else rememberThumbnail(path, THUMB_MAX_PX, cropSize = displaySize)
+        else rememberThumbnail(path, THUMB_MAX_PX, cropSize = displaySize, preferProcessed = preferProcessed)
     val shape = RoundedCornerShape(6.dp)
     Box(
         modifier

@@ -2,10 +2,11 @@ package com.moge.app.imaging
 
 import android.util.Log
 import com.moge.app.core.IoDispatcher
-import com.moge.app.data.image.writePhotoBitmap
 import com.moge.app.data.prefs.SettingsRepository
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.domain.ConversationMode
 import com.moge.app.imaging.book.BookPageProcessor
+import com.moge.app.imaging.book.writeBookPhoto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
@@ -16,10 +17,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
-enum class PhotoPreparationStage { PROCESSING }
 enum class PhotoPreparationResult { PROCESSED, SKIPPED, ORIGINAL_RETAINED }
 
-/** Only newly acquired, private photos enter here, before user cropping or draft display. */
+/** Cleans an immutable cropped source into a separate presentation file; never alters model input. */
 @Singleton
 class QuestionPhotoPreprocessor @Inject internal constructor(
     private val settings: SettingsRepository,
@@ -32,7 +32,7 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
     suspend fun prepare(
         path: String,
         mode: ConversationMode,
-        onStage: (PhotoPreparationStage) -> Unit = {},
+        expectedFingerprint: String? = null,
     ): PhotoPreparationResult {
         if (mode != ConversationMode.SOLVE) return PhotoPreparationResult.SKIPPED
         return try {
@@ -42,12 +42,29 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
             processing.withLock {
                 withContext(io) {
                     coroutineContext.ensureActive()
-                    onStage(PhotoPreparationStage.PROCESSING)
+                    val fingerprint = QuestionPhotoFiles.fingerprint(path)
+                        ?: return@withContext PhotoPreparationResult.ORIGINAL_RETAINED
+                    if (expectedFingerprint != null && expectedFingerprint != fingerprint) {
+                        return@withContext PhotoPreparationResult.SKIPPED
+                    }
+                    val destination = QuestionPhotoFiles.output(path, fingerprint)
+                    if (destination.isFile && destination.length() > 0) {
+                        return@withContext PhotoPreparationResult.PROCESSED
+                    }
                     val rendered = pages.render(path)
                     try {
                         coroutineContext.ensureActive()
-                        writePhotoBitmap(path, rendered)
+                        if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
+                            return@withContext PhotoPreparationResult.SKIPPED
+                        }
+                        writeBookPhoto(destination.path, rendered)
+                        coroutineContext.ensureActive()
+                        if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
+                            destination.delete()
+                            return@withContext PhotoPreparationResult.SKIPPED
+                        }
                     } finally { rendered.recycle() }
+                    QuestionPhotoFiles.published(path)
                     PhotoPreparationResult.PROCESSED
                 }
             }

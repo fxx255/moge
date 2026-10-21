@@ -29,6 +29,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
+import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -145,9 +146,7 @@ class SolveViewModelTest {
     }
 
     private lateinit var captureStore: CaptureStore
-    private val preprocessor = mockk<com.moge.app.imaging.QuestionPhotoPreprocessor> {
-        coEvery { prepare(any(), any(), any()) } returns com.moge.app.imaging.PhotoPreparationResult.SKIPPED
-    }
+    private val preparation = mockk<com.moge.app.runtime.QuestionPhotoPreparation>(relaxed = true)
 
     private fun vm(conversationId: String? = null, capture: CaptureBatch? = null): SolveViewModel {
         val args = buildMap<String, Any?> {
@@ -156,7 +155,7 @@ class SolveViewModelTest {
         }
         val handle = SavedStateHandle(args)
         lastHandle = handle
-        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true), preprocessor).also { model ->
+        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true), preparation).also { model ->
             models.put(UUID.randomUUID().toString(), model)
             // stateIn(WhileSubscribed) 需要订阅者才会合成状态：模拟页面一直在看。
             collectors.launch { model.uiState.collect { } }
@@ -556,12 +555,17 @@ class SolveViewModelTest {
         var cropPaths: List<String>? = null
         model.importPicked(listOf(image.uri)) { cropPaths = it }
         model.awaitState { !it.importingPhotos && cropPaths != null }
-        coVerify(exactly = 1) { preprocessor.prepare(cropPaths!!.single(), com.moge.app.domain.ConversationMode.CHAT, any()) }
+        verify(exactly = 0) { preparation.enqueue(any(), any()) }
         assertTrue(model.uiState.value.photos.isEmpty())
+        val queuedMode = CompletableDeferred<com.moge.app.domain.ConversationMode>()
+        every { preparation.enqueue(cropPaths!!, any()) } answers { queuedMode.complete(secondArg()) ; Unit }
+        model.addPhotos(cropPaths!!)
+        model.awaitState { it.photos == cropPaths && queuedMode.isCompleted }
+        assertEquals(com.moge.app.domain.ConversationMode.CHAT, queuedMode.await())
     }
 
     @Test
-    fun `captured photos wait in original composer and send only after confirmation`() {
+    fun `captured photos send originals without waiting for background presentation files`() {
         val a = photo()
         val b = photo()
         val vm = vm(capture = CaptureBatch(listOf(a, b), SolveMode.DETAILED, note = "补充说明"))
@@ -570,6 +574,11 @@ class SolveViewModelTest {
         assertEquals("补充说明", pending.input)
         coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
         assertNull(lastHandle.get<String>(Routes.ARG_CAPTURE))
+        verify { preparation.enqueue(listOf(a, b), com.moge.app.domain.ConversationMode.SOLVE) }
+        // A companion may finish before send. It must never become a model attachment.
+        val companion = com.moge.app.data.image.QuestionPhotoFiles.output(a,
+            com.moge.app.data.image.QuestionPhotoFiles.fingerprint(a)!!)
+        companion.writeBytes(byteArrayOf(4, 5, 6))
         vm.send()
         val sent = vm.awaitState { it.items.size == 2 && !it.submitting }
         val conversation = runBlocking { db.conversationDao().getConversation(sent.conversationId!!) }!!
@@ -578,6 +587,7 @@ class SolveViewModelTest {
         coVerify(exactly = 1) { manager.submit(match {
             it.solveMode == SolveMode.CHECK_WORK && it.attachmentPaths == listOf(File(a).canonicalPath, File(b).canonicalPath)
         }, any(), any(), any(), any()) }
+        assertArrayEquals(byteArrayOf(1, 2, 3), File(a).readBytes())
     }
 
     @Test

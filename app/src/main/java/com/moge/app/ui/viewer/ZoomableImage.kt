@@ -33,8 +33,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.photo.PhotoEdits
+import com.moge.app.ui.photo.rememberProcessedPhotoRevision
 import com.moge.app.ui.photo.decodeUprightPhoto
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +67,7 @@ internal fun ZoomableImage(
     pageLabel: String,
     onTapToClose: () -> Unit,
     onSwipeDownToClose: () -> Unit,
+    preferProcessed: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     val scale = remember { Animatable(1f) }
@@ -74,12 +77,14 @@ internal fun ZoomableImage(
     // 未放大时的下拉位移（用于「下拉关闭」），放在 pointerInput 外面才不会随重组丢失
     var dragDown by remember { mutableFloatStateOf(0f) }
     val photoRevision by PhotoEdits.revision.collectAsStateWithLifecycle()
+    val processedRevision = if (preferProcessed) rememberProcessedPhotoRevision(storedPath) else 0L
     val resolver = LocalFigurePathResolver.current
     val dark = MogeTheme.paper.isChalk
-    val image by produceState<ViewerImage>(ViewerImage.Loading, storedPath, dark, photoRevision) {
+    val image by produceState<ViewerImage>(ViewerImage.Loading, storedPath, dark, photoRevision, preferProcessed, processedRevision) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 resolver.resolve(storedPath, dark)
+                    ?.let { if (preferProcessed) QuestionPhotoFiles.displayPath(it) else it }
                     ?.let { decodeUprightPhoto(it, VIEWER_DECODE_MAX_PX) }
                     ?.let { ViewerImage.Ready(it.asImageBitmap()) }
             }.getOrNull() ?: ViewerImage.Missing

@@ -7,6 +7,7 @@ import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.NotebookRepository
 import com.moge.app.data.figure.DiagramImageStore
 import com.moge.app.data.figure.PlotImageStore
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.capture.CaptureStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -80,6 +81,8 @@ class AttachmentJanitor @Inject constructor(
         dir.listFiles()?.forEach { file ->
             if (!file.isFile || file.lastModified() >= cutoff) return@forEach
             if (runCatching { file.canonicalPath }.getOrNull() in keep) return@forEach
+            val original = QuestionPhotoFiles.originalOf(file)
+            if (original != null && runCatching { original.canonicalPath }.getOrNull() in keep) return@forEach
             val size = file.length()
             if (dryRun || file.delete()) freed += size
         }

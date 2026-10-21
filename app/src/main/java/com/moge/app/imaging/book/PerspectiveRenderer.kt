@@ -87,6 +87,12 @@ internal object PerspectiveRenderer {
             // Source bitmap and native geometry already exist; budget only the
             // additional destination here, rather than counting those twice.
             requirePhotoEditingCapacity(outW, outH, bytesPerPixel = 4)
+            if (grid == null && angle == 0.0 && !grayscale && corners == Geometry.fullFrame &&
+                outW == bitmap.width && outH == bitmap.height) {
+                // Full-frame photos with no supported correction need no resampling.
+                // Return an owned copy: callers may recycle their source immediately.
+                return Page(bitmap.copy(Bitmap.Config.ARGB_8888, false), null)
+            }
             val output = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             result = output
             if (grid == null) renderPerspective(source, output, inverse, boundary)
@@ -102,7 +108,7 @@ internal object PerspectiveRenderer {
     private fun renderPerspective(source: Mat, output: Bitmap, inverse: Mat, boundary: Array<Point>?) {
         val coefficients = DoubleArray(9).also { inverse.get(0, 0, it) }
         val stripeTransform = Mat(3, 3, CvType.CV_64F); val tile = Mat(); val mask = Mat()
-        val canvas = Canvas(output)
+        val painter = StripePainter(output)
         try {
             for (startY in 0 until output.height step STRIPE_ROWS) {
                 val count = min(STRIPE_ROWS, output.height - startY)
@@ -117,9 +123,9 @@ internal object PerspectiveRenderer {
                     try { Imgproc.fillConvexPoly(mask, polygon, Scalar(255.0)) } finally { polygon.release() }
                     Core.bitwise_not(mask, mask); tile.setTo(Scalar.all(255.0), mask)
                 }
-                drawTile(tile, canvas, startY)
+                painter.draw(tile, startY)
             }
-        } finally { stripeTransform.release(); tile.release(); mask.release() }
+        } finally { painter.close(); stripeTransform.release(); tile.release(); mask.release() }
     }
 
     private fun renderMesh(source: Mat, output: Bitmap, inverse: Mat, grid: PageWarp) {
@@ -134,6 +140,8 @@ internal object PerspectiveRenderer {
         val a = coefficients[0]; val b = coefficients[1]; val c = coefficients[2]
         val d = coefficients[3]; val e = coefficients[4]; val f = coefficients[5]
         val g = coefficients[6]; val h = coefficients[7]; val k = coefficients[8]
+        val identity = a == 1.0 && b == 0.0 && c == 0.0 && d == 0.0 && e == 1.0 && f == 0.0 &&
+            g == 0.0 && h == 0.0 && k == 1.0
         val mapX = Mat(); val mapY = Mat(); val tile = Mat()
         val xs = FloatArray(outW * STRIPE_ROWS); val ys = FloatArray(xs.size)
         val xIndices = IntArray(outW); val fx = FloatArray(outW); val inverseFx = FloatArray(outW)
@@ -143,8 +151,7 @@ internal object PerspectiveRenderer {
             xIndices[x] = value.toInt().coerceAtMost(meshW - 2)
             fx[x] = value - xIndices[x]; inverseFx[x] = 1f - fx[x]
         }
-        val canvas = Canvas(output)
-        var tileBitmap = Bitmap.createBitmap(outW, min(STRIPE_ROWS, outH), Bitmap.Config.ARGB_8888)
+        val painter = StripePainter(output)
         try {
             for (startY in 0 until outH step STRIPE_ROWS) {
                 val count = min(STRIPE_ROWS, outH - startY)
@@ -162,11 +169,19 @@ internal object PerspectiveRenderer {
                     var index = localY * outW
                     for (x in 0 until outW) {
                         val i = xIndices[x]
-                        val sx = (rowX[i] * inverseFx[x] + rowX[i + 1] * fx[x]).toDouble()
-                        val sy = (rowY[i] * inverseFx[x] + rowY[i + 1] * fx[x]).toDouble()
-                        val denominator = g * sx + h * sy + k
-                        xs[index] = ((a * sx + b * sy + c) / denominator).toFloat()
-                        ys[index] = ((d * sx + e * sy + f) / denominator).toFloat()
+                        val meshSourceX = rowX[i] * inverseFx[x] + rowX[i + 1] * fx[x]
+                        val meshSourceY = rowY[i] * inverseFx[x] + rowY[i + 1] * fx[x]
+                        if (identity) {
+                            // The full-frame book path has no perspective component.
+                            // Keep its coordinates verbatim instead of projecting every pixel.
+                            xs[index] = meshSourceX
+                            ys[index] = meshSourceY
+                        } else {
+                            val sx = meshSourceX.toDouble(); val sy = meshSourceY.toDouble()
+                            val denominator = g * sx + h * sy + k
+                            xs[index] = ((a * sx + b * sy + c) / denominator).toFloat()
+                            ys[index] = ((d * sx + e * sy + f) / denominator).toFloat()
+                        }
                         index++
                     }
                 }
@@ -175,19 +190,29 @@ internal object PerspectiveRenderer {
                 mapY.put(0, 0, if (count == STRIPE_ROWS) ys else ys.copyOf(outW * count))
                 // Sample the full-resolution source once; preserve the existing cubic kernel.
                 Imgproc.remap(source, tile, mapX, mapY, Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE)
-                if (tileBitmap.height != count) {
-                    tileBitmap.recycle(); tileBitmap = Bitmap.createBitmap(outW, count, Bitmap.Config.ARGB_8888)
-                }
-                Utils.matToBitmap(tile, tileBitmap); canvas.drawBitmap(tileBitmap, 0f, startY.toFloat(), null)
+                painter.draw(tile, startY)
             }
         } finally {
-            tileBitmap.recycle(); mapX.release(); mapY.release(); tile.release()
+            painter.close(); mapX.release(); mapY.release(); tile.release()
         }
     }
 
-    private fun drawTile(tile: Mat, canvas: Canvas, startY: Int) {
-        val bitmap = Bitmap.createBitmap(tile.cols(), tile.rows(), Bitmap.Config.ARGB_8888)
-        try { Utils.matToBitmap(tile, bitmap); canvas.drawBitmap(bitmap, 0f, startY.toFloat(), null) }
-        finally { bitmap.recycle() }
+    /** Reuse one small bitmap across stripes instead of allocating one per draw. */
+    private class StripePainter(output: Bitmap) : AutoCloseable {
+        private val canvas = Canvas(output)
+        private var bitmap: Bitmap? = null
+
+        fun draw(tile: Mat, startY: Int) {
+            var buffer = bitmap
+            if (buffer == null || buffer.width != tile.cols() || buffer.height != tile.rows()) {
+                buffer?.recycle()
+                buffer = Bitmap.createBitmap(tile.cols(), tile.rows(), Bitmap.Config.ARGB_8888)
+                bitmap = buffer
+            }
+            Utils.matToBitmap(tile, buffer)
+            canvas.drawBitmap(buffer, 0f, startY.toFloat(), null)
+        }
+
+        override fun close() { bitmap?.recycle() }
     }
 }

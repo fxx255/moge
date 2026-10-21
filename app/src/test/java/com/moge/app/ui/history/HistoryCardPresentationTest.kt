@@ -99,7 +99,7 @@ class HistoryCardPresentationTest {
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
         // Warm the real cache so the pre-selection baseline already includes the decoded thumbnail.
-        runBlocking { assertNotNull(ThumbnailCache.load(file.absolutePath, THUMB_MAX_PX)) }
+        runBlocking { assertNotNull(ThumbnailCache.load(file.absolutePath, THUMB_MAX_PX, preferProcessed = true)) }
         return file.absolutePath
     }
 

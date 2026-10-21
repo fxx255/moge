@@ -25,7 +25,7 @@ import com.moge.app.ui.theme.MogeTheme
 /** Sent question attachments retain the whole selected region; composer thumbnails stay compact. */
 @Composable
 internal fun QuestionPhoto(path: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val photo = rememberThumbnail(path, maxPx = 4096)
+    val photo = rememberThumbnail(path, maxPx = 4096, preferProcessed = true)
     val shape = RoundedCornerShape(6.dp)
     Box(modifier.fillMaxWidth().clip(shape).background(MogeTheme.paper.scratch)
         .border(1.dp, MogeTheme.paper.cardStroke.copy(alpha = .3f), shape)

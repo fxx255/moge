@@ -270,7 +270,7 @@ private fun HistoryGrid(
         items(state.entries, key = { it.conversation.id }) { entry ->
             val id = entry.conversation.id
             val thumbnail = if (entry.conversation.coverImage.isNotBlank())
-                rememberThumbnail(entry.conversation.coverImage, THUMB_MAX_PX) else Thumbnail.Failed
+                rememberThumbnail(entry.conversation.coverImage, THUMB_MAX_PX, preferProcessed = true) else Thumbnail.Failed
             val category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: "未分类"
             val selected = id in state.selectedIds
             val selecting = state.selecting

@@ -10,6 +10,7 @@ import com.moge.app.data.db.MogeDatabase
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.figure.DiagramImageStore
 import com.moge.app.data.figure.PlotImageStore
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.domain.RequestStatus
 import com.moge.app.domain.SolveMode
 import com.moge.app.ui.capture.CaptureStore
@@ -101,6 +102,17 @@ class AttachmentJanitorTest {
         assertEquals(10L, janitor.sweep(now = now))
         assertTrue(kept.exists())
         assertFalse(orphan.exists())
+    }
+
+    @Test fun `presentation companions survive with originals and are collected with orphan sources`() = runBlocking {
+        val kept = photo("kept.jpg")
+        val orphan = photo("orphan.jpg")
+        val retainedDisplay = photo(QuestionPhotoFiles.output(kept.path, key).name)
+        val orphanDisplay = photo(QuestionPhotoFiles.output(orphan.path, otherKey).name)
+        ask(listOf(kept.path))
+        assertEquals(20L, janitor.sweep(now = now))
+        assertTrue(kept.isFile && retainedDisplay.isFile)
+        assertFalse(orphan.exists() || orphanDisplay.exists())
     }
 
     @Test

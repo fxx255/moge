@@ -1,6 +1,7 @@
 package com.moge.app.imaging.book
 
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /** Paper cleanup must not turn the antialiased edge of a glyph into a new black core. */
 internal object DocumentInkTone {
@@ -9,6 +10,15 @@ internal object DocumentInkTone {
     }
     private val paper = FloatArray(256) { smooth((it - 130) / 65f) }
     private val inkSupport = FloatArray(256) { smooth((145 - it) / 65f) }
+    // Neutral pixels have identical output channels. Cache the existing curve for
+    // every brightness/support pair (256 KiB) instead of repeating it per pixel.
+    private val neutralColors = IntArray(256 * 256) { index ->
+        val gray = value(index ushr 8, index and 255, 0f).roundToInt().coerceIn(0, 255)
+        (255 shl 24) or (gray shl 16) or (gray shl 8) or gray
+    }
+
+    fun neutralArgb(brightness: Int, nearbyMinimum: Int): Int =
+        neutralColors[(brightness shl 8) or nearbyMinimum]
 
     fun value(brightness: Int, nearbyMinimum: Int, chroma: Float): Float {
         val base = edgeTone[brightness]

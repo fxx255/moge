@@ -13,6 +13,23 @@ internal fun initialCropFraming(image: IntSize, viewport: IntSize): CropFraming 
     return CropFraming(zoom, Offset.Zero, visibleImageBounds(image, viewport, zoom, Offset.Zero))
 }
 
+/** Transform the photo and selection together while the frame fits inside the viewport. */
+internal fun transformLinkedCropFraming(
+    current: CropFraming, viewport: IntSize, zoom: Float, pan: Offset, focus: Offset,
+): CropFraming {
+    val factor = zoom / current.zoom
+    val center = Offset(viewport.width / 2f, viewport.height / 2f)
+    val imageOffset = current.imageOffset * factor + (focus - center) * (1f - factor) + pan
+    val crop = Rect(focus + (current.cropRect.topLeft - focus) * factor + pan,
+        focus + (current.cropRect.bottomRight - focus) * factor + pan)
+    // Keep the frame accessible without clipping it. Translate BOTH
+    // photo and frame by the same amount so their source-pixel mapping survives.
+    val left = crop.left.coerceIn(0f, (viewport.width - crop.width).coerceAtLeast(0f))
+    val top = crop.top.coerceIn(0f, (viewport.height - crop.height).coerceAtLeast(0f))
+    val correction = Offset(left - crop.left, top - crop.top)
+    return CropFraming(zoom, imageOffset + correction, crop.translate(correction))
+}
+
 /** Fit the current selection into the viewport, retaining its free aspect ratio. */
 internal fun fitCropFraming(current: CropFraming, viewport: IntSize): CropFraming {
     val crop = current.cropRect

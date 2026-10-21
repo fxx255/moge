@@ -14,6 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+// Leave a deliberate 10% overshrink margin before discarding a partial selection.
+private const val WHOLE_PHOTO_RESET_FRACTION = .9f
+
 /** Owns only the crop viewport interaction and its interruptible reframe animation. */
 @Stable
 internal class CropViewportState(private val scope: CoroutineScope) {
@@ -24,6 +27,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
     private var image = IntSize.Zero
     private var animation: Job? = null
     private var maximumZoom = 8f
+    private var selectionFollowsPhoto = false
     val zoom get() = framing.zoom
     val imageOffset get() = framing.imageOffset
     val cropRect get() = framing.cropRect
@@ -32,12 +36,14 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         interrupt()
         this.image = image
         maximumZoom = 8f
+        selectionFollowsPhoto = false
         framing = initialCropFraming(image, viewport)
     }
 
     fun resize(size: IntSize) {
         if (size == IntSize.Zero || size == viewport) return
         interrupt()
+        selectionFollowsPhoto = false
         val previous = viewport
         viewport = size
         framing = if (previous == IntSize.Zero || cropRect == Rect.Zero) initialCropFraming(image, size)
@@ -49,11 +55,33 @@ internal class CropViewportState(private val scope: CoroutineScope) {
 
     fun interrupt() { animation?.cancel(); animation = null }
 
+    fun beginGesture() {
+        interrupt()
+        selectionFollowsPhoto = false
+    }
+
     fun transform(gestureZoom: Float, pan: Offset, focus: Offset) {
         // Permit continuous pinching below the fitted size. The tiny floor only
         // keeps geometry representable; it is far below a useful viewing size.
-        val minimumZoom = minimumCropZoom(image, viewport) * .001f
+        val wholePhotoZoom = minimumCropZoom(image, viewport)
+        val minimumZoom = wholePhotoZoom * .001f
         val newZoom = (zoom * gestureZoom).coerceIn(minimumZoom, maximumZoom)
+        if (newZoom < zoom && newZoom <= wholePhotoZoom * WHOLE_PHOTO_RESET_FRACTION) {
+            // Shrinking deliberately beyond the whole-photo fitted size resets.
+            // Continue following the pinch below it; fitSelection provides
+            // the short recovery animation only after the fingers lift.
+            framing = CropFraming(newZoom, Offset.Zero, displayedImageRect(image, viewport, newZoom, Offset.Zero))
+            selectionFollowsPhoto = true
+            return
+        }
+        // After shrinking, keep incidental pan and small scale reversals linked
+        // for this gesture. Enlarging past a filled frame resumes normal zoom.
+        selectionFollowsPhoto = newZoom < zoom ||
+            (selectionFollowsPhoto && newZoom <= fitCropFraming(framing, viewport).zoom)
+        if (selectionFollowsPhoto) {
+            framing = transformLinkedCropFraming(framing, viewport, newZoom, pan, focus)
+            return
+        }
         val applied = newZoom / zoom
         val center = Offset(viewport.width / 2f, viewport.height / 2f)
         val offset = constrainImageOffset(imageOffset * applied + (focus - center) * (1f - applied) + pan,
@@ -63,6 +91,12 @@ internal class CropViewportState(private val scope: CoroutineScope) {
     }
 
     fun drag(mode: CropDragMode, delta: Offset, minimumSize: Float) {
+        if (mode == CropDragMode.PAN_IMAGE && selectionFollowsPhoto) {
+            // One finger can lift before the other at the end of a pinch.
+            framing = transformLinkedCropFraming(framing, viewport, zoom, delta, cropRect.center)
+            return
+        }
+        selectionFollowsPhoto = false
         val bounds = visibleImageBounds(image, viewport, zoom, imageOffset)
         framing = when (mode) {
             CropDragMode.PAN_IMAGE -> framing.copy(
@@ -74,6 +108,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
 
     fun fitSelection(motionEnabled: Boolean, durationMillis: Int = 180) {
         interrupt()
+        selectionFollowsPhoto = false
         val from = framing
         val target = fitCropFraming(from, viewport)
         if (target == from) return

@@ -41,7 +41,7 @@ internal fun NotebookEntryDetail(
             if (paths.isNotEmpty()) Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 paths.forEachIndexed { index, path ->
-                    PhotoThumb(path, "题目照片 ${index + 1}", { onImage(paths, index) }, Modifier.size(112.dp))
+                    PhotoThumb(path, "题目照片 ${index + 1}", { onImage(paths, index) }, Modifier.size(112.dp), preferProcessed = true)
                 }
             }
         }

@@ -9,6 +9,7 @@ import com.moge.app.data.prefs.IsolatedSettingsStore
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.ConversationMode
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.imaging.book.BookPageProcessor
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -46,20 +47,47 @@ class QuestionPhotoPreprocessorTest {
         verify(exactly = 0) { pages.render(any()) }
     }
 
-    @Test fun `enabled solve processes any photo and saves complete upright result`() = runBlocking {
+    @Test fun `enabled solve preserves model source and reuses full resolution presentation file`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
         val output = Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
         every { pages.render(original.path) } returns output
-        val stages = mutableListOf<PhotoPreparationStage>()
-        assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE, stages::add))
-        assertEquals(listOf(PhotoPreparationStage.PROCESSING), stages)
+        assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE))
+        assertEquals("original", original.readText())
+        val display = QuestionPhotoFiles.displayPath(original.path)
+        assertNotEquals(original.path, display)
+        assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE))
         verify(exactly = 1) { pages.render(original.path) }
-        val saved = BitmapFactory.decodeFile(original.path)
+        val saved = BitmapFactory.decodeFile(display)
         assertEquals(80, saved.width)
         assertEquals(120, saved.height)
         assertEquals(Color.BLUE, saved.getPixel(40, 60))
         saved.recycle()
         assertTrue(output.isRecycled)
+        // A subsequent loader/repository recreation needs no in-memory job to find the result.
+        assertEquals(display, QuestionPhotoFiles.displayPath(original.path))
+        val timestamp = original.lastModified()
+        original.writeText("recrop!!")
+        original.setLastModified(timestamp)
+        assertEquals(original.path, QuestionPhotoFiles.displayPath(original.path))
+    }
+
+    @Test fun `stale queued version and recrop during render never publish an old result`() = runBlocking {
+        val original = temporary.newFile().apply { writeText("before") }
+        val oldHash = QuestionPhotoFiles.fingerprint(original.path)!!
+        original.writeText("after!")
+        assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(original.path, ConversationMode.SOLVE, oldHash))
+        verify(exactly = 0) { pages.render(any()) }
+        val output = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
+        every { pages.render(original.path) } answers {
+            original.writeText("newest")
+            output
+        }
+        val revision = QuestionPhotoFiles.revision(original.path)
+        assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(original.path, ConversationMode.SOLVE))
+        assertTrue(output.isRecycled)
+        assertEquals(revision, QuestionPhotoFiles.revision(original.path))
+        assertTrue(QuestionPhotoFiles.companions(original.path).isEmpty())
+        assertEquals("newest", original.readText())
     }
 
     @Test fun `native failure and failed save retain original without leaving temporary files`() = runBlocking {

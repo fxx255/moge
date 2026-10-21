@@ -71,8 +71,8 @@ internal fun PhotoCropViewport(
 
 private fun DrawScope.drawCropSelection(crop: Rect, accent: Color, outline: Color) {
     fun gridLine(start: Offset, end: Offset) {
-        drawLine(outline.copy(alpha = 0.5f), start, end, 2.dp.toPx())
-        drawLine(Color.White.copy(alpha = 0.7f), start, end, 1.dp.toPx())
+        drawLine(outline.copy(alpha = 0.5f), start, end, 1.5.dp.toPx())
+        drawLine(Color.White.copy(alpha = 0.7f), start, end, 0.75.dp.toPx())
     }
     for (fraction in listOf(1f / 3f, 2f / 3f)) {
         val x = crop.left + crop.width * fraction
@@ -81,7 +81,8 @@ private fun DrawScope.drawCropSelection(crop: Rect, accent: Color, outline: Colo
         gridLine(Offset(crop.left, y), Offset(crop.right, y))
     }
     // Light and dark backing preserve contrast over both white documents and dark photos.
-    for ((color, width) in listOf(outline to 6.dp, Color.White to 4.dp, accent to 2.dp)) {
+    // One stroke draws all four sides at the same width, in either orientation.
+    for ((color, width) in listOf(outline to 4.dp, Color.White to 2.5.dp, accent to 1.25.dp)) {
         drawRect(color, crop.topLeft, crop.size, style = Stroke(width.toPx()))
     }
     val halfHandle = 12.dp.toPx()

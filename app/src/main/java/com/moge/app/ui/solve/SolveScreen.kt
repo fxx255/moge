@@ -196,7 +196,8 @@ fun SolveScreen(
         PhotoCropDialog(path, onCropped = next,
             onDismiss = { cropQueue = cropQueue.drop(1); vm.discardPhoto(path) })
     }
-    viewer?.let { (paths, index) -> PhotoViewer(paths, index.coerceAtLeast(0), onDismiss = { viewer = null }) }
+    viewer?.let { (paths, index) -> PhotoViewer(paths, index.coerceAtLeast(0), onDismiss = { viewer = null },
+        preferProcessed = paths.none { it in state.photos }) }
     exportContent?.let { content -> AnswerExportDialog(content, onDismiss = { exportContent = null }) }
     favorite?.let { target -> FavoriteDialog(target, onDismiss = { favorite = null }, onSaved = { id ->
         savedFavoriteId = id

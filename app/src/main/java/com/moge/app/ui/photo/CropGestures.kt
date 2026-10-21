@@ -19,7 +19,7 @@ internal fun Modifier.cropGestures(
         val minimumSize = 24.dp.toPx()
         awaitEachGesture {
             val first = awaitFirstDown(requireUnconsumed = false)
-            state.interrupt()
+            state.beginGesture()
             var mode = cropDragMode(first.position - contentInset, state.cropRect, handleRadius)
             var multiTouch = false
             while (true) {
@@ -30,7 +30,8 @@ internal fun Modifier.cropGestures(
                     multiTouch = true
                     val zoom = event.calculateZoom().takeIf { it.isFinite() && it > 0f } ?: 1f
                     val pan = event.calculatePan()
-                    val focus = event.calculateCentroid() - contentInset
+                    // Pan already contains the centroid's movement in this event.
+                    val focus = event.calculateCentroid(useCurrent = false) - contentInset
                     if (pan.x.isFinite() && pan.y.isFinite() && focus.x.isFinite() && focus.y.isFinite()) {
                         state.transform(zoom, pan, focus)
                     }
