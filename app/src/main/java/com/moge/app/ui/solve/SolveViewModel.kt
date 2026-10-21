@@ -21,6 +21,7 @@ import com.moge.app.domain.ConversationMode
 import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.QuestionPhotoPreparation
+import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.runtime.StoredFigureRepair
 import com.moge.app.ui.Routes
 import com.moge.app.ui.capture.CaptureBatch
@@ -506,6 +507,19 @@ class SolveViewModel @Inject constructor(
             }
         }
     }
+
+    /** Use the persisted conversation mode for both prewarming and accepting a crop. */
+    suspend fun onPhotoCropStarted(path: String) {
+        try {
+            photoPreparation.beginCrop(path, photoConversationMode())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional prewarming must not prevent opening the crop editor.
+        }
+    }
+    fun onPhotoCropClosed(path: String) = photoPreparation.endCrop(path)
+    suspend fun savePhotoCrop(path: String, edit: PhotoCropEdit) = photoPreparation.saveCrop(path, photoConversationMode(), edit)
 
     /** 裁剪界面「取消」：这张不要了。 */
     fun discardPhoto(path: String) {

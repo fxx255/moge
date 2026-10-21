@@ -77,28 +77,32 @@ private fun DrawScope.drawCropSelection(crop: Rect, accent: Color, outline: Colo
     for (fraction in listOf(1f / 3f, 2f / 3f)) {
         val x = crop.left + crop.width * fraction
         val y = crop.top + crop.height * fraction
-        gridLine(Offset(x, crop.top), Offset(x, crop.bottom))
-        gridLine(Offset(crop.left, y), Offset(crop.right, y))
+        if (crop.width >= 48.dp.toPx()) gridLine(Offset(x, crop.top), Offset(x, crop.bottom))
+        if (crop.height >= 48.dp.toPx()) gridLine(Offset(crop.left, y), Offset(crop.right, y))
     }
     // Light and dark backing preserve contrast over both white documents and dark photos.
     // One stroke draws all four sides at the same width, in either orientation.
     for ((color, width) in listOf(outline to 4.dp, Color.White to 2.5.dp, accent to 1.25.dp)) {
         drawRect(color, crop.topLeft, crop.size, style = Stroke(width.toPx()))
     }
-    val halfHandle = 12.dp.toPx()
-    fun edgeHandle(center: Offset, horizontal: Boolean) {
+    // Short edges need smaller corners and shorter bars, rather than overlapping
+    // fixed-size handles into a thick border. Hit targets remain in cropGestures.
+    val cornerRadius = minOf(9.dp.toPx(), minOf(crop.width, crop.height) / 6f)
+    fun edgeHandle(center: Offset, horizontal: Boolean, edgeLength: Float) {
+        val halfHandle = minOf(12.dp.toPx(), edgeLength / 2f - cornerRadius - 4.5.dp.toPx() - 3.dp.toPx())
+        if (halfHandle < 3.dp.toPx()) return
         val half = if (horizontal) Offset(halfHandle, 0f) else Offset(0f, halfHandle)
         for ((color, width) in listOf(outline to 9.dp, Color.White to 7.dp, accent to 5.dp)) {
             drawLine(color, center - half, center + half, width.toPx(), cap = StrokeCap.Round)
         }
     }
-    edgeHandle(Offset(crop.center.x, crop.top), horizontal = true)
-    edgeHandle(Offset(crop.center.x, crop.bottom), horizontal = true)
-    edgeHandle(Offset(crop.left, crop.center.y), horizontal = false)
-    edgeHandle(Offset(crop.right, crop.center.y), horizontal = false)
+    edgeHandle(Offset(crop.center.x, crop.top), horizontal = true, edgeLength = crop.width)
+    edgeHandle(Offset(crop.center.x, crop.bottom), horizontal = true, edgeLength = crop.width)
+    edgeHandle(Offset(crop.left, crop.center.y), horizontal = false, edgeLength = crop.height)
+    edgeHandle(Offset(crop.right, crop.center.y), horizontal = false, edgeLength = crop.height)
     for (corner in listOf(crop.topLeft, crop.topRight, crop.bottomLeft, crop.bottomRight)) {
-        drawCircle(outline, 9.dp.toPx(), corner)
-        drawCircle(Color.White, 7.dp.toPx(), corner)
-        drawCircle(accent, 5.dp.toPx(), corner)
+        drawCircle(outline, cornerRadius, corner)
+        drawCircle(Color.White, cornerRadius * 7f / 9f, corner)
+        drawCircle(accent, cornerRadius * 5f / 9f, corner)
     }
 }

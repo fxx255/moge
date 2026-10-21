@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
@@ -19,6 +20,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
@@ -37,6 +39,31 @@ class PhotoCropDialogTest {
         listOf("自由", "1:1", "4:3", "3:4", "16:9", "3:1").forEach {
             compose.onNodeWithText(it).assertDoesNotExist()
         }
+    }
+
+    @Test fun `confirm accepts only after original save callback completes and prevents double submission`() {
+        val file = photo()
+        val saving = CompletableDeferred<Unit>()
+        val releaseSave = CompletableDeferred<Unit>()
+        var accepted = 0
+        var started = 0
+        compose.setContent {
+            MogeTheme {
+                PhotoCropDialog(file.path, onCropped = { accepted++ }, onDismiss = {},
+                    onCropStarted = { started++ }, saveCrop = {
+                        saving.complete(Unit)
+                        releaseSave.await()
+                    })
+            }
+        }
+        compose.onNodeWithText("确定").performSemanticsAction(SemanticsActions.OnClick) { click -> click(); click() }
+        compose.waitUntil(5_000) { saving.isCompleted }
+        compose.onNodeWithText("保存中…").assertIsNotEnabled()
+        compose.onNodeWithText("取消").assertIsNotEnabled()
+        assertEquals(0, accepted)
+        releaseSave.complete(Unit)
+        compose.waitUntil(5_000) { accepted == 1 }
+        assertEquals(1, started)
     }
 
     @Test fun `outside touches retain the crop until the cancel button is pressed`() {

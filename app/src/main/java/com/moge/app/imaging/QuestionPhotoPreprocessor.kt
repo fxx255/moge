@@ -4,6 +4,9 @@ import android.util.Log
 import com.moge.app.core.IoDispatcher
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.image.QuestionPhotoFiles
+import com.moge.app.data.image.PreparedPhotoCrop
+import com.moge.app.data.image.decodeEditedPhoto
+import com.moge.app.data.image.writePhotoFileAtomically
 import com.moge.app.domain.ConversationMode
 import com.moge.app.imaging.book.BookPageProcessor
 import com.moge.app.imaging.book.writeBookPhoto
@@ -16,6 +19,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
+import java.io.File
 
 enum class PhotoPreparationResult { PROCESSED, SKIPPED, ORIGINAL_RETAINED }
 
@@ -33,6 +37,8 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
         path: String,
         mode: ConversationMode,
         expectedFingerprint: String? = null,
+        reusableCrop: PreparedPhotoCrop? = null,
+        publishChange: Boolean = true,
     ): PhotoPreparationResult {
         if (mode != ConversationMode.SOLVE) return PhotoPreparationResult.SKIPPED
         return try {
@@ -51,20 +57,27 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
                     if (destination.isFile && destination.length() > 0) {
                         return@withContext PhotoPreparationResult.PROCESSED
                     }
-                    val rendered = pages.render(path)
-                    try {
-                        coroutineContext.ensureActive()
-                        if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
-                            return@withContext PhotoPreparationResult.SKIPPED
-                        }
-                        writeBookPhoto(destination.path, rendered)
-                        coroutineContext.ensureActive()
-                        if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
-                            destination.delete()
-                            return@withContext PhotoPreparationResult.SKIPPED
-                        }
-                    } finally { rendered.recycle() }
-                    QuestionPhotoFiles.published(path)
+                    val prepared = reusableCrop?.preparedFile()
+                    if (prepared != null && reusableCrop.edit.isIdentity) {
+                        // Keeping the entire photo can reuse the encoded result without another decode.
+                        writePhotoFileAtomically(destination.path) { prepared.copyTo(it, overwrite = true) }
+                    } else {
+                        val reused = if (prepared != null) runCatching { decodeEditedPhoto(prepared.path, reusableCrop.edit) }.getOrNull() else null
+                        val rendered = reused ?: pages.render(path)
+                        try {
+                            coroutineContext.ensureActive()
+                            if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
+                                return@withContext PhotoPreparationResult.SKIPPED
+                            }
+                            writeBookPhoto(destination.path, rendered)
+                        } finally { rendered.recycle() }
+                    }
+                    coroutineContext.ensureActive()
+                    if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
+                        destination.delete()
+                        return@withContext PhotoPreparationResult.SKIPPED
+                    }
+                    if (publishChange) QuestionPhotoFiles.published(path)
                     PhotoPreparationResult.PROCESSED
                 }
             }
@@ -82,3 +95,8 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
         }
     }
 }
+
+private fun PreparedPhotoCrop.preparedFile(): File? = runCatching {
+    if (QuestionPhotoFiles.fingerprint(source) != fingerprint) return@runCatching null
+    QuestionPhotoFiles.output(source, fingerprint).takeIf { it.isFile && it.length() > 0 }
+}.getOrNull()

@@ -5,7 +5,7 @@ import com.moge.app.domain.ConversationMode
 /** An image without a caption continues an answered conversation unless it is clearly a new question. */
 internal object PhotoTurnPrompt {
     const val INITIAL_QUESTION =
-        "请先准确识别图片中的题目，再给出细致解答。数学公式使用 LaTeX，并写出完整推导过程。"
+        "请解答图片中的题目，并说明依据。"
 
     const val FOLLOW_UP =
         "这是本轮补充的图片。请结合前文和上一轮回答，优先处理此前待确认、要求补图或需要修正的部分，" +

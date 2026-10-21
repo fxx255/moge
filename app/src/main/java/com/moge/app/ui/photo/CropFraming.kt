@@ -8,8 +8,11 @@ import kotlin.math.min
 /** Image and frame move together; reframing must never change the selected source pixels. */
 internal data class CropFraming(val zoom: Float, val imageOffset: Offset, val cropRect: Rect)
 
+// Three percent on either side leaves room to pull a handle beyond a fitted selection.
+internal const val CROP_FIT_FRACTION = .94f
+
 internal fun initialCropFraming(image: IntSize, viewport: IntSize): CropFraming {
-    val zoom = minimumCropZoom(image, viewport)
+    val zoom = minimumCropZoom(image, viewport) * CROP_FIT_FRACTION
     return CropFraming(zoom, Offset.Zero, visibleImageBounds(image, viewport, zoom, Offset.Zero))
 }
 
@@ -34,8 +37,9 @@ internal fun transformLinkedCropFraming(
 internal fun fitCropFraming(current: CropFraming, viewport: IntSize): CropFraming {
     val crop = current.cropRect
     if (viewport.width <= 0 || viewport.height <= 0 || crop.width <= 0f || crop.height <= 0f) return current
-    val factor = min(viewport.width / crop.width, viewport.height / crop.height)
-    if (!factor.isFinite() || factor <= 1.001f || !(current.zoom * factor).isFinite()) return current
+    val factor = min(viewport.width / crop.width, viewport.height / crop.height) * CROP_FIT_FRACTION
+    if (!factor.isFinite() || factor <= 0f || kotlin.math.abs(factor - 1f) <= .001f ||
+        !(current.zoom * factor).isFinite()) return current
     val center = Offset(viewport.width / 2f, viewport.height / 2f)
     return CropFraming(
         zoom = current.zoom * factor,

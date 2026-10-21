@@ -73,6 +73,8 @@ class HomeViewModelTest {
         val path = shot()
         first.onCaptured(path)
         assertEquals(listOf(path), first.state.value.cropQueue)
+        first.onPhotoCropStarted(path)
+        verify { preparation.beginCrop(path, com.moge.app.domain.ConversationMode.CHAT) }
         verify(exactly = 0) { preparation.enqueue(listOf(path), any()) }
         vm(handle)
         verify(exactly = 0) { preparation.enqueue(listOf(path), any()) }

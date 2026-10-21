@@ -1,11 +1,8 @@
 package com.moge.app.ui.solve
 
 import android.app.Application
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.*
-import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.*
@@ -19,7 +16,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = Application::class)
 class SolveAccessibilityTest {
     @get:Rule val compose = createComposeRule()
-    @Test fun `blackboard completed answer exposes copy and regenerate actions`() {
+    @Test fun `blackboard completed answer regenerates the original request`() {
         var regenerated: String? = null
         compose.setContent {
             MogeTheme(Appearance.CHALK) {
@@ -27,9 +24,6 @@ class SolveAccessibilityTest {
                     {}, { regenerated = it }, true, { _, _ -> })
             }
         }
-        compose.onNodeWithContentDescription("复制回答").performClick()
-        val clipboard = ApplicationProvider.getApplicationContext<Context>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        assertEquals("答案为 1", clipboard.primaryClip!!.getItemAt(0).text.toString())
         compose.onNodeWithContentDescription("重新生成").performClick()
         assertEquals("r", regenerated)
     }

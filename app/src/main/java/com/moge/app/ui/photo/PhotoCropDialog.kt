@@ -1,8 +1,7 @@
 package com.moge.app.ui.photo
 
-import android.graphics.Bitmap
-import android.graphics.Rect as PixelRect
-import com.moge.app.data.image.decodePhotoCrop
+import com.moge.app.data.image.PhotoCropEdit
+import com.moge.app.data.image.applyPhotoCrop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
@@ -22,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -31,7 +31,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +52,9 @@ fun PhotoCropDialog(
     onDismiss: () -> Unit,
     /** 拍题流程里叫「重拍」；其余场景是「取消」。 */
     dismissLabel: String = "取消",
+    onCropStarted: suspend () -> Unit = {},
+    onCropClosed: () -> Unit = {},
+    saveCrop: (suspend (PhotoCropEdit) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val editor = remember(path) { CropViewportState(scope) }
@@ -66,6 +69,8 @@ fun PhotoCropDialog(
     val viewportMaxSide = cropViewportMaxSide()
     val viewport = editor.viewport
     val cropRect = editor.cropRect
+    LaunchedEffect(path) { onCropStarted() }
+    DisposableEffect(path) { onDispose { onCropClosed() } }
     LaunchedEffect(path, preview) {
         editor.reset(preview?.let { IntSize(it.width, it.height) } ?: IntSize.Zero)
         error = null
@@ -126,35 +131,36 @@ fun PhotoCropDialog(
                     TextButton(
                         enabled = preview != null && cropRect != Rect.Zero && viewport != IntSize.Zero && !saving,
                         onClick = {
+                            if (saving) return@TextButton
                             val sourcePreview = preview ?: return@TextButton
                             editor.interrupt()
                             val selected = editor.framing
                             val wholePhoto = isWholePhotoSelected(IntSize(sourcePreview.width, sourcePreview.height), viewport, selected)
-                            if (wholePhoto && quarterTurns == 0) {
+                            if (wholePhoto && quarterTurns == 0 && saveCrop == null) {
                                 onCropped()
                                 return@TextButton
                             }
                             saving = true
                             error = null
                             scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        if (wholePhoto) {
-                                            if (quarterTurns != 0) rotatePhotoAndSave(path, quarterTurns)
-                                        } else cropAndSave(
-                                            path,
-                                            sourcePreview,
-                                            viewport,
-                                            selected.zoom,
-                                            selected.imageOffset,
-                                            selected.cropRect,
-                                            quarterTurns,
-                                        )
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        val edit = if (wholePhoto) PhotoCropEdit(quarterTurns) else cropSelectionEdit(
+                                            IntSize(sourcePreview.width, sourcePreview.height), viewport,
+                                            selected.zoom, selected.imageOffset, selected.cropRect, quarterTurns)
+                                        if (saveCrop != null) saveCrop(edit) else applyPhotoCrop(path, edit)
                                     }
+                                    PhotoEdits.changed()
+                                    onCropped()
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    error = failure.message ?: "裁剪保存失败，请重试"
+                                } catch (_: OutOfMemoryError) {
+                                    error = "内存不足以保存原始分辨率，请选取较小区域后重试"
+                                } finally {
+                                    saving = false
                                 }
-                                saving = false
-                                result.onSuccess { onCropped() }
-                                    .onFailure { error = it.message ?: "裁剪保存失败，请重试" }
                             }
                         },
                     ) { Text(if (saving) "保存中…" else "确定") }
@@ -163,26 +169,6 @@ fun PhotoCropDialog(
         }
     }
 }
-
-internal fun cropAndSave(
-    path: String,
-    preview: Bitmap,
-    viewport: IntSize,
-    zoom: Float,
-    imageOffset: Offset,
-    cropRect: Rect,
-    quarterTurns: Int = 0,
-) {
-    val cropped = decodePhotoCrop(path, quarterTurns, preserveResolution = true) { width, height ->
-        val bounds = cropBoundsInSource(
-            previewSize = IntSize(preview.width, preview.height), sourceSize = IntSize(width, height),
-            viewport = viewport, zoom = zoom, imageOffset = imageOffset, cropRect = cropRect,
-        )
-        PixelRect(bounds.left, bounds.top, bounds.left + bounds.width, bounds.top + bounds.height)
-    } ?: error("无法读取照片，图片可能过大或格式不受支持")
-    try { savePhotoBitmap(path, cropped) } finally { cropped.recycle() }
-}
-
 
 /**
  * 裁剪视口（正方形）的最大边长：按窗口高度减去标题、提示和按钮来算，

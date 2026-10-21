@@ -4,12 +4,7 @@ import com.moge.app.domain.ConversationMode
 
 import androidx.compose.ui.draw.shadow
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.os.Build
 import android.os.SystemClock
-import android.widget.Toast
 import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -35,7 +30,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
@@ -59,7 +53,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -391,10 +384,9 @@ private fun AnswerFooter(
     }
 }
 
-/** 页脚操作行：用量 · 复制 · 重新生成 · 分享。 */
+/** 页脚操作行：用量 · 重新生成 · 收藏 · 分享。 */
 @Composable
 private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit, actionsEnabled: Boolean, onShare: () -> Unit, onSave: () -> Unit) {
-    val context = LocalContext.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = usageLabel(item.usageJson).orEmpty(),
@@ -402,20 +394,6 @@ private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        if (item.text.isNotBlank()) {
-            IconButton(onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val copied = if (item.finalAnswer.isBlank() || item.text.contains(item.finalAnswer)) item.text
-                    else "${item.finalAnswer}\n\n${item.text}"
-                clipboard.setPrimaryClip(ClipData.newPlainText("回答", copied))
-                // Android 13 起系统自己会弹复制提示，再弹一次就重复了。
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                }
-            }) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = "复制回答")
-            }
-        }
         item.regenerateRequestId?.let { requestId ->
             RegenerateButton(enabled = actionsEnabled) { onRegenerate(requestId) }
         }

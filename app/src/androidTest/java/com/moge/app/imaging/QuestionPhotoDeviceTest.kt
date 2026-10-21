@@ -11,12 +11,16 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.moge.app.data.image.decodePhotoBitmap
 import com.moge.app.data.image.QuestionPhotoFiles
+import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.ConversationMode
 import com.moge.app.imaging.book.BookPageProcessor
 import com.moge.app.runtime.QuestionPhotoPreparation
 import com.moge.app.runtime.QuestionPhotoPreparationWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
@@ -30,6 +34,61 @@ import java.io.File
 class QuestionPhotoDeviceTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val directory get() = File(context.filesDir, "photo-preprocess").apply { mkdirs() }
+
+    @Test fun cropPrewarmingHandsOffToRealWorkerAndPublishesOnlyLatestSelection() = runBlocking {
+        val settings = SettingsRepository(context)
+        val enabled = settings.current().questionPhotoPreprocessing
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val queue = QuestionPhotoPreparation(context, settings, scope)
+        val folder = File(directory, "crop-${java.util.UUID.randomUUID()}").apply { mkdirs() }
+        val file = File(folder, "source.png")
+        val bitmap = Bitmap.createBitmap(1200, 800, Bitmap.Config.ARGB_8888)
+        try {
+            bitmap.eraseColor(Color.rgb(225, 219, 204))
+            Canvas(bitmap).drawText("Question x + 1 = 3", 380f, 400f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 40f })
+            file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally { bitmap.recycle() }
+        val manager = WorkManager.getInstance(context)
+        val workerTag = QuestionPhotoPreparationWorker::class.java.name
+        val previous = manager.getWorkInfosByTag(workerTag).get().map { it.id }.toSet()
+        try {
+            settings.setQuestionPhotoPreprocessing(true)
+            queue.beginCrop(file.path, ConversationMode.SOLVE)
+            queue.saveCrop(file.path, ConversationMode.SOLVE, PhotoCropEdit(1, .25f, .25f, .5f, .5f))
+            queue.endCrop(file.path)
+            val obsolete = QuestionPhotoFiles.fingerprint(file.path)!!
+            queue.beginCrop(file.path, ConversationMode.SOLVE)
+            queue.saveCrop(file.path, ConversationMode.SOLVE, PhotoCropEdit(0, 0f, .25f, 1f, .5f))
+            queue.endCrop(file.path)
+            queue.enqueue(listOf(file.path), ConversationMode.SOLVE)
+            val modelInput = file.readBytes()
+            withTimeout(30_000) {
+                while (QuestionPhotoFiles.displayPath(file.path) == file.path) delay(50)
+                while (manager.getWorkInfosByTag(workerTag).get().any { it.id !in previous && !it.state.isFinished }) delay(50)
+            }
+            assertArrayEquals("Background completion must preserve the final model attachment", modelInput, file.readBytes())
+            val display = requireNotNull(decodePhotoBitmap(QuestionPhotoFiles.displayPath(file.path)))
+            try {
+                assertEquals(400, display.width)
+                assertEquals(300, display.height)
+                assertTrue(Color.red(display.getPixel(10, 10)) > 225)
+            } finally { display.recycle() }
+            assertTrue("Photo update missing: path=${file.path}, canonical=${file.canonicalPath}, " +
+                "pathRevision=${QuestionPhotoFiles.revision(file.path)}, canonicalRevision=${QuestionPhotoFiles.revision(file.canonicalPath)}",
+                QuestionPhotoFiles.revision(file.path) > 0)
+            assertNotEquals(QuestionPhotoFiles.output(file.path, obsolete).path, QuestionPhotoFiles.displayPath(file.path))
+            assertTrue("Consumed crop snapshots should be removed", folder.listFiles()!!.none { it.name.startsWith(".crop-") })
+        } finally {
+            manager.getWorkInfosByTag(workerTag).get().filter { it.id !in previous }.forEach {
+                manager.cancelWorkById(it.id).result.get()
+            }
+            scope.cancel()
+            settings.setQuestionPhotoPreprocessing(enabled)
+            folder.listFiles()?.forEach { it.delete() }
+            folder.delete()
+        }
+    }
 
     @Test fun workManagerRunsColorCleanupWithoutChangingTheModelAttachment() = runBlocking {
         val settings = SettingsRepository(context)

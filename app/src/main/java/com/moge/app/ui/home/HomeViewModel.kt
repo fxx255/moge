@@ -10,6 +10,7 @@ import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.SolveMode
 import com.moge.app.domain.ConversationMode
 import com.moge.app.runtime.QuestionPhotoPreparation
+import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.ui.Routes
 import com.moge.app.ui.capture.CaptureBatch
 import com.moge.app.ui.capture.CaptureStore
@@ -143,6 +144,11 @@ class HomeViewModel @Inject constructor(
             update { it.copy(cropQueue = it.cropQueue + imported) }
         }
     }
+
+    /** Crop interaction stays in Compose; immutable source preparation and saves belong to runtime. */
+    fun onPhotoCropStarted(path: String) = photoPreparation.beginCrop(path, conversationMode)
+    fun onPhotoCropClosed(path: String) = photoPreparation.endCrop(path)
+    suspend fun savePhotoCrop(path: String, edit: PhotoCropEdit) = photoPreparation.saveCrop(path, conversationMode, edit)
 
     /** 裁剪界面「确定」：队首照片进入照片条；队列空了就打开确认面板。 */
     fun onCropDone() {

@@ -118,8 +118,10 @@ class EndToEndGenerationTest {
             assertTrue(blocks[0]["text"]!!.jsonPrimitive.content.isNotBlank())
             assertEquals(if (protocol == AiApiProtocol.RESPONSES) "input_image" else "image_url", blocks[1]["type"]!!.jsonPrimitive.content)
             assertEquals(exchange.last(), secondMessages.last())
-            assertTrue(secondMessages.filter { it["role"]!!.jsonPrimitive.content == "system" }
-                .any { it["content"]!!.jsonPrimitive.content.contains("不必重新输出整题") })
+            val instructions = bodies[1]["instructions"]?.jsonPrimitive?.content.orEmpty() +
+                secondMessages.filter { it["role"]!!.jsonPrimitive.content == "system" }
+                    .joinToString("\n") { it["content"]!!.jsonPrimitive.content }
+            assertTrue(instructions.contains("只补充或修正受影响的部分"))
             // Rebuilding history must not relabel the initial image as a follow-up,
             // or the supplemental image as a request for a complete new solution.
             val historicalUsers = messages(2).filter { it["role"]!!.jsonPrimitive.content == "user" }

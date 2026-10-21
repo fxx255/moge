@@ -10,6 +10,8 @@ import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.ConversationMode
 import com.moge.app.data.image.QuestionPhotoFiles
+import com.moge.app.data.image.PhotoCropEdit
+import com.moge.app.data.image.PreparedPhotoCrop
 import com.moge.app.imaging.book.BookPageProcessor
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -88,6 +90,32 @@ class QuestionPhotoPreprocessorTest {
         assertEquals(revision, QuestionPhotoFiles.revision(original.path))
         assertTrue(QuestionPhotoFiles.companions(original.path).isEmpty())
         assertEquals("newest", original.readText())
+    }
+
+    @Test fun `accepting the complete photo reuses its encoded snapshot result without rendering it again`() = runBlocking {
+        val snapshot = temporary.newFile().apply { writeText("snapshot") }
+        val original = temporary.newFile().apply { writeText("snapshot") }
+        every { pages.render(snapshot.path) } returns Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888)
+        val hash = QuestionPhotoFiles.fingerprint(snapshot.path)!!
+        processor.prepare(snapshot.path, ConversationMode.SOLVE, hash, publishChange = false)
+        val prepared = QuestionPhotoFiles.output(snapshot.path, hash).readBytes()
+        assertEquals(0L, QuestionPhotoFiles.revision(snapshot.path))
+        val result = processor.prepare(original.path, ConversationMode.SOLVE, hash,
+            PreparedPhotoCrop(snapshot.path, hash, PhotoCropEdit()))
+        assertEquals(PhotoPreparationResult.PROCESSED, result)
+        assertArrayEquals(prepared, java.io.File(QuestionPhotoFiles.displayPath(original.path)).readBytes())
+        verify(exactly = 1) { pages.render(any()) }
+    }
+
+    @Test fun `missing crop snapshot falls back to processing the accepted original`() = runBlocking {
+        val original = temporary.newFile().apply { writeText("accepted crop") }
+        val snapshot = java.io.File(temporary.root, "gone")
+        val hash = QuestionPhotoFiles.fingerprint(original.path)!!
+        every { pages.render(original.path) } returns Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
+        assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE, hash,
+            PreparedPhotoCrop(snapshot.path, hash, PhotoCropEdit(0, 0f, 0f, .5f, 1f))))
+        assertNotEquals(original.path, QuestionPhotoFiles.displayPath(original.path))
+        verify(exactly = 1) { pages.render(original.path) }
     }
 
     @Test fun `native failure and failed save retain original without leaving temporary files`() = runBlocking {

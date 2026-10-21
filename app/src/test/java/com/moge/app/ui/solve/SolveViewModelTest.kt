@@ -556,6 +556,10 @@ class SolveViewModelTest {
         model.importPicked(listOf(image.uri)) { cropPaths = it }
         model.awaitState { !it.importingPhotos && cropPaths != null }
         verify(exactly = 0) { preparation.enqueue(any(), any()) }
+        model.onPhotoCropStarted(cropPaths!!.single())
+        model.savePhotoCrop(cropPaths!!.single(), com.moge.app.data.image.PhotoCropEdit())
+        verify { preparation.beginCrop(cropPaths!!.single(), com.moge.app.domain.ConversationMode.CHAT) }
+        coVerify { preparation.saveCrop(cropPaths!!.single(), com.moge.app.domain.ConversationMode.CHAT, any()) }
         assertTrue(model.uiState.value.photos.isEmpty())
         val queuedMode = CompletableDeferred<com.moge.app.domain.ConversationMode>()
         every { preparation.enqueue(cropPaths!!, any()) } answers { queuedMode.complete(secondArg()) ; Unit }

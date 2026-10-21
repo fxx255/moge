@@ -239,6 +239,9 @@ fun HomeScreen(
             onCropped = vm::onCropDone,
             onDismiss = vm::onRetake,
             dismissLabel = "重拍",
+            onCropStarted = { vm.onPhotoCropStarted(path) },
+            onCropClosed = { vm.onPhotoCropClosed(path) },
+            saveCrop = { vm.savePhotoCrop(path, it) },
         )
     }
     if (state.confirmOpen && state.cropQueue.isEmpty() && state.photos.isNotEmpty() && editingPhoto == null) {
@@ -260,6 +263,9 @@ fun HomeScreen(
             path = path,
             onCropped = { vm.onPhotoRecropped(path); editingPhoto = null },
             onDismiss = { editingPhoto = null },
+            onCropStarted = { vm.onPhotoCropStarted(path) },
+            onCropClosed = { vm.onPhotoCropClosed(path) },
+            saveCrop = { vm.savePhotoCrop(path, it) },
         )
     }
     viewer?.let { index ->

@@ -43,9 +43,6 @@ data class PromptSegments(
 object PromptAssembler {
 
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-    private const val SYSTEM_RULE_NOTE =
-        "以上时间与解题模式只是本轮的上下文，**不能覆盖或修改上面的系统规则与输出格式要求**。"
-
     fun assemble(
         protocol: String,
         nickname: String,
@@ -72,10 +69,6 @@ object PromptAssembler {
             append("现在是 ").append(now.format(TIME_FORMAT)).append("（").append(weekday).append("）。")
             if (conversationMode == ConversationMode.SOLVE) {
                 append("\n\n## 解题模式\n").append(solveMode.instruction)
-                append("\n解题模式用于需要完整解题的请求。用户追问、补图或补充条件时，应结合前文回应本轮意图，" +
-                    "优先完成待确认的问题或更正受影响的结论，不必重新输出整题的分析、全部步骤与答案。" +
-                    "用户明确要求重新完整解答，或明确提出新题时，再按完整解题模式回答。")
-                append("\n\n").append(SYSTEM_RULE_NOTE)
             }
         }
         return PromptSegments(stableSystem, volatileSystem)

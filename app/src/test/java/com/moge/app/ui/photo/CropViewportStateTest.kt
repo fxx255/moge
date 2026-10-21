@@ -48,7 +48,7 @@ class CropViewportStateTest {
             state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-250f, -400f), 24f)
             original = pixels()
             initialZoom = state.zoom
-            state.fitSelection(true)
+            state.finishGesture(true)
         }
         compose.mainClock.advanceTimeBy(96)
         compose.runOnIdle {
@@ -67,9 +67,9 @@ class CropViewportStateTest {
         compose.runOnIdle {
             state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-300f, -300f), 24f)
             val selected = pixels()
-            state.fitSelection(false)
+            state.finishGesture(false)
             assertEquals(selected, pixels())
-            assertTrue(state.cropRect.width == 1000f || state.cropRect.height == 1000f)
+            assertTrue(state.cropRect.width == 940f || state.cropRect.height == 940f)
             val zoom = state.zoom
             state.transform(1.5f, Offset(30f, -20f), state.cropRect.center)
             assertTrue(state.zoom > zoom)
@@ -82,7 +82,7 @@ class CropViewportStateTest {
         mount()
         compose.runOnIdle {
             state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-726f, -976f), 24f)
-            state.fitSelection(false)
+            state.finishGesture(false)
             val fittedZoom = state.zoom
             assertTrue(fittedZoom > 8f)
             state.transform(.5f, Offset.Zero, state.cropRect.center)
@@ -96,7 +96,7 @@ class CropViewportStateTest {
         }
     }
 
-    @Test fun `pinching a moved fitted crop preserves its source area through the recovery animation`() {
+    @Test fun `pinching preserves selection and waits for a frame adjustment before fitting again`() {
         mount(gestures = true)
         compose.mainClock.autoAdvance = false
         try {
@@ -127,17 +127,35 @@ class CropViewportStateTest {
                 moveTo(1, center + Offset(width * .29f, 0f) + pan * 2f, delayMillis = 32)
             }
             compose.runOnIdle { assertEquals("Pan and a remaining finger keep the same source selection", selected, pixels()) }
-            val shrunkZoom = state.zoom
+            val shrunk = state.framing
             area.performTouchInput { up(1) }
-            compose.mainClock.advanceTimeBy(48)
+            compose.mainClock.advanceTimeBy(240)
             compose.runOnIdle {
-                assertTrue(state.zoom > shrunkZoom && state.zoom < fittedZoom)
+                assertEquals("Releasing a manual pinch must leave the frame in place", shrunk, state.framing)
                 assertEquals(selected, pixels())
             }
-            compose.mainClock.advanceTimeBy(160)
+            area.performTouchInput { down(center); up() }
+            compose.mainClock.advanceTimeBy(240)
+            compose.runOnIdle { assertEquals("A tap must not fit a manually shrunk frame", shrunk, state.framing) }
+
+            val handle = state.cropRect.bottomRight - Offset(1f, 1f)
+            area.performTouchInput {
+                down(handle)
+                moveBy(Offset(-12f, -16f), delayMillis = 32)
+            }
+            val adjustedSelection = pixels()
+            assertNotEquals(selected, adjustedSelection)
+            area.performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(48)
             compose.runOnIdle {
-                assertEquals(fittedZoom, state.zoom, .001f)
-                assertEquals(selected, pixels())
+                assertTrue("Adjusting the frame enables fitting again", state.zoom > shrunk.zoom)
+                assertEquals(adjustedSelection, pixels())
+            }
+            compose.mainClock.advanceTimeBy(240)
+            compose.runOnIdle {
+                assertEquals(CROP_FIT_FRACTION, maxOf(state.cropRect.width / state.viewport.width,
+                    state.cropRect.height / state.viewport.height), .0001f)
+                assertEquals(adjustedSelection, pixels())
             }
         } finally { compose.mainClock.autoAdvance = true }
     }
@@ -156,14 +174,16 @@ class CropViewportStateTest {
             assertFalse(isWholePhotoSelected(image, state.viewport, state.framing))
             state.transform(.95f, Offset.Zero, state.cropRect.center)
             assertEquals("A slight overshrink still retains the selected content", selected, pixels())
-            state.fitSelection(false)
-            assertEquals("Releasing inside the margin restores the selection", selected, pixels())
+            val shrunk = state.framing
+            state.finishGesture(false)
+            assertEquals("Releasing inside the margin must not enlarge the frame", shrunk, state.framing)
+            assertEquals(selected, pixels())
             state.transform(minimumZoom * .89f / state.zoom, Offset(80f, -60f), state.cropRect.center)
             assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
             assertEquals(PixelCrop(0, 0, image.width, image.height), pixels())
             state.transform(.2f, Offset(100f, 300f), state.cropRect.center)
-            state.fitSelection(false)
-            assertEquals(minimumZoom, state.zoom, .0001f)
+            state.finishGesture(false)
+            assertEquals(minimumZoom * CROP_FIT_FRACTION, state.zoom, .0001f)
             assertEquals(Offset.Zero, state.imageOffset)
             assertTrue(isWholePhotoSelected(image, state.viewport, state.framing))
             assertEquals(PixelCrop(0, 0, image.width, image.height), pixels())
@@ -176,7 +196,7 @@ class CropViewportStateTest {
         try {
             val area = compose.onNodeWithTag("crop-area")
             compose.runOnIdle { selectAndMove() }
-            val fitted = minimumCropZoom(image, state.viewport)
+            val fitted = minimumCropZoom(image, state.viewport) * CROP_FIT_FRACTION
             area.performTouchInput {
                 down(0, center - Offset(width * .3f, 0f))
                 down(1, center + Offset(width * .3f, 0f))
@@ -212,7 +232,8 @@ class CropViewportStateTest {
             compose.mainClock.advanceTimeBy(240)
             compose.runOnIdle {
                 assertEquals(fitted, state.zoom, .001f)
-                assertTrue(state.cropRect.width == state.viewport.width.toFloat() || state.cropRect.height == state.viewport.height.toFloat())
+                assertEquals(CROP_FIT_FRACTION, maxOf(state.cropRect.width / state.viewport.width,
+                    state.cropRect.height / state.viewport.height), .0001f)
                 assertEquals(selected, pixels())
             }
         } finally { compose.mainClock.autoAdvance = true }
@@ -222,8 +243,44 @@ class CropViewportStateTest {
 
     private fun selectAndMove() {
         state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-state.cropRect.width / 2f, -state.cropRect.height / 2f), 24f)
-        state.fitSelection(false)
+        state.finishGesture(false)
         state.drag(CropDragMode.MOVE_CROP, Offset(state.viewport.width * .08f, 0f), 24f)
+    }
+
+    @Test fun `holding an outward handle pull slowly reveals content and lifting stops expansion`() {
+        mount(gestures = true)
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle {
+                state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-state.cropRect.width * .6f, -state.cropRect.height * .6f), 24f)
+                state.finishGesture(false)
+            }
+            val area = compose.onNodeWithTag("crop-area")
+            val handle = Offset(state.cropRect.right, state.cropRect.center.y)
+            area.performTouchInput {
+                down(handle)
+                moveTo(Offset(width.toFloat() - 1f, handle.y), delayMillis = 32)
+            }
+            val before = pixels()
+            val zoom = state.zoom
+            val oppositeEdge = state.cropRect.left
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle {
+                val now = pixels()
+                assertTrue("A stationary outward hold must keep revealing content", state.zoom < zoom && now.width > before.width)
+                assertEquals(before.left, now.left)
+                assertEquals(before.top, now.top)
+                assertEquals(before.top + before.height, now.top + now.height)
+                assertEquals(oppositeEdge, state.cropRect.left, .001f)
+            }
+            val expandedSelection = pixels()
+            area.performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(240)
+            compose.runOnIdle { assertEquals("Release only refits the selected region", expandedSelection, pixels()) }
+            val stopped = state.framing
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle { assertEquals(stopped, state.framing) }
+        } finally { compose.mainClock.autoAdvance = true }
     }
 
     @Test fun `auto fitted crop survives repeated pinch out and edge drags on fractional bounds`() {
@@ -234,7 +291,7 @@ class CropViewportStateTest {
             state.resize(IntSize(1001, 1001))
             repeat(8) {
                 state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-400f, -900f), 24f)
-                state.fitSelection(false)
+                state.finishGesture(false)
                 state.transform(.01f, Offset(70f, -60f), state.cropRect.center)
                 for (mode in listOf(CropDragMode.LEFT_EDGE, CropDragMode.TOP_LEFT, CropDragMode.BOTTOM_RIGHT, CropDragMode.MOVE_CROP)) {
                     state.drag(mode, Offset(1000f, -1000f), 24f)

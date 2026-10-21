@@ -12,8 +12,16 @@ object QuestionPhotoFiles {
     private const val SUFFIX = ".clean-"
     private val companionName = Regex("^(.+)\\.clean-[0-9a-f]{64}\\.png$")
     private val changes = MutableStateFlow<Map<String, Long>>(emptyMap())
-    fun revision(path: String): Long = changes.value[path] ?: 0L
-    fun observeRevision(path: String) = changes.map { it[path] ?: 0L }.distinctUntilChanged()
+    fun revision(path: String): Long = changes.value[revisionKey(path)] ?: 0L
+    fun observeRevision(path: String) = revisionKey(path).let { key ->
+        changes.map { it[key] ?: 0L }.distinctUntilChanged()
+    }
+
+    // Android can return these two aliases for the same primary-user private file.
+    // UI revision lookups must stay free of filesystem IO; only user 0 has this alias.
+    private fun revisionKey(path: String): String = if (path.startsWith("/data/user/0/")) {
+        "/data/data/" + path.removePrefix("/data/user/0/")
+    } else path
 
     /** IO only. A digest also detects recrops whose file size and timestamp happen to match. */
     internal fun fingerprint(path: String): String? {
@@ -45,7 +53,8 @@ object QuestionPhotoFiles {
 
     internal fun published(path: String) {
         // Only this photo reloads: a gallery batch must not repeatedly decode every visible image.
-        changes.update { it + (path to ((it[path] ?: 0L) + 1L)) }
+        val key = revisionKey(path)
+        changes.update { it + (key to ((it[key] ?: 0L) + 1L)) }
     }
 
     internal fun companions(path: String): List<File> {

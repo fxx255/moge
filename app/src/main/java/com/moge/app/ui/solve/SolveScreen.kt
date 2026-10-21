@@ -194,7 +194,10 @@ fun SolveScreen(
     cropQueue.firstOrNull()?.let { path ->
         val next = { cropQueue = cropQueue.drop(1); vm.addPhotos(listOf(path)) }
         PhotoCropDialog(path, onCropped = next,
-            onDismiss = { cropQueue = cropQueue.drop(1); vm.discardPhoto(path) })
+            onDismiss = { cropQueue = cropQueue.drop(1); vm.discardPhoto(path) },
+            onCropStarted = { vm.onPhotoCropStarted(path) },
+            onCropClosed = { vm.onPhotoCropClosed(path) },
+            saveCrop = { vm.savePhotoCrop(path, it) })
     }
     viewer?.let { (paths, index) -> PhotoViewer(paths, index.coerceAtLeast(0), onDismiss = { viewer = null },
         preferProcessed = paths.none { it in state.photos }) }

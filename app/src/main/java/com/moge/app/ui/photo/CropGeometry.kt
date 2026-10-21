@@ -3,9 +3,9 @@ package com.moge.app.ui.photo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
+import com.moge.app.data.image.PhotoCropEdit
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
  * 裁剪器的纯几何：视口坐标里的选框 ↔ 原图像素，以及选框的移动 / 缩放约束。
@@ -168,16 +168,15 @@ internal fun resizeCropRectWithinBounds(
 /** 屏幕选框映射回原图像素。 */
 internal data class PixelCrop(val left: Int, val top: Int, val width: Int, val height: Int)
 
-internal fun cropBoundsInSource(
+internal fun cropSelectionEdit(
     previewSize: IntSize,
-    sourceSize: IntSize,
     viewport: IntSize,
     zoom: Float,
     imageOffset: Offset,
     cropRect: Rect,
-): PixelCrop {
+    quarterTurns: Int = 0,
+): PhotoCropEdit {
     require(previewSize.width > 0 && previewSize.height > 0)
-    require(sourceSize.width > 0 && sourceSize.height > 0)
     require(viewport.width > 0 && viewport.height > 0)
     require(zoom.isFinite() && zoom > 0f)
     require(imageOffset.x.isFinite() && imageOffset.y.isFinite())
@@ -193,13 +192,19 @@ internal fun cropBoundsInSource(
     val left = (viewport.width - displayedWidth) / 2f + imageOffset.x
     val top = (viewport.height - displayedHeight) / 2f + imageOffset.y
 
-    val cropX = (((cropRect.left - left) / displayedWidth) * sourceSize.width)
-        .roundToInt().coerceIn(0, sourceSize.width - 1)
-    val cropY = (((cropRect.top - top) / displayedHeight) * sourceSize.height)
-        .roundToInt().coerceIn(0, sourceSize.height - 1)
-    val cropWidth = ((cropRect.width / displayedWidth) * sourceSize.width)
-        .roundToInt().coerceAtLeast(1).coerceAtMost(sourceSize.width - cropX)
-    val cropHeight = ((cropRect.height / displayedHeight) * sourceSize.height)
-        .roundToInt().coerceAtLeast(1).coerceAtMost(sourceSize.height - cropY)
-    return PixelCrop(cropX, cropY, cropWidth, cropHeight)
+    return PhotoCropEdit(quarterTurns,
+        ((cropRect.left - left) / displayedWidth).coerceAtLeast(0f),
+        ((cropRect.top - top) / displayedHeight).coerceAtLeast(0f),
+        (cropRect.width / displayedWidth).coerceAtMost(1f),
+        (cropRect.height / displayedHeight).coerceAtMost(1f))
+}
+
+internal fun cropBoundsInSource(
+    previewSize: IntSize, sourceSize: IntSize, viewport: IntSize,
+    zoom: Float, imageOffset: Offset, cropRect: Rect,
+): PixelCrop {
+    require(sourceSize.width > 0 && sourceSize.height > 0)
+    val bounds = cropSelectionEdit(previewSize, viewport, zoom, imageOffset, cropRect)
+        .bounds(sourceSize.width, sourceSize.height)
+    return PixelCrop(bounds.left, bounds.top, bounds.width, bounds.height)
 }

@@ -28,6 +28,13 @@ internal class CropViewportState(private val scope: CoroutineScope) {
     private var animation: Job? = null
     private var maximumZoom = 8f
     private var selectionFollowsPhoto = false
+    private var pendingFit: FitReason? = null
+
+    private enum class FitReason(val durationMillis: Int) {
+        FRAME_ADJUSTMENT(180),
+        WHOLE_PHOTO_RESET(120),
+    }
+
     val zoom get() = framing.zoom
     val imageOffset get() = framing.imageOffset
     val cropRect get() = framing.cropRect
@@ -37,6 +44,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         this.image = image
         maximumZoom = 8f
         selectionFollowsPhoto = false
+        pendingFit = null
         framing = initialCropFraming(image, viewport)
     }
 
@@ -44,6 +52,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         if (size == IntSize.Zero || size == viewport) return
         interrupt()
         selectionFollowsPhoto = false
+        pendingFit = null
         val previous = viewport
         viewport = size
         framing = if (previous == IntSize.Zero || cropRect == Rect.Zero) initialCropFraming(image, size)
@@ -66,12 +75,14 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         val wholePhotoZoom = minimumCropZoom(image, viewport)
         val minimumZoom = wholePhotoZoom * .001f
         val newZoom = (zoom * gestureZoom).coerceIn(minimumZoom, maximumZoom)
+        if (newZoom == zoom && pan == Offset.Zero) return
         if (newZoom < zoom && newZoom <= wholePhotoZoom * WHOLE_PHOTO_RESET_FRACTION) {
             // Shrinking deliberately beyond the whole-photo fitted size resets.
             // Continue following the pinch below it; fitSelection provides
             // the short recovery animation only after the fingers lift.
             framing = CropFraming(newZoom, Offset.Zero, displayedImageRect(image, viewport, newZoom, Offset.Zero))
             selectionFollowsPhoto = true
+            pendingFit = FitReason.WHOLE_PHOTO_RESET
             return
         }
         // After shrinking, keep incidental pan and small scale reversals linked
@@ -80,8 +91,14 @@ internal class CropViewportState(private val scope: CoroutineScope) {
             (selectionFollowsPhoto && newZoom <= fitCropFraming(framing, viewport).zoom)
         if (selectionFollowsPhoto) {
             framing = transformLinkedCropFraming(framing, viewport, newZoom, pan, focus)
+            // A manual pinch cancels frame fitting. Only a deliberate whole-photo
+            // reset should recover when released, including small pinch reversals.
+            if (pendingFit != FitReason.WHOLE_PHOTO_RESET || !isWholePhotoSelected(image, viewport, framing)) {
+                pendingFit = null
+            }
             return
         }
+        pendingFit = null
         val applied = newZoom / zoom
         val center = Offset(viewport.width / 2f, viewport.height / 2f)
         val offset = constrainImageOffset(imageOffset * applied + (focus - center) * (1f - applied) + pan,
@@ -91,6 +108,7 @@ internal class CropViewportState(private val scope: CoroutineScope) {
     }
 
     fun drag(mode: CropDragMode, delta: Offset, minimumSize: Float) {
+        if (delta == Offset.Zero) return
         if (mode == CropDragMode.PAN_IMAGE && selectionFollowsPhoto) {
             // One finger can lift before the other at the end of a pinch.
             framing = transformLinkedCropFraming(framing, viewport, zoom, delta, cropRect.center)
@@ -98,27 +116,58 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         }
         selectionFollowsPhoto = false
         val bounds = visibleImageBounds(image, viewport, zoom, imageOffset)
+        val previous = framing
         framing = when (mode) {
             CropDragMode.PAN_IMAGE -> framing.copy(
                 imageOffset = constrainImageOffset(imageOffset + delta, image, viewport, zoom, cropRect))
             CropDragMode.MOVE_CROP -> framing.copy(cropRect = moveCropRect(cropRect, delta, bounds))
             else -> framing.copy(cropRect = resizeCropRectWithinBounds(cropRect, mode, delta, bounds, minimumSize))
         }
+        if (framing != previous) {
+            pendingFit = if (mode == CropDragMode.PAN_IMAGE) null else FitReason.FRAME_ADJUSTMENT
+        }
     }
 
-    fun fitSelection(motionEnabled: Boolean, durationMillis: Int = 180) {
+    fun dragHandle(mode: CropDragMode, target: Offset, minimumSize: Float) {
+        drag(mode, target - mode.handlePosition(cropRect), minimumSize)
+    }
+
+    fun expandAtEdge(mode: CropDragMode, target: Offset, elapsedSeconds: Float, edgeZone: Float, minimumSize: Float) {
+        val expanded = expandCropAtEdge(framing, image, viewport, mode, target, elapsedSeconds, edgeZone, minimumSize)
+        if (expanded != framing) {
+            framing = expanded
+            pendingFit = FitReason.FRAME_ADJUSTMENT
+        }
+    }
+
+    fun finishGesture(motionEnabled: Boolean) {
+        // Keep a manually shrunk frame as-is until it is actually adjusted.
+        // A fresh touch can pause a pending fit; a tap then resumes that fit.
+        val reason = pendingFit ?: return
+        fitSelection(motionEnabled, durationMillis = reason.durationMillis)
+    }
+
+    private fun fitSelection(motionEnabled: Boolean, durationMillis: Int) {
         interrupt()
         selectionFollowsPhoto = false
         val from = framing
         val target = fitCropFraming(from, viewport)
-        if (target == from) return
+        if (target == from) {
+            pendingFit = null
+            return
+        }
         maximumZoom = maxOf(maximumZoom, target.zoom)
-        if (!motionEnabled) framing = target
+        if (!motionEnabled) {
+            framing = target
+            pendingFit = null
+        }
         else animation = scope.launch {
             animate(0f, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { progress, _ ->
                 framing = interpolateCropFraming(from, target, progress)
             }
             framing = target
+            pendingFit = null
+            animation = null
         }
     }
 }

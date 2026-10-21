@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.ui.theme.MogeTheme
@@ -61,6 +62,63 @@ class PhotoCropViewportTest {
     @Test fun `chalk handles remain visible and draggable beyond all four edges of a dark photo`() =
         verifyHandles(Appearance.CHALK, android.graphics.Color.BLACK)
 
+    @Test fun `narrow crop edges stay thin without overlapping handles in either orientation`() {
+        val photo = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.WHITE)
+        }
+        lateinit var editor: CropViewportState
+        lateinit var view: View
+        compose.setContent { MogeTheme {
+            view = LocalView.current
+            val scope = rememberCoroutineScope()
+            editor = remember { CropViewportState(scope).apply { reset(IntSize(400, 400)) } }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                PhotoCropViewport(photo, editor, saving = false, motionEnabled = false, modifier = Modifier.size(320.dp))
+            }
+        } }
+        val inner = compose.onNodeWithTag("photo-crop-viewport").fetchSemanticsNode().boundsInRoot
+        val density = view.resources.displayMetrics.density
+        try {
+            for (narrowWidth in listOf(true, false)) {
+                compose.runOnIdle {
+                    editor.reset(IntSize(400, 400))
+                    val minimum = 24f * density
+                    editor.drag(
+                        if (narrowWidth) CropDragMode.RIGHT_EDGE else CropDragMode.BOTTOM_EDGE,
+                        if (narrowWidth) Offset(minimum - editor.cropRect.width, 0f)
+                        else Offset(0f, minimum - editor.cropRect.height),
+                        minimum,
+                    )
+                }
+                val crop = editor.cropRect.translate(inner.topLeft)
+                val edges = if (narrowWidth) listOf(
+                    Offset(crop.center.x, crop.top) to Offset(0f, 4f * density),
+                    Offset(crop.center.x, crop.bottom) to Offset(0f, -4f * density),
+                ) else listOf(
+                    Offset(crop.left, crop.center.y) to Offset(4f * density, 0f),
+                    Offset(crop.right, crop.center.y) to Offset(-4f * density, 0f),
+                )
+                lateinit var bitmap: Bitmap
+                compose.runOnIdle {
+                    bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                    view.draw(Canvas(bitmap))
+                }
+                try {
+                    for ((edge, inward) in edges) {
+                        assertNotEquals("The short edge must still be visible", android.graphics.Color.WHITE,
+                            bitmap.getPixel(edge.x.toInt(), edge.y.toInt()))
+                        val inside = edge + inward
+                        assertEquals("Corner and center handles must not merge into a thick short edge",
+                            android.graphics.Color.WHITE, bitmap.getPixel(inside.x.toInt(), inside.y.toInt()))
+                    }
+                    val sample = File("build/ui-refinement-previews/crop-narrow-${if (narrowWidth) "width" else "height"}.png")
+                    sample.parentFile?.mkdirs()
+                    sample.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                } finally { bitmap.recycle() }
+            }
+        } finally { photo.recycle() }
+    }
+
     private fun verifyHandles(appearance: Appearance, background: Int) {
         val photo = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply { eraseColor(background) }
         lateinit var editor: CropViewportState
@@ -87,8 +145,9 @@ class PhotoCropViewportTest {
         try {
             // Sample the opaque handle center outside the image, away from antialiased circle edges.
             val step = 2f * density
-            val exposed = listOf(inner.topLeft + Offset(-step, -step), inner.topRight + Offset(step, -step),
-                inner.bottomLeft + Offset(-step, step), inner.bottomRight + Offset(step, step))
+            val crop = editor.cropRect.translate(inner.topLeft)
+            val exposed = listOf(crop.topLeft + Offset(-step, -step), crop.topRight + Offset(step, -step),
+                crop.bottomLeft + Offset(-step, step), crop.bottomRight + Offset(step, step))
             for (point in exposed) {
                 assertTrue("The complete handle must fit outside the photo clip", outer.contains(point))
                 assertEquals("Theme-colored handles must draw over the photo edge", accent,
@@ -98,7 +157,7 @@ class PhotoCropViewportTest {
             sample.parentFile?.mkdirs()
             sample.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             area.performTouchInput {
-                down(inner.topLeft - outer.topLeft - Offset(step, step))
+                down(crop.topLeft - outer.topLeft - Offset(step, step))
                 moveBy(Offset(28f * density, 36f * density), delayMillis = 160)
                 up()
             }
