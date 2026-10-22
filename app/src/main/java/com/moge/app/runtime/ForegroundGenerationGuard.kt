@@ -30,8 +30,11 @@ interface GenerationGuard {
     /** 释放令牌；所有出口（成功/失败/取消）都必须调用。 */
     fun release(token: String)
 
-    /** 当前受保护的请求数，供测试与诊断断言。 */
+    /** 当前持有资源租约的请求数；不代表前台服务已被系统接纳。 */
     fun activeCount(): Int
+
+    /** 留下断流时的保护状态；实现不得影响原请求的错误与取消语义。 */
+    fun recordFailure(token: String, error: Throwable) = Unit
 }
 
 /**
@@ -45,6 +48,7 @@ interface GenerationGuard {
 @Singleton
 class ForegroundGenerationGuard @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val diagnostics: BackgroundGenerationDiagnostics = BackgroundGenerationDiagnostics(context),
 ) : GenerationGuard {
 
     private val holders = ConcurrentHashMap<String, String>()
@@ -63,13 +67,13 @@ class ForegroundGenerationGuard @Inject constructor(
             val token = "$requestId#${System.nanoTime()}"
             val previous = holders.putIfAbsent(requestId, token)
             if (previous != null) return previous
-            // 启动失败时不保留持有者：activeCount() 不能虚报「已受保护」。
-            if (!startServiceSafely(conversationId)) {
-                holders.remove(requestId, token)
-            } else {
-                cpu.start()
-                wifi.start()
-            }
+            // 服务、CPU 和 Wi-Fi 是独立的保护：后台启动服务被拒绝时仍需持有其余资源。
+            // holders 只表示资源租约，实际前台状态由 Service 回执记录，不能用启动调用成功代替。
+            cpu.start()
+            wifi.start()
+            if (holders.size == 1) diagnostics.begin(cpu::isHeld, wifi::isHeld)
+            diagnostics.serviceRequested()
+            startServiceSafely(conversationId)
             return token
         }
     }
@@ -81,6 +85,8 @@ class ForegroundGenerationGuard @Inject constructor(
             if (holders.remove(requestId, token) && holders.isEmpty()) {
                 cpu.stop()
                 wifi.stop()
+                // 先结束监听，再停服务，避免正常 onDestroy 被误记成「生成中被回收」。
+                diagnostics.end()
                 stopServiceSafely()
             }
         }
@@ -88,10 +94,17 @@ class ForegroundGenerationGuard @Inject constructor(
 
     override fun activeCount(): Int = holders.size
 
-    private fun startServiceSafely(conversationId: String?): Boolean =
+    override fun recordFailure(token: String, error: Throwable) = synchronized(lock) {
+        if (holders[token.substringBeforeLast('#')] == token) diagnostics.failure(error)
+    }
+
+    private fun startServiceSafely(conversationId: String?) {
         runCatching { context.startForegroundService(KeepAliveService.intent(context, conversationId)) }
-            .onFailure { Log.w(TAG, "启动保活前台服务失败", it) }
-            .isSuccess
+            .onFailure {
+                Log.w(TAG, "启动保活前台服务失败", it)
+                diagnostics.serviceFailed(it)
+            }
+    }
 
     private fun stopServiceSafely() {
         runCatching { context.stopService(Intent(context, KeepAliveService::class.java)) }

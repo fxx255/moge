@@ -20,7 +20,7 @@ class CropEdgeExpansionTest {
         for ((mode, moving) in handles) {
             var state = CropFraming(2f, Offset.Zero, Rect(0f, 0f, 1000f, 1000f))
             val selected = pixels(state)
-            val target = mode.handlePosition(state.cropRect)
+            val target = outsideTarget(mode, state.cropRect, .08f)
             repeat(60) {
                 val previous = state
                 state = expandCropAtEdge(state, image, viewport, mode, target, 1f / 60f, 50f, 24f)
@@ -40,6 +40,27 @@ class CropEdgeExpansionTest {
         }
     }
 
+    @Test fun `all handles wait for three percent overshoot and stop again inside the margin`() {
+        val wideViewport = IntSize(1000, 600)
+        val current = CropFraming(2f, Offset.Zero, Rect(0f, 0f, 1000f, 600f))
+        for (mode in CropDragMode.entries.filter { it.isResize }) {
+            for (fraction in listOf(-.02f, 0f, .029f, .03f)) {
+                val target = outsideTarget(mode, current.cropRect, fraction)
+                assertEquals("$mode must allow ordinary resizing and the full margin", current,
+                    expandCropAtEdge(current, image, wideViewport, mode, target, .03f, 50f, 24f))
+            }
+            val justOutside = expandCropAtEdge(current, image, wideViewport, mode,
+                outsideTarget(mode, current.cropRect, .031f), .03f, 50f, 24f)
+            val furtherOutside = expandCropAtEdge(current, image, wideViewport, mode,
+                outsideTarget(mode, current.cropRect, .06f), .03f, 50f, 24f)
+            assertTrue("$mode starts gently after the threshold", justOutside.zoom < current.zoom)
+            assertTrue("$mode speeds up smoothly as the pull increases", furtherOutside.zoom < justOutside.zoom)
+            assertEquals("$mode stops when brought back into the margin", justOutside,
+                expandCropAtEdge(justOutside, image, wideViewport, mode,
+                    outsideTarget(mode, current.cropRect, .02f), .03f, 50f, 24f))
+        }
+    }
+
     @Test fun `holding at the source boundary or away from the viewport edge does not shrink`() {
         val full = initialCropFraming(image, viewport)
         assertEquals(full, expandCropAtEdge(full, image, viewport, CropDragMode.LEFT_EDGE,
@@ -53,4 +74,12 @@ class CropEdgeExpansionTest {
 
     private fun pixels(state: CropFraming) = cropBoundsInSource(image, image, viewport,
         state.zoom, state.imageOffset, state.cropRect)
+
+    private fun outsideTarget(mode: CropDragMode, viewportBounds: Rect, fraction: Float): Offset {
+        val handle = mode.handlePosition(viewportBounds)
+        return handle + Offset(
+            when (handle.x) { viewportBounds.left -> -viewportBounds.width; viewportBounds.right -> viewportBounds.width; else -> 0f },
+            when (handle.y) { viewportBounds.top -> -viewportBounds.height; viewportBounds.bottom -> viewportBounds.height; else -> 0f },
+        ) * fraction
+    }
 }

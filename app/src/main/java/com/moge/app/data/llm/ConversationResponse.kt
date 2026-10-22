@@ -30,7 +30,7 @@ class ConversationResponse(val mode: ConversationMode) {
 
     val recoveryInstruction: String get() = when (mode) {
         ConversationMode.SOLVE -> "请重新给出对原问题独立、完整的最终回答。不得只写‘见上’、‘如上’或引用内部思考。" +
-            "正文保留必要的讲解、公式与推导。严格遵守系统要求，只输出完整 JSON 对象。"
+            "按题型保留必要的解答步骤与依据，遵守当前解题模式和正文结构。严格遵守系统要求，只输出完整 JSON 对象。"
         ConversationMode.CHAT -> "请根据用户的原始请求给出完整回答，直接输出正文。"
     }
 

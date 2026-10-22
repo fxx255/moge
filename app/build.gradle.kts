@@ -53,12 +53,16 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.5.6"
+        versionCode = 37
+        versionName = "0.5.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "UPDATE_MIRROR", "\"$updateMirror\"")
+        // Periodic diagnostics can affect vendor sleep policies; use passive events by default.
+        buildConfigField("boolean", "BACKGROUND_LIVENESS_SAMPLING", providers
+            .gradleProperty("MOGE_BACKGROUND_LIVENESS_SAMPLING")
+            .map { it.toBooleanStrict().toString() }.getOrElse("false"))
 
         // 真机分发只打 arm64-v8a；debug 另加 x86_64 供模拟器使用
         ndk {

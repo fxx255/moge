@@ -94,6 +94,7 @@ fun SolveScreen(
     var selection by remember { mutableStateOf<AnswerSelection?>(null) }
     var savedFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
     val observedId = state.conversationId ?: conversationId
+    var editingTitle by rememberSaveable(observedId) { mutableStateOf(false) }
     LaunchedEffect(observedId) { onConversationObserved(observedId) }
     LaunchedEffect(state.notice) {
         if (state.notice != "已保存到题册") savedFavoriteId = null
@@ -136,7 +137,7 @@ fun SolveScreen(
     BackHandler(enabled = state.editingQuestionId != null && viewer == null && exportContent == null &&
         favorite == null && selection == null && cropQueue.isEmpty(), onBack = dismissEditing)
     PageSwipeSurface(enabled = viewer == null && exportContent == null && favorite == null &&
-        selection == null && cropQueue.isEmpty() && state.editingQuestionId == null,
+        selection == null && cropQueue.isEmpty() && state.editingQuestionId == null && !editingTitle,
         onLeft = if (existing) onSwipeNotebook else onSwipeResumeConversation,
         onRight = if (existing) onSwipeNewConversation else onSwipeHistory,
         leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
@@ -145,6 +146,8 @@ fun SolveScreen(
             conversationMode = state.conversationMode.takeIf { existing },
             newConversationMode = state.conversationMode.takeUnless { existing },
             modeSelectable = state.modeSelectable, onSelectMode = vm::selectConversationMode,
+            editingTitle = editingTitle, onTitleEditingChange = { editingTitle = it },
+            onRenameTitle = vm::renameTitle,
             onDismissEditing = dismissEditing.takeIf { state.editingQuestionId != null }, actions = {
             ConversationActions(
                 existingConversation = state.conversationId != null || conversationId != null,

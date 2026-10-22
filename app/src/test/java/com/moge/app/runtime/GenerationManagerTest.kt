@@ -77,6 +77,7 @@ class GenerationManagerTest {
         /** 释放令牌的瞬间，记录那一刻管理器仍认领着哪个请求（用于"owner 持有到 guard 释放"断言）。 */
         var onRelease: (() -> String?)? = null
         val ownerAtRelease = mutableListOf<String?>()
+        val failures = mutableListOf<Throwable>()
 
         override fun acquire(requestId: String, conversationId: String?): String {
             val token = "$requestId#1"
@@ -90,6 +91,11 @@ class GenerationManagerTest {
         }
 
         override fun activeCount(): Int = held.size
+
+        override fun recordFailure(token: String, error: Throwable) {
+            check(token in held) { "失败诊断必须在释放本轮保护之前采集" }
+            failures += error
+        }
     }
 
     /**
@@ -736,6 +742,7 @@ class GenerationManagerTest {
         manager.start(request(requestId = requestId), requestId)
         assertEquals(RequestStatus.INTERRUPTED.name, awaitTerminal(requestId))
         assertEquals("失败后不得驻留保护", 0, guard.activeCount())
+        assertEquals("HTTP 500", guard.failures.single().message)
     }
 
     @Test

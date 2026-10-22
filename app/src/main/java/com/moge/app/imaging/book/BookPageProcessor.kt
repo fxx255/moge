@@ -7,11 +7,13 @@ import javax.inject.Inject
 
 /** Full-resolution color cleanup only; photographed geometry and faint source ink stay available. */
 internal class BookPageProcessor @Inject constructor() {
-    fun render(path: String): Bitmap {
+    fun render(path: String, checkpoint: () -> Unit = {}): Bitmap {
+        checkpoint()
         check(OpenCVLoader.initLocal()) { "图像处理组件未能加载" }
         val original = decodePhotoBitmap(path, preserveResolution = true) ?: error("无法以原始分辨率读取照片")
         return try {
-            ColorDocumentEnhancer.apply(original, book = true)
+            checkpoint()
+            ColorDocumentEnhancer.apply(original, book = true, checkpoint = checkpoint)
         } finally { original.recycle() }
     }
 }

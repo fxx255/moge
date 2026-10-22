@@ -24,6 +24,7 @@ import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.ConversationMode
 import com.moge.app.imaging.QuestionPhotoPreprocessor
+import com.moge.app.imaging.PhotoWorkPriority
 import com.moge.app.imaging.book.BookPageProcessor
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -66,7 +67,8 @@ class QuestionPhotoCropPreparationTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val settings = mockk<SettingsRepository> { coEvery { current() } returns UserSettings() }
     private val pages = mockk<BookPageProcessor>()
-    private val processor = QuestionPhotoPreprocessor(settings, pages, Dispatchers.IO)
+    private val priority = PhotoWorkPriority()
+    private val processor = QuestionPhotoPreprocessor(settings, pages, Dispatchers.IO, priority)
     private val entered = CompletableDeferred<Unit>()
     private val release = CountDownLatch(1)
     private lateinit var queue: QuestionPhotoPreparation
@@ -88,8 +90,8 @@ class QuestionPhotoCropPreparationTest {
                     }
             }).build())
         work = WorkManager.getInstance(context)
-        queue = QuestionPhotoPreparation(context, settings, scope)
-        every { pages.render(any()) } answers {
+        queue = QuestionPhotoPreparation(context, settings, scope, priority)
+        every { pages.render(any(), any()) } answers {
             entered.complete(Unit)
             check(release.await(10, TimeUnit.SECONDS)) { "test render was not released" }
             val decoded = decodePhotoBitmap(firstArg(), preserveResolution = true)!!
@@ -162,12 +164,44 @@ class QuestionPhotoCropPreparationTest {
         } finally { display.recycle() }
         assertArrayEquals("Background completion must not alter model input", modelBytes, file.readBytes())
         assertTrue(QuestionPhotoFiles.revision(file.path) > 0)
-        verify(exactly = 1) { pages.render(any()) }
+        verify(exactly = 1) { pages.render(any(), any()) }
         withTimeout(5_000) {
             while (work.getWorkInfosByTag(QuestionPhotoPreparationWorker::class.java.name).get().any { !it.state.isFinished }) delay(10)
         }
         assertEquals(2, work.getWorkInfosByTag(QuestionPhotoPreparationWorker::class.java.name).get().size)
         assertTrue(temporary.root.listFiles()!!.none { it.name.startsWith(".crop-") })
+    }
+
+    @Test fun `confirm and attachment handoff do not await an unfinished source snapshot`() = runBlocking {
+        val file = photo()
+        val settingsEntered = CompletableDeferred<Unit>()
+        val allowSnapshot = CompletableDeferred<Unit>()
+        coEvery { settings.current() } coAnswers {
+            settingsEntered.complete(Unit)
+            allowSnapshot.await()
+            UserSettings()
+        }
+        queue.beginCrop(file.path, ConversationMode.SOLVE)
+        withTimeout(3_000) { settingsEntered.await() }
+        withTimeout(3_000) {
+            queue.saveCrop(file.path, ConversationMode.SOLVE, PhotoCropEdit(0, .25f, .25f, .5f, .5f))
+        }
+        val modelBytes = file.readBytes()
+        val saved = BitmapFactory.decodeFile(file.path)
+        try {
+            assertEquals(60, saved.width)
+            assertEquals(40, saved.height)
+            assertEquals(Color.rgb(30, 20, 0), saved.getPixel(0, 0))
+        } finally { saved.recycle() }
+        queue.endCrop(file.path)
+        queue.enqueue(listOf(file.path), ConversationMode.SOLVE)
+        assertFalse(entered.isCompleted)
+        allowSnapshot.complete(Unit)
+        withTimeout(5_000) { entered.await() }
+        release.countDown()
+        awaitDisplay(file).recycle()
+        assertArrayEquals(modelBytes, file.readBytes())
+        verify(exactly = 1) { pages.render(any(), any()) }
     }
 
     @Test fun `a newer recrop supersedes an unfinished accepted version without losing the latest update`() = runBlocking {
@@ -238,6 +272,6 @@ class QuestionPhotoCropPreparationTest {
         queue.saveCrop(file.path, ConversationMode.SOLVE, PhotoCropEdit(0, 0f, 0f, .5f, 1f))
         assertEquals(listOf(file.name), temporary.root.listFiles()!!.map { it.name })
         assertTrue(work.getWorkInfosByTag(QuestionPhotoPreparationWorker::class.java.name).get().isEmpty())
-        verify(exactly = 0) { pages.render(any()) }
+        verify(exactly = 0) { pages.render(any(), any()) }
     }
 }

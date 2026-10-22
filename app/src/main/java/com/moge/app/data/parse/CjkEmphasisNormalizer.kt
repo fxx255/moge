@@ -2,9 +2,11 @@ package com.moge.app.data.parse
 
 /**
  * CommonMark rejects **评分。**后文 and 前**“重点”** when punctuation touches CJK prose.
- * Encode only the adjacent CJK character as a numeric character reference: the parser sees a
- * punctuation boundary, then decodes exactly the original text. This retains bold punctuation
- * without inserting spaces or invisible characters into the displayed/copied answer.
+ * Fullwidth ASCII symbols have the same problem: **effects on sth.**＝ cannot close because
+ * ＝ is a Unicode math symbol, while its ASCII counterpart = counts as Markdown punctuation.
+ * Encode only the adjacent CJK character or fullwidth symbol as a numeric character reference:
+ * the parser sees a punctuation boundary, then decodes exactly the original text. This retains
+ * bold punctuation without inserting spaces or invisible characters into displayed/copied text.
  */
 internal fun normalizeCjkStrongEmphasis(source: String, codeRanges: List<IntRange>): String {
     if ("**" !in source) return source
@@ -63,13 +65,23 @@ private fun String.hasCodeIndentAt(index: Int): Boolean {
 
 private fun collectCjkBoundaryCharacters(source: String, opening: Int, closing: Int, encodedCharacters: MutableSet<Int>) {
     val beforeOpening = if (opening > 0) source.codePointBefore(opening) else -1
-    if (beforeOpening.isCjkLetter() && source.codePointAt(opening + 2).isMarkdownPunctuation()) {
+    if (beforeOpening.needsCjkBoundaryEncoding() && source.codePointAt(opening + 2).isMarkdownPunctuation() &&
+        !source.isEscapedMarkdownToken(opening - Character.charCount(beforeOpening))
+    ) {
         encodedCharacters += opening - Character.charCount(beforeOpening)
     }
     val afterClosing = closing + 2
     if (source.codePointBefore(closing).isMarkdownPunctuation() &&
-        afterClosing < source.length && source.codePointAt(afterClosing).isCjkLetter()
+        afterClosing < source.length && source.codePointAt(afterClosing).needsCjkBoundaryEncoding()
     ) encodedCharacters += afterClosing
+}
+
+/** Repair only fullwidth counterparts that CommonMark does not already classify as punctuation. */
+private fun Int.needsCjkBoundaryEncoding(): Boolean {
+    if (isCjkLetter()) return true
+    // Fullwidth U+FF01..U+FF5E maps to ASCII U+0021..U+007E.
+    if (this !in 0xff01..0xff5e) return false
+    return !isMarkdownPunctuation() && (this - 0xfee0).isMarkdownPunctuation()
 }
 
 private fun Int.isCjkLetter(): Boolean = this >= 0 && Character.isLetter(this) && when (Character.UnicodeScript.of(this)) {

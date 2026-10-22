@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>墨格 · 便签主题栏</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #e9e7e0; color: #243247; font: 15px/1.6 system-ui,"Microsoft YaHei",sans-serif; }
+main { max-width: 1040px; margin: auto; padding: 36px 24px; }
+h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: 1px; }
+p { margin: 0; color: #69717a; }
+.tools { display: flex; gap: 12px; align-items: center; margin: 20px 0 30px; flex-wrap: wrap; }
+button { font: inherit; cursor: pointer; border: 0; }
+button:focus-visible,textarea:focus-visible { outline: 2px solid #4668ac; outline-offset: 3px; }
+.pill { background: #f8f7f1; border: 1px solid #d0d1cd; padding: 7px 16px; border-radius: 24px; color: #1f3a8a; }
+.devices { display: flex; gap: 32px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+.sample { width: 393px; }
+.caption { font-size: 13px; letter-spacing: 2px; margin: 0 0 10px 8px; color: #606570; }
+.phone {
+    --paper: #f7f5ef; --grid: #dde4ec; --ink: #1a1b1e; --muted: #5f6570;
+    --accent: #1f3a8a; --surface: #fff; --mark: #ffe066d9; --line: #e8837b;
+    --key: #fff; --sticky: #fff3a8; --sticky-ink: #2a2300; --fold: #e3d58d;
+    position: relative; height: 720px; overflow: hidden; border: 7px solid #343735;
+    border-radius: 34px; color: var(--ink); background-color: var(--paper);
+    background-image: linear-gradient(var(--grid) .5px,transparent .5px),linear-gradient(90deg,var(--grid) .5px,transparent .5px);
+    background-size: 24px 24px; box-shadow: 0 18px 35px #262a2820;
+}
+.phone.chalk {
+    --paper: #1e2b26; --grid: #2a3a33; --ink: #ecede6; --muted: #a9b5ad;
+    --accent: #f2d675; --surface: #24332d; --mark: #f2d67577; --line: #bf7970;
+    --key: #435149; --sticky: #4a4320; --sticky-ink: #fff0b3; --fold: #605830;
+}
+.status { display: flex; justify-content: space-between; padding: 14px 20px 8px; font-size: 12px; font-weight: 600; }
+.header { position: relative; z-index: 2; padding: 5px 12px 12px 9px; background: var(--paper); }
+.normal { display: flex; gap: 6px; align-items: center; min-height: 48px; }
+.icon { background: none; color: var(--accent); width: 42px; min-width: 42px; height: 48px; border-radius: 20px; font-size: 23px; display: grid; place-items: center; }
+.viewport { flex: 1; min-width: 0; overflow: hidden; padding: 4px 0; cursor: text; user-select: none; touch-action: manipulation; }
+.track { display: flex; width: max-content; will-change: transform; }
+.track.run { animation: scroll var(--duration,17s) linear infinite; }
+.ink { position: relative; isolation: isolate; white-space: nowrap; padding: 0 5px; font: 700 25px/38px "Noto Serif SC","Songti SC","SimSun",serif; }
+.ink:before { content: ""; position: absolute; z-index: -1; left: 1px; right: 0; bottom: 2px; height: 17px; background: var(--mark); clip-path: polygon(1% 20%,99% 0,100% 87%,0 100%); }
+.gap { width: 36px; flex-shrink: 0; }
+.edit {
+    display: none; position: relative; margin-left: 43px; padding: 20px 8px 4px 16px;
+    color: var(--sticky-ink); filter: drop-shadow(0 5px 5px #0003); isolation: isolate;
+}
+.edit:before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: linear-gradient(#2a230009,transparent),var(--sticky);
+    clip-path: polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%);
+}
+.edit:after {
+    content: ""; position: absolute; top: 0; right: 0; width: 14px; height: 14px;
+    background: var(--fold); clip-path: polygon(0 0,0 100%,100% 100%); pointer-events: none;
+}
+.edit textarea {
+    display: block; width: 100%; min-height: 48px; max-height: 290px; resize: none;
+    background: none; border: 0; outline: none; color: inherit; overflow-wrap: anywhere;
+    font: 22px/1.45 "Noto Serif SC","SimSun",serif; padding: 0 8px 0 0;
+}
+.editfooter { display: flex; justify-content: flex-end; }
+.save { width: 48px; height: 48px; background: none; color: inherit; border-radius: 24px; font-size: 24px; }
+.save:hover { background: #2a23000c; }
+.edit .error { display: none; color: #b3261e; font-size: 12px; }
+.chalk .edit .error { color: #ffc3bc; }
+.phone.editing .normal { display: none; }
+.phone.editing .edit { display: block; }
+.content { padding: 20px 17px; }
+.question { background: var(--surface); border-radius: 16px; padding: 15px 16px; margin: 0 0 20px 45px; box-shadow: 0 2px 6px #0001; font-size: 14px; }
+.answer { background: var(--surface); padding: 18px 19px 24px 28px; border-radius: 4px 14px 14px 4px; position: relative; box-shadow: 0 4px 14px #0001; }
+.answer:before { content: ""; position: absolute; left: 15px; top: 16px; bottom: 16px; width: 1px; background: var(--line); }
+.answer h3 { font-size: 18px; margin: 0 0 13px; color: var(--accent); }
+.answer p { color: var(--ink); font-size: 14px; line-height: 2; margin-bottom: 10px; }
+.answer small { color: var(--muted); }
+.composer { position: absolute; bottom: 18px; left: 15px; right: 15px; padding: 12px 16px; background: var(--surface); border-radius: 24px; color: var(--muted); box-shadow: 0 2px 9px #0001; font-size: 14px; display: flex; justify-content: space-between; }
+.keyboard { display: none; position: absolute; left: 0; right: 0; bottom: 0; background: #d4d7d5; padding: 8px 5px 22px; z-index: 3; box-shadow: 0 -2px 10px #0001; }
+.chalk .keyboard { background: #2d3933; }
+.keyrow { display: flex; justify-content: center; gap: 4px; margin: 6px 0; }
+.key { border-radius: 5px; flex: 1; text-align: center; background: var(--key); color: var(--ink); box-shadow: 0 1px 0 #0003; padding: 6px 0; font-size: 15px; }
+.key.wide { flex: 2; }
+.key.space { flex: 6; }
+.keyboard label { display: block; text-align: center; font-size: 12px; color: var(--muted); padding: 0 0 5px; }
+.phone.editing .keyboard { display: block; }
+.phone.editing .composer { bottom: 249px; }
+.foot { margin: 24px 0 0; text-align: center; font-size: 12px; color: #68716e; }
+@keyframes scroll { 0%,11% { transform: translateX(0); } 94%,100% { transform: translateX(calc(-1 * var(--distance))); } }
+@media(prefers-reduced-motion:reduce) { .track.run { animation: none; } }
+body.still .track.run { animation: none; }
+</style>
+<main>
+<h1>把主题写在便签上</h1>
+<p>长按主题原位修改，长文字自动换行。右下角对勾保存，点击便签外取消。</p>
+<div class="tools">
+    <button class="pill" id="demo">展开编辑效果</button>
+    <button class="pill" id="reset">还原预览</button>
+    <label><input type="checkbox" id="still"> 关闭动画</label>
+</div>
+<div class="devices"></div>
+<p class="foot">交互样式预览 · 键盘为示意，App 中使用系统输入法</p>
+</main>
+<template id="sample">
+<section class="sample">
+    <div class="caption"></div>
+    <div class="phone">
+        <div class="status"><span>9:41</span><span>▰ ▰ ▰</span></div>
+        <header class="header">
+            <div class="normal">
+                <button class="icon" aria-label="返回">‹</button>
+                <div class="viewport" tabindex="0" role="button" aria-label="长按修改主题">
+                    <div class="track"><span class="ink"></span><span class="gap"></span><span class="ink" aria-hidden="true"></span></div>
+                </div>
+                <button class="icon" aria-label="新对话">＋</button><button class="icon" aria-label="设置">⚙</button>
+            </div>
+            <div class="edit">
+                <textarea aria-label="修改主题" rows="1"></textarea>
+                <div class="error">主题请输入 1 至 80 个字</div>
+                <div class="editfooter"><button class="save" aria-label="保存主题">✓</button></div>
+            </div>
+        </header>
+        <div class="content">
+            <div class="question">帮我整理这道阅读题的选项依据和易错点。</div>
+            <article class="answer">
+                <h3>分步解答</h3>
+                <p>先找到原文中的关键句，再比较选项所表达的因果关系与指代对象。</p>
+                <p>固定搭配 <strong>effects on sth.</strong> 表示“对……的影响”。</p>
+                <small>最终答案</small><p><strong>选 B，依据是原文第二段的转折句。</strong></p>
+            </article>
+        </div>
+        <div class="composer"><span>继续提问…</span><span>↑</span></div>
+        <div class="keyboard">
+            <label>中文 / 拼音</label>
+            <div class="keyrow"></div><div class="keyrow"></div><div class="keyrow"></div>
+            <div class="keyrow"><span class="key wide">123</span><span class="key space">空格</span><span class="key wide">完成</span></div>
+        </div>
+    </div>
+</section>
+</template>
+<script>
+const original = '英语阅读理解中长难句与选项的比较方法';
+const devices = [];
+for (const [theme, label] of [['paper', '方格纸 · 日间'], ['chalk', '黑板 · 夜间']]) {
+    const sample = document.querySelector('#sample').content.cloneNode(true);
+    const phone = sample.querySelector('.phone');
+    phone.classList.add(theme);
+    sample.querySelector('.caption').textContent = label;
+    const item = { phone, title: original, timer: null };
+    devices.push(item);
+    const viewport = phone.querySelector('.viewport');
+    const input = phone.querySelector('textarea');
+    const track = phone.querySelector('.track');
+    function fitText() {
+        input.style.height = 'auto';
+        input.style.height = input.scrollHeight + 'px';
+    }
+    function redraw() {
+        phone.querySelectorAll('.ink').forEach(el => el.textContent = item.title);
+        viewport.setAttribute('aria-label', item.title + '，长按修改');
+        requestAnimationFrame(() => {
+            track.classList.remove('run');
+            const width = track.firstElementChild.getBoundingClientRect().width;
+            if (width > viewport.clientWidth) {
+                track.style.setProperty('--distance', width + 36 + 'px');
+                track.style.setProperty('--duration', ((width + 36) / 18 + 2) + 's');
+                void track.offsetWidth;
+                track.classList.add('run');
+            }
+        });
+    }
+    item.open = () => {
+        phone.classList.add('editing');
+        input.value = item.title;
+        phone.querySelector('.error').style.display = 'none';
+        fitText();
+        requestAnimationFrame(() => { input.focus({ preventScroll: true }); input.select(); });
+    };
+    item.close = () => { phone.classList.remove('editing'); input.blur(); redraw(); };
+    item.reset = () => { item.title = original; item.close(); };
+    function save() {
+        const name = input.value.trim().replace(/\s+/g, ' ');
+        if (!name || [...name].length > 80) {
+            phone.querySelector('.error').style.display = 'block';
+            return;
+        }
+        item.title = name;
+        item.close();
+    }
+    viewport.addEventListener('pointerdown', () => { item.timer = setTimeout(item.open, 450); });
+    for (const event of ['pointerup', 'pointercancel', 'pointerleave']) {
+        viewport.addEventListener(event, () => clearTimeout(item.timer));
+    }
+    viewport.addEventListener('contextmenu', event => { event.preventDefault(); item.open(); });
+    viewport.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); item.open(); }
+    });
+    input.addEventListener('input', fitText);
+    input.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) save();
+        if (event.key === 'Escape') item.close();
+    });
+    phone.querySelector('.save').onclick = save;
+    // Capture outside presses before they can activate the composer or underlying images.
+    let consumeNextClick = false;
+    phone.addEventListener('pointerdown', event => {
+        consumeNextClick = false;
+        if (phone.classList.contains('editing') && !event.target.closest('.edit, .keyboard')) {
+            consumeNextClick = true;
+            event.preventDefault();
+            event.stopPropagation();
+            item.close();
+        }
+    }, true);
+    phone.addEventListener('click', event => {
+        if (consumeNextClick) {
+            consumeNextClick = false;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+    for (const [index, row] of ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'].entries()) {
+        const line = phone.querySelectorAll('.keyrow')[index];
+        for (const letter of row) {
+            const key = document.createElement('span');
+            key.className = 'key';
+            key.textContent = letter;
+            line.append(key);
+        }
+    }
+    document.querySelector('.devices').append(sample);
+    redraw();
+}
+document.querySelector('#demo').onclick = () => devices.forEach(item => item.open());
+document.querySelector('#reset').onclick = () => devices.forEach(item => item.reset());
+document.querySelector('#still').onchange = event => document.body.classList.toggle('still', event.target.checked);
+</script>
+</html>

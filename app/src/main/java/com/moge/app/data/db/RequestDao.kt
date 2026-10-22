@@ -283,7 +283,7 @@ interface RequestDao {
     /** 首次有效回答才命名；旧的图片占位标题允许在后续回答中补齐。 */
     @Query("""
         UPDATE conversation SET title = :title
-        WHERE id = :conversationId AND (
+        WHERE id = :conversationId AND title_user_edited = 0 AND (
             title IN ('新题目', '图片题目') OR NOT EXISTS (
                 SELECT 1 FROM message
                 WHERE conversation_id = :conversationId AND role = 'assistant'

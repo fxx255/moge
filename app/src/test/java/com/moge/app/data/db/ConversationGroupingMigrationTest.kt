@@ -174,10 +174,10 @@ class ConversationGroupingMigrationTest {
         val room = openMigratedDatabase()
         // Opening runs Room's generated schema validation and checks the registered production migration.
         val sqlite = room.openHelper.writableDatabase
-        assertEquals(6, sqlite.version)
+        assertEquals(7, sqlite.version)
         tables.forEach { table ->
             val after = rows(sqlite.query("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid"))
-            val addedColumns = setOf("document_paths", "parent_message_id", "conversation_mode") + if (table == "conversation") setOf("category_id") else emptySet()
+            val addedColumns = setOf("document_paths", "parent_message_id", "conversation_mode", "title_user_edited") + if (table == "conversation") setOf("category_id") else emptySet()
             val legacyColumns = after.map { row -> row - addedColumns }
             assertEquals(table, before.getValue(table), legacyColumns)
         }
@@ -194,13 +194,30 @@ class ConversationGroupingMigrationTest {
     fun `current installed v3 database migrates to v4 without losing records`() {
         val before = createV2Database(3)
         val sqlite = openMigratedDatabase().openHelper.writableDatabase
-        assertEquals(6, sqlite.version)
+        assertEquals(7, sqlite.version)
         tables.forEach { table ->
             val after = rows(sqlite.query("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid"))
-            assertEquals(table, before.getValue(table), after.map { it - setOf("document_paths", "parent_message_id", "conversation_mode") })
+            assertEquals(table, before.getValue(table), after.map { it - setOf("document_paths", "parent_message_id", "conversation_mode", "title_user_edited") })
             if (table in setOf("message", "request", "notebook_entry")) assertTrue(after.all { it["document_paths"] == "" })
         }
         assertGroupingSchema(sqlite)
+    }
+
+    @Test fun `installed v6 names and history survive manual title protection migration`() = runBlocking {
+        val before = createV2Database(6)
+        val room = openMigratedDatabase()
+        val sqlite = room.openHelper.writableDatabase
+        assertEquals(7, sqlite.version)
+        tables.forEach { table ->
+            val after = rows(sqlite.query("SELECT rowid AS legacy_rowid, * FROM $table ORDER BY rowid"))
+            assertEquals(table, before.getValue(table), after.map { it - "title_user_edited" })
+        }
+        val repository = ConversationRepository(room.conversationDao(), Dispatchers.Unconfined)
+        assertFalse(repository.getConversation("new")!!.titleUserEdited)
+        assertTrue(repository.rename("new", "升级后手动修改"))
+        room.requestDao().nameConversationFromAnswer("new", "future-answer", "迟到的模型标题")
+        room.close()
+        assertEquals("升级后手动修改", openMigratedDatabase().conversationDao().getConversation("new")!!.title)
     }
 
     @Test

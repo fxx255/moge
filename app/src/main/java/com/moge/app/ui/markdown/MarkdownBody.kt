@@ -87,7 +87,7 @@ internal fun StreamingMarkdownBody(content: String) {
                         .onSizeChanged { maxTailHeightPx = maxOf(maxTailHeightPx, it.height) },
                 ) {
                     // The same TextView remains mounted while the paragraph
-                    // grows. Closed formulas are parsed once, then subsequent
+                    // grows. Closed formulas and bold spans are parsed once, then subsequent
                     // source text is appended as plain text to the cached
                     // Spanned; opening another formula cannot make the first
                     // one disappear or schedule it for a fresh parse.
@@ -136,7 +136,7 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
     }
 }
 
-/** Reuse already parsed formula spans while appending the still-growing suffix. */
+/** Reuse already parsed formula and bold spans while appending the still-growing suffix. */
 internal fun renderStreamingMarkdown(
     view: TextView,
     snapshot: StreamingMarkdownSnapshot,
@@ -147,10 +147,10 @@ internal fun renderStreamingMarkdown(
     rememberMarkdownRenderSource(view, snapshot.tail, widthPx)
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
-    val prefixLength = (snapshot.mathPrefixEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length)
+    val prefixLength = (snapshot.renderedPrefixEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length)
     if (prefixLength == 0 || widthPx <= 0) {
-        // Before the first formula closes, there is no Markdown work to do.
-        // Keep the same TextView so a later formula does not swap UI types.
+        // Before the first formula or bold span closes, keep the same TextView
+        // and leave the unfinished source literal.
         view.text = snapshot.tail
         view.setTag(R.id.streaming_markdown_cache, null)
         return
@@ -169,7 +169,7 @@ internal fun renderStreamingMarkdown(
         )
         (view.tag as Markwon).toMarkdown(prepared)
     }.onFailure { error ->
-        Log.e(RENDER_LOG_TAG, "streaming formula render failed, fallback to plain text", error)
+        Log.e(RENDER_LOG_TAG, "streaming prefix render failed, fallback to plain text", error)
         appendRenderErrorLog(view.context, snapshot.tail, error)
     }.getOrNull()
     if (prefix == null) {
@@ -188,7 +188,7 @@ internal fun renderStreamingMarkdown(
         (view.tag as Markwon).setParsedMarkdown(view, combined)
         view.scrollTo(0, 0)
     }.onFailure { error ->
-        Log.e(RENDER_LOG_TAG, "streaming formula display failed, fallback to plain text", error)
+        Log.e(RENDER_LOG_TAG, "streaming prefix display failed, fallback to plain text", error)
         appendRenderErrorLog(view.context, snapshot.tail, error)
         view.text = snapshot.tail
         view.setTag(R.id.streaming_markdown_cache, null)

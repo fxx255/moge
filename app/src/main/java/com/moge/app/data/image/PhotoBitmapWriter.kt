@@ -5,6 +5,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.zip.Deflater
 
 /** Lossless edits, atomically replacing the original only after every output byte is saved. */
 internal fun writePhotoBitmap(path: String, bitmap: Bitmap) {
@@ -12,7 +13,16 @@ internal fun writePhotoBitmap(path: String, bitmap: Bitmap) {
         temporary.outputStream().use { output ->
             // JPEG quality 100 still discards detail and introduces ringing on
             // glyph edges. Decoders identify PNG from its header, not the path.
-            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "无法保存照片" }
+            if (bitmap.hasAlpha()) {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "无法保存照片" }
+            } else {
+                // A fast deflate stream retains every RGB pixel, with row-sized buffers.
+                // No OpenCV startup or full-image native copy is needed for a crop save.
+                StreamingPngWriter(output, bitmap.width, bitmap.height, Deflater.BEST_SPEED).use {
+                    it.append(bitmap)
+                    it.finish()
+                }
+            }
         }
     }
 }

@@ -11,6 +11,9 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.*
@@ -34,6 +37,7 @@ internal fun ConversationTitle(
     title: String,
     newMode: ConversationMode? = null,
     switchEnabled: Boolean = true,
+    onEditTitle: (() -> Unit)? = null,
     onSelectMode: (ConversationMode) -> Unit = {},
 ) {
     val text = when (newMode) {
@@ -49,6 +53,8 @@ internal fun ConversationTitle(
             onClickLabel = if (newMode == ConversationMode.SOLVE) "切换到对话模式" else "切换到解题模式") {
             onSelectMode(if (newMode == ConversationMode.SOLVE) ConversationMode.CHAT else ConversationMode.SOLVE)
         }.semantics { stateDescription = "${newMode.label}模式" }
+    else if (onEditTitle != null) Modifier.excludePageSwipe().testTag("conversation-title")
+        .combinedClickable(onClick = {}, onLongClickLabel = "修改对话主题", onLongClick = onEditTitle)
     else Modifier
     Box(switch.heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
         AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
@@ -73,11 +79,19 @@ internal fun ConversationTitle(
 private fun WritingTitle(title: String, animate: Boolean) {
     val motion = MogeTheme.motionEnabled
     val reveal = remember(title, animate, motion) { Animatable(if (animate && motion) 0f else 1f) }
+    val revealed by remember(reveal) { derivedStateOf { reveal.value >= 1f } }
     LaunchedEffect(reveal) {
         if (animate && motion) {
             val duration = (title.codePointCount(0, title.length) * 26).coerceIn(180, 600)
             reveal.animateTo(1f, tween(duration, easing = FastOutSlowInEasing))
         }
     }
-    HighlightedTitle(title, maxLines = 1, revealProgress = { reveal.value })
+    HighlightedTitle(title, maxLines = 1, revealProgress = { reveal.value },
+        modifier = if (motion && revealed) Modifier.basicMarquee(
+            iterations = Int.MAX_VALUE,
+            initialDelayMillis = 2_000,
+            repeatDelayMillis = 2_000,
+            spacing = MarqueeSpacing(36.dp),
+            velocity = 18.dp,
+        ) else Modifier)
 }

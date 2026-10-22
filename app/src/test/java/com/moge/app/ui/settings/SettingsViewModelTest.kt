@@ -72,7 +72,7 @@ class SettingsViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     private fun vm() = SettingsViewModel(
-        settings, credentials, client, plots, diagrams, janitor, conversations, drafts, notebook, dispatcher,
+        settings, credentials, client, plots, diagrams, janitor, conversations, drafts, notebook, mockk(relaxed = true), dispatcher,
     )
 
     private fun draft(apiKey: String = "sk-1") = ModelProfileDraft(

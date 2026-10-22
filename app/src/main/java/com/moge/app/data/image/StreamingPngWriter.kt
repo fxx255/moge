@@ -1,4 +1,4 @@
-package com.moge.app.ui.export
+package com.moge.app.data.image
 
 import android.graphics.Bitmap
 import java.io.DataOutputStream
@@ -12,10 +12,11 @@ internal class StreamingPngWriter(
     output: OutputStream,
     private val width: Int,
     private val height: Int,
+    compressionLevel: Int = Deflater.DEFAULT_COMPRESSION,
     private val checkActive: () -> Unit = {},
 ) : AutoCloseable {
     private val data = DataOutputStream(output)
-    private val compressor = Deflater()
+    private val compressor = Deflater(compressionLevel)
     private val chunks = PngDataChunks(data)
     private val compressed = DeflaterOutputStream(chunks, compressor, 32 * 1024)
     private val pixels = IntArray(width)

@@ -29,6 +29,7 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
     private val settings: SettingsRepository,
     private val pages: BookPageProcessor,
     @param:IoDispatcher private val io: CoroutineDispatcher,
+    private val priority: PhotoWorkPriority = PhotoWorkPriority(),
 ) {
     // Bound native memory across camera and gallery batches, including rapid navigation.
     private val processing = Mutex()
@@ -47,7 +48,9 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
             }
             processing.withLock {
                 withContext(io) {
-                    coroutineContext.ensureActive()
+                    val operation = coroutineContext
+                    val checkpoint = { priority.backgroundCheckpoint { operation.ensureActive() } }
+                    checkpoint()
                     val fingerprint = QuestionPhotoFiles.fingerprint(path)
                         ?: return@withContext PhotoPreparationResult.ORIGINAL_RETAINED
                     if (expectedFingerprint != null && expectedFingerprint != fingerprint) {
@@ -58,14 +61,15 @@ class QuestionPhotoPreprocessor @Inject internal constructor(
                         return@withContext PhotoPreparationResult.PROCESSED
                     }
                     val prepared = reusableCrop?.preparedFile()
+                    checkpoint()
                     if (prepared != null && reusableCrop.edit.isIdentity) {
                         // Keeping the entire photo can reuse the encoded result without another decode.
                         writePhotoFileAtomically(destination.path) { prepared.copyTo(it, overwrite = true) }
                     } else {
                         val reused = if (prepared != null) runCatching { decodeEditedPhoto(prepared.path, reusableCrop.edit) }.getOrNull() else null
-                        val rendered = reused ?: pages.render(path)
+                        val rendered = reused ?: pages.render(path, checkpoint)
                         try {
-                            coroutineContext.ensureActive()
+                            checkpoint()
                             if (QuestionPhotoFiles.fingerprint(path) != fingerprint) {
                                 return@withContext PhotoPreparationResult.SKIPPED
                             }

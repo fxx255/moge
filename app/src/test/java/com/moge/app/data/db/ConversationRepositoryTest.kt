@@ -77,4 +77,30 @@ class ConversationRepositoryTest {
         assertTrue(title.endsWith("…"))
         assertEquals(41, title.codePointCount(0, title.length))
     }
+
+    @Test fun `manual name survives a late first answer including placeholder names`() = runBlocking {
+        for ((index, name) in listOf("英语阅读易错点", "图片题目").withIndex()) {
+            val created = repository.createConversation("第一问", SolveMode.DETAILED)
+            val answerId = "answer-$index"
+            requests.createRequest(created.id, "user-$index", answerId, "att-$index", "第一问", emptyList(), "")
+            assertTrue(repository.rename(created.id, name))
+            db.requestDao().nameConversationFromAnswer(created.id, answerId, "模型自动命名")
+            assertEquals(name, repository.getConversation(created.id)!!.title)
+            assertTrue(repository.getConversation(created.id)!!.titleUserEdited)
+        }
+        val automatic = repository.createConversation("第一问", SolveMode.DETAILED)
+        db.requestDao().nameConversationFromAnswer(automatic.id, "answer", "模型自动命名")
+        assertEquals("模型自动命名", repository.getConversation(automatic.id)!!.title)
+    }
+
+    @Test fun `manual names normalize whitespace and count full unicode characters`() = runBlocking {
+        val created = repository.createConversation("题目", SolveMode.DETAILED)
+        assertTrue(repository.rename(created.id, "  英语\n\t 阅读  "))
+        assertEquals("英语 阅读", repository.getConversation(created.id)!!.title)
+        assertTrue(repository.rename(created.id, "😀".repeat(80)))
+        for (invalid in listOf(" \n\t", "😀".repeat(81))) {
+            assertTrue(runCatching { repository.rename(created.id, invalid) }.exceptionOrNull() is IllegalArgumentException)
+        }
+        assertEquals("😀".repeat(80), repository.getConversation(created.id)!!.title)
+    }
 }

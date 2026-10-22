@@ -19,7 +19,7 @@ import javax.inject.Singleton
 @Database(
     entities = [ConversationEntity::class, MessageEntity::class, RequestEntity::class,
         NotebookCategoryEntity::class, NotebookEntryEntity::class, BranchSelectionEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(InstantConverters::class)
@@ -29,6 +29,11 @@ abstract class MogeDatabase : RoomDatabase() {
     abstract fun notebookDao(): NotebookDao
 
     companion object {
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversation ADD COLUMN title_user_edited INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_5_6: Migration = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE conversation ADD COLUMN conversation_mode TEXT NOT NULL DEFAULT 'SOLVE'")
@@ -96,7 +101,8 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MogeDatabase =
         Room.databaseBuilder(context, MogeDatabase::class.java, "moge.db")
-            .addMigrations(MogeDatabase.MIGRATION_2_3, MogeDatabase.MIGRATION_3_4, MogeDatabase.MIGRATION_4_5, MogeDatabase.MIGRATION_5_6)
+            .addMigrations(MogeDatabase.MIGRATION_2_3, MogeDatabase.MIGRATION_3_4, MogeDatabase.MIGRATION_4_5,
+                MogeDatabase.MIGRATION_5_6, MogeDatabase.MIGRATION_6_7)
             .build()
 
     @Provides

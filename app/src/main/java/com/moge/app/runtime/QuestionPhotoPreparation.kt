@@ -17,6 +17,7 @@ import com.moge.app.data.image.PreparedPhotoCrop
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.domain.ConversationMode
 import com.moge.app.imaging.QuestionPhotoPreprocessor
+import com.moge.app.imaging.PhotoWorkPriority
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -38,8 +39,9 @@ class QuestionPhotoPreparation @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
     @param:ApplicationScope private val scope: CoroutineScope,
+    priority: PhotoWorkPriority = PhotoWorkPriority(),
 ) {
-    private val crops = QuestionPhotoCropPreparation(settings, scope, this)
+    private val crops = QuestionPhotoCropPreparation(settings, scope, this, priority)
 
     fun beginCrop(path: String, mode: ConversationMode) = crops.begin(path, mode)
     fun endCrop(path: String) = crops.end(path)
@@ -53,6 +55,7 @@ class QuestionPhotoPreparation @Inject constructor(
             try {
                 if (!settings.current().questionPhotoPreprocessing) return@launch
                 for (path in paths.distinct()) {
+                    crops.awaitHandoff(path)
                     val source = File(path).canonicalPath
                     val hash = QuestionPhotoFiles.fingerprint(source) ?: continue
                     val output = QuestionPhotoFiles.output(source, hash)

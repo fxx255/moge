@@ -283,6 +283,21 @@ class SolveViewModel @Inject constructor(
         saveDraft()
     }
 
+    /** The inline editor owns focus; this callback only persists to the current conversation. */
+    suspend fun renameTitle(title: String): Boolean {
+        val id = conversationId.value ?: return false
+        return try {
+            conversationRepository.rename(id, title).also { renamed ->
+                if (!renamed) notice.value = "这个对话已被删除"
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            notice.value = error.message ?: "主题修改失败，请重试"
+            false
+        }
+    }
+
     fun selectConversationMode(mode: ConversationMode) {
         if (!draftLoaded.value || conversationId.value != null || submitting.value || importingPhotos.value) return
         selectedMode.value = mode

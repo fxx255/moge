@@ -21,6 +21,8 @@ internal class GenerationWakeLock(
     private var wakeLock: PowerManager.WakeLock? = null
     private var renewal: Job? = null
 
+    fun isHeld(): Boolean = synchronized(lock) { wakeLock?.isHeld == true }
+
     fun start() = synchronized(lock) {
         acquireSafely()
         if (renewal?.isActive == true) return@synchronized

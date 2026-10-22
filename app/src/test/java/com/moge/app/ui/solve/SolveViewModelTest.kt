@@ -167,6 +167,20 @@ class SolveViewModelTest {
 
     private lateinit var lastHandle: SavedStateHandle
 
+    @Test fun `inline title rename updates the observed conversation and rejects deleted records`() = runBlocking<Unit> {
+        val created = conversations.createConversation("原主题", SolveMode.DETAILED)
+        val model = vm(created.id)
+        model.awaitState { it.title == "原主题" }
+        assertTrue(model.renameTitle("手动整理的英语笔记"))
+        model.awaitState { it.title == "手动整理的英语笔记" }
+        assertEquals("手动整理的英语笔记", vm(created.id).awaitState { it.title == "手动整理的英语笔记" }.title)
+        assertFalse(model.renameTitle("  "))
+        assertEquals("手动整理的英语笔记", conversations.getConversation(created.id)!!.title)
+        conversations.discardIfEmpty(created.id)
+        assertFalse(model.renameTitle("不能恢复删除的对话"))
+        model.awaitState { it.notice == "这个对话已被删除" }
+    }
+
     /** 私有 photos 目录里的一张真实（非空）照片。 */
     private fun photo(name: String = "p"): String =
         captureStore.newCameraFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }.absolutePath

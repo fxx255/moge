@@ -40,6 +40,9 @@ data class ConversationEntity(
     /** [com.moge.app.domain.ConversationMode.name]; immutable after the first send. */
     @ColumnInfo(name = "conversation_mode", defaultValue = "'SOLVE'")
     val conversationMode: String = "SOLVE",
+    /** Late model replies must not overwrite a name saved by the user. */
+    @ColumnInfo(name = "title_user_edited", defaultValue = "0")
+    val titleUserEdited: Boolean = false,
 )
 
 /** 会话里的一条消息。会话删除时级联删除。 */

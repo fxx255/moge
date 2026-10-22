@@ -259,8 +259,12 @@ class CropViewportStateTest {
             val handle = Offset(state.cropRect.right, state.cropRect.center.y)
             area.performTouchInput {
                 down(handle)
-                moveTo(Offset(width.toFloat() - 1f, handle.y), delayMillis = 32)
+                moveTo(Offset(width * 1.02f, handle.y), delayMillis = 32)
             }
+            val insideMargin = state.framing
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle { assertEquals("A small overshoot must not zoom even during a hold", insideMargin, state.framing) }
+            area.performTouchInput { moveTo(Offset(width * 1.08f, handle.y), delayMillis = 32) }
             val before = pixels()
             val zoom = state.zoom
             val oppositeEdge = state.cropRect.left

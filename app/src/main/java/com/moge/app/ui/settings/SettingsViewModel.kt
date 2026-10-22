@@ -18,6 +18,7 @@ import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
 import com.moge.app.runtime.AttachmentJanitor
 import com.moge.app.runtime.DraftStore
+import com.moge.app.runtime.BackgroundGenerationDiagnostics
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -67,6 +68,7 @@ class SettingsViewModel @Inject constructor(
     private val conversations: ConversationRepository,
     private val drafts: DraftStore,
     private val notebook: NotebookRepository,
+    private val backgroundDiagnostics: BackgroundGenerationDiagnostics,
     @param:IoDispatcher private val io: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -107,6 +109,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     // ---------------- 偏好与外观 ----------------
+
+    suspend fun backgroundGenerationReport(): String = withContext(io) { backgroundDiagnostics.report() }
 
     fun setAppearance(value: Appearance) {
         viewModelScope.launch { settings.setAppearance(value) }

@@ -6,7 +6,7 @@ package com.moge.app.ui.markdown
  * The id is based on the answer generation and the source offset.  As more text
  * arrives, an already committed piece keeps the same id, so its AndroidView is
  * kept alive and is not rendered again.  The last (unfinished) piece is kept in
- * [StreamingMarkdownSnapshot.tail].  A closed formula prefix inside that tail
+ * [StreamingMarkdownSnapshot.tail].  A closed formula or bold prefix inside that tail
  * is exposed separately so the UI can cache its parsed spans while leaving the
  * still-growing suffix as plain text.
  */
@@ -20,8 +20,8 @@ internal data class StreamingMarkdownSnapshot(
     val tail: String,
     val tailStart: Int = 0,
     val tailId: Long = 0,
-    /** Absolute source offset through the last safe, closed formula in tail. */
-    val mathPrefixEnd: Int = 0,
+    /** Absolute source offset through the last safe, closed formula or bold span in tail. */
+    val renderedPrefixEnd: Int = 0,
 )
 
 /**
@@ -32,7 +32,7 @@ internal data class StreamingMarkdownSnapshot(
  * has been reached:
  *
  *  * a blank line (paragraph/list/table boundary), or
- *  * a closed formula prefix inside the current paragraph.
+ *  * a closed formula or bold prefix inside the current paragraph.
  *
  * The scanner never sends an unterminated formula, code fence, or half table to
  * Markwon.  That prevents a stream update from replacing a valid drawable with
@@ -66,7 +66,7 @@ internal class StreamingMarkdownTokenizer {
             return StreamingMarkdownSnapshot(
                 emptyList(), content,
                 tailId = generation * GENERATION_KEY_STRIDE,
-                mathPrefixEnd = safeMathPrefixEnd(scan, content, 0),
+                renderedPrefixEnd = safeRenderedPrefixEnd(scan, content, 0),
             )
         }
 
@@ -104,14 +104,14 @@ internal class StreamingMarkdownTokenizer {
         return StreamingMarkdownSnapshot(
             blocks, tail, start,
             tailId = generation * GENERATION_KEY_STRIDE + start.toLong(),
-            mathPrefixEnd = safeMathPrefixEnd(scan, content, start),
+            renderedPrefixEnd = safeRenderedPrefixEnd(scan, content, start),
         )
     }
 
-    private fun safeMathPrefixEnd(scan: ScanResult, content: String, tailStart: Int): Int {
+    private fun safeRenderedPrefixEnd(scan: ScanResult, content: String, tailStart: Int): Int {
         val tail = content.substring(tailStart)
         // A growing GFM table must stay plain until its blank-line boundary.
-        // A closed formula before the table may remain rendered, but a formula
+        // A closed inline span before the table may remain rendered, but one
         // inside a partial table must not trigger a table reparse per token.
         val lines = tail.lineSequence().toList()
         var lineOffset = 0
@@ -131,7 +131,7 @@ internal class StreamingMarkdownTokenizer {
         if (scan.mathDelimiter != MathDelimiter.NONE && scan.openMathStart >= tailStart) {
             return scan.openMathStart
         }
-        return scan.closedMathEnds.lastOrNull { end ->
+        return scan.closedInlineEnds.lastOrNull { end ->
             end > tailStart && end <= tableStart && !isPipeLine(scan, content, end)
         } ?: tailStart
     }
@@ -147,7 +147,7 @@ internal class StreamingMarkdownTokenizer {
         val lastSafeCut: Int,
         val inCodeFence: Boolean,
         val mathDelimiter: MathDelimiter,
-        val closedMathEnds: List<Int>,
+        val closedInlineEnds: List<Int>,
         val openMathStart: Int,
         val tablePipes: List<Int>,
     )
@@ -167,12 +167,14 @@ internal class StreamingMarkdownTokenizer {
         var index = 0
         var lineStart = true
         var lastSafe = 0
-        val closedMathEnds = ArrayList<Int>()
+        val closedInlineEnds = ArrayList<Int>()
         var openMathStart = -1
         val tablePipes = ArrayList<Int>()
+        var codeTicks = 0
+        var strongOpening = -1
 
         while (index < content.length) {
-            if (lineStart && math == MathDelimiter.NONE) {
+            if (lineStart && math == MathDelimiter.NONE && codeTicks == 0) {
                 val marker = fenceMarkerAt(content, index)
                 if (marker != null) {
                     fence = if (fence == null) marker.token else if (fence == marker.token) null else fence
@@ -197,6 +199,28 @@ internal class StreamingMarkdownTokenizer {
                 continue
             }
 
+            // Inline code is literal, including its asterisks and dollars. A
+            // different backtick run does not close it. Blank paragraphs reset
+            // incomplete inline code, just as they do in CommonMark.
+            if (math == MathDelimiter.NONE && content[index] == '`' && !content.isEscaped(index)) {
+                var end = index + 1
+                while (content.getOrNull(end) == '`') end++
+                val count = end - index
+                codeTicks = when (codeTicks) {
+                    0 -> count
+                    count -> 0
+                    else -> codeTicks
+                }
+                index = end
+                lineStart = false
+                continue
+            }
+            if (codeTicks > 0 && content[index] != '\n') {
+                index++
+                lineStart = false
+                continue
+            }
+
             // Math delimiters must be checked before ordinary backslashes and
             // dollars.  Escaped delimiters remain ordinary source text.
             when (math) {
@@ -204,7 +228,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("\\)", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedMathEnds += index
+                        closedInlineEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -214,7 +238,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("\\]", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedMathEnds += index
+                        closedInlineEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -224,7 +248,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("$$", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedMathEnds += index
+                        closedInlineEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -234,7 +258,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content[index] == '$' && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index++
-                        closedMathEnds += index
+                        closedInlineEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -243,7 +267,24 @@ internal class StreamingMarkdownTokenizer {
                 MathDelimiter.NONE -> Unit
             }
 
-            if (math == MathDelimiter.NONE) {
+            if (math == MathDelimiter.NONE && codeTicks == 0) {
+                // This only finds a safe render boundary. Markwon still owns
+                // emphasis parsing, nesting, punctuation and escaped markers.
+                if (content[index] == '*' && !content.isEscaped(index)) {
+                    var end = index + 1
+                    while (content.getOrNull(end) == '*') end++
+                    if (end - index == 2) {
+                        if (strongOpening >= 0 && index > strongOpening + 2 && !content[index - 1].isWhitespace()) {
+                            closedInlineEnds += end
+                            strongOpening = -1
+                        } else if (content.getOrNull(end)?.isWhitespace() == false) {
+                            strongOpening = index
+                        }
+                    }
+                    index = end
+                    lineStart = false
+                    continue
+                }
                 if (content[index] == '|' && !content.isEscaped(index)) tablePipes += index
                 if (content.startsWith("\\(", index) && !content.isEscaped(index)) {
                     math = MathDelimiter.PAREN
@@ -285,6 +326,8 @@ internal class StreamingMarkdownTokenizer {
                     // would make the plain-text suffix start with an extra
                     // visible line break.
                     while (content.getOrNull(index) == '\n') index++
+                    codeTicks = 0
+                    strongOpening = -1
                     lastSafe = index
                     cuts += index
                 }
@@ -295,7 +338,7 @@ internal class StreamingMarkdownTokenizer {
             }
         }
 
-        return ScanResult(cuts, lastSafe, fence != null, math, closedMathEnds, openMathStart, tablePipes)
+        return ScanResult(cuts, lastSafe, fence != null, math, closedInlineEnds, openMathStart, tablePipes)
     }
 
     private data class FenceMarker(val start: Int, val token: String)

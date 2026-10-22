@@ -21,10 +21,13 @@ class MarkdownPreparationTest {
 
     @Test fun cjkBoldBoundariesAreRepairedIdempotentlyWithoutChangingCodeMathOrEscapedMarkers() {
         val protected = "`前**“代码。”**后`\n\n```text\n前**“代码。”**后\n```\n\n" +
+            "`**effects on sth.**＝`\n\n```text\n**effects on sth.**＝\n```\n\n" +
+            "\$\$\\text{**effects on sth.**＝}\$\$\n\n" +
+            """\＝**(保留反斜杠)**、\*\*effects on sth.\*\*＝""" + "\n\n" +
             "    前**“缩进代码。”**后\n\n\t前**“制表符缩进代码。”**后\n\n" +
             "\$\$\\text{前**“公式。”**后}\$\$\n\n" +
             """前\*\*“转义。”\*\*后""" + "\n\n**未闭合。后\n\n**正常加粗**，前**正常**后\n\n"
-        val prose = "前**“重点。”**后"
+        val prose = "前**“重点。”**后\n\n固定搭配 **effects on sth.**＝对……的影响。"
         assertEquals(protected, prepareReplyMarkdown(protected))
         val prepared = prepareReplyMarkdown(protected + prose)
         assertTrue(prepared.startsWith(protected))

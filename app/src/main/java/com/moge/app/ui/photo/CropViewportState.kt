@@ -132,8 +132,8 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         drag(mode, target - mode.handlePosition(cropRect), minimumSize)
     }
 
-    fun expandAtEdge(mode: CropDragMode, target: Offset, elapsedSeconds: Float, edgeZone: Float, minimumSize: Float) {
-        val expanded = expandCropAtEdge(framing, image, viewport, mode, target, elapsedSeconds, edgeZone, minimumSize)
+    fun expandAtEdge(mode: CropDragMode, target: Offset, elapsedSeconds: Float, zoomRampDistance: Float, minimumSize: Float) {
+        val expanded = expandCropAtEdge(framing, image, viewport, mode, target, elapsedSeconds, zoomRampDistance, minimumSize)
         if (expanded != framing) {
             framing = expanded
             pendingFit = FitReason.FRAME_ADJUSTMENT

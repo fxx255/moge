@@ -20,7 +20,8 @@ internal object ColorDocumentEnhancer {
     private fun correctChannel(channel: Int, light: Byte): Int =
         correctedChannels[(channel shl 8) or (light.toInt() and 255)]
 
-    fun apply(bitmap: Bitmap, boundary: List<Corner>? = null, book: Boolean = false): Bitmap {
+    fun apply(bitmap: Bitmap, boundary: List<Corner>? = null, book: Boolean = false, checkpoint: () -> Unit = {}): Bitmap {
+        checkpoint()
         val scale = min(1.0, ANALYSIS_EDGE.toDouble() / max(bitmap.width, bitmap.height))
         val small = Bitmap.createScaledBitmap(bitmap, max(1, (bitmap.width * scale).roundToInt()),
             max(1, (bitmap.height * scale).roundToInt()), true)
@@ -44,6 +45,7 @@ internal object ColorDocumentEnhancer {
 
             // Closing estimates the paper above small glyphs, unlike a blur that averages ink
             // into the paper. It is used only for illumination; never morph the actual text.
+            checkpoint()
             Imgproc.morphologyEx(rgb, background, Imgproc.MORPH_CLOSE, kernel)
             background.get(0, 0, bytes)
             val values = FloatArray(rgb.rows() * rgb.cols() * 4)
@@ -65,6 +67,7 @@ internal object ColorDocumentEnhancer {
                 }
             }
             field.create(rgb.rows(), rgb.cols(), CvType.CV_32FC4); field.put(0, 0, values)
+            checkpoint()
             Imgproc.GaussianBlur(field, smooth, Size(), max(rgb.rows(), rgb.cols()) / 22.0)
             smooth.get(0, 0, values)
             val white = Mat(rgb.rows(), rgb.cols(), CvType.CV_32F)
@@ -82,17 +85,19 @@ internal object ColorDocumentEnhancer {
                 values[p * 4 + 3] = 255f
             }
             if (book) {
+                checkpoint()
                 WarmPaperShadowModel.fit(bytes)?.refine(bytes, values)
             }
             field.put(0, 0, values)
             if (book) {
+                checkpoint()
                 BookPageModel.refineGutter(rgb, background, field)
             }
             field.convertTo(field, CvType.CV_8U)
             rgb.release(); background.release(); smooth.release()
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             output = result
-            render(bitmap, result, field)
+            render(bitmap, result, field, checkpoint)
             PaperBoundary.whitenCanvas(result, boundary)
             // All pixels have now been written with alpha 255. Mark the completed
             // image opaque so PNG can omit its redundant alpha channel.
@@ -102,7 +107,7 @@ internal object ColorDocumentEnhancer {
         finally { listOf(rgba, rgb, background, field, smooth, kernel).forEach { it.release() } }
     }
 
-    private fun render(input: Bitmap, output: Bitmap, field: Mat) {
+    private fun render(input: Bitmap, output: Bitmap, field: Mat, checkpoint: () -> Unit) {
         val width = input.width
         val radius = (max(input.width, input.height) / 900).coerceIn(1, 3)
         // Halo rows keep the nearby-ink mask continuous across stripe boundaries.
@@ -115,6 +120,7 @@ internal object ColorDocumentEnhancer {
         val sx = field.cols().toDouble() / width; val sy = field.rows().toDouble() / input.height
         try {
             for (y in 0 until input.height step STRIPE_ROWS) {
+                checkpoint()
                 val rows = min(STRIPE_ROWS, input.height - y)
                 val start = max(0, y - radius); val end = min(input.height, y + rows + radius); val count = end - start
                 transform.put(0, 0, sx, 0.0, (sx - 1) / 2, 0.0, sy, (start + .5) * sy - .5)

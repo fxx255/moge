@@ -11,6 +11,9 @@ internal class GenerationWifiLock(context: Context) {
     private var wifiLock: WifiManager.WifiLock? = null
 
     @Synchronized
+    fun isHeld(): Boolean = wifiLock?.isHeld == true
+
+    @Synchronized
     @Suppress("DEPRECATION")
     fun start() {
         // Android 14+ maps HIGH_PERF to LOW_LATENCY, which is inactive with the screen off.

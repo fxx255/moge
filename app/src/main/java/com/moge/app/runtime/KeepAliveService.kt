@@ -27,29 +27,35 @@ import dagger.hilt.components.SingletonComponent
  */
 class KeepAliveService : Service() {
 
-    private var generationManager: GenerationManager? = null
+    private var diagnostics: BackgroundGenerationDiagnostics? = null
+
+    private fun entryPoint(): KeepAliveEntryPoint =
+        EntryPointAccessors.fromApplication(applicationContext, KeepAliveEntryPoint::class.java)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        // 注入失败也不该让服务崩溃（保活是尽力而为）。
-        generationManager = runCatching {
-            EntryPointAccessors.fromApplication(applicationContext, KeepAliveEntryPoint::class.java)
-                .generationManager()
-        }.onFailure { Log.w(TAG, "注入生成管理器失败，超时回调将无法取消网络", it) }.getOrNull()
-        runCatching {
+        // 先进入前台，再访问业务依赖；不能让依赖初始化占用系统给服务的启动期限。
+        val foreground = runCatching {
             ensureChannel(this)
-            val notification = buildNotification(generationManager?.activeConversationId())
+            val notification = buildNotification(null)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-        }.onFailure {
-            Log.w(TAG, "系统拒绝前台保活，生成仍由应用管理器持有", it)
-            stopSelf()
         }
+        diagnostics = runCatching { entryPoint().backgroundDiagnostics() }
+            .onFailure { Log.w(TAG, "获取后台诊断器失败", it) }.getOrNull()
+        foreground.fold(
+            onSuccess = { diagnostics?.serviceReady(this) },
+            onFailure = {
+                Log.w(TAG, "系统拒绝前台保活，生成仍由应用管理器持有", it)
+                diagnostics?.serviceFailed(it)
+                stopSelf()
+            },
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,8 +85,14 @@ class KeepAliveService : Service() {
     /** 取消网络与落 INTERRUPTED 交给管理器自己的作用域，服务随即停止。 */
     private fun handleTimeout() {
         Log.w(TAG, "前台服务超时：中断活动请求并停止服务")
-        generationManager?.onForegroundServiceTimeout()
+        runCatching { entryPoint().generationManager().onForegroundServiceTimeout() }
+            .onFailure { Log.w(TAG, "前台服务超时收尾失败", it) }
         stopSelf()
+    }
+
+    override fun onDestroy() {
+        diagnostics?.serviceDestroyed(this)
+        super.onDestroy()
     }
 
     private fun buildNotification(conversationId: String?): Notification =
@@ -143,4 +155,6 @@ class KeepAliveService : Service() {
 @InstallIn(SingletonComponent::class)
 interface KeepAliveEntryPoint {
     fun generationManager(): GenerationManager
+    fun generationGuard(): GenerationGuard
+    fun backgroundDiagnostics(): BackgroundGenerationDiagnostics
 }

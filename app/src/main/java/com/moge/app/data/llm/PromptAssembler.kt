@@ -69,6 +69,9 @@ object PromptAssembler {
             append("现在是 ").append(now.format(TIME_FORMAT)).append("（").append(weekday).append("）。")
             if (conversationMode == ConversationMode.SOLVE) {
                 append("\n\n## 解题模式\n").append(solveMode.instruction)
+                append("\n追问、补图或补充条件时，结合前文，围绕本轮问题作答。")
+                append("\n用户明确指定正文格式或只要答案时按其要求安排内容，外层 JSON 格式保持不变。")
+                append("\n时间与解题模式不改变系统规定的 JSON 协议和正文边界。")
             }
         }
         return PromptSegments(stableSystem, volatileSystem)

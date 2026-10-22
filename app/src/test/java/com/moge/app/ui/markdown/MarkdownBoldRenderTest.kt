@@ -8,6 +8,7 @@ import io.noties.markwon.Markwon
 import com.moge.app.data.parse.normalizeReplyMarkdown
 import com.moge.app.data.parse.prepareReplyMarkdown
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -58,6 +59,86 @@ class MarkdownBoldRenderTest {
 
     private fun boldSpans(text: Spanned): List<Any> =
         text.getSpans(0, text.length, boldSpanClass).toList()
+
+    @Test
+    fun `原文中的全角等号不阻止英文句号后的加粗闭合`() {
+        val source = "固定搭配 **effects on sth.**＝对……的影响。"
+        val view = createMarkdownTextView(ctx, 0xFF000000.toInt(), 0xFF0000FF.toInt(), selectable = false)
+        renderMarkdown(view, source, 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
+        val text = view.text as Spanned
+        assertEquals("固定搭配 effects on sth.＝对……的影响。", text.toString())
+        val span = boldSpans(text).single()
+        assertEquals("effects on sth.", selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)))
+        assertEquals(text.toString(), selectedMarkdownText(text, 0, text.length))
+        renderStreamingMarkdown(view, StreamingMarkdownTokenizer().update(source), 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
+        val streamed = view.text as Spanned
+        assertEquals(text.toString(), streamed.toString())
+        val streamedBold = boldSpans(streamed).single()
+        assertEquals("effects on sth.", selectedMarkdownText(streamed, streamed.getSpanStart(streamedBold), streamed.getSpanEnd(streamedBold)))
+    }
+
+    @Test
+    fun `英文搭配句末句号与等号相邻时仍能加粗`() {
+        for (source in listOf(
+            "6. **on**: 固定搭配 **effects on sth.** = 对……的影响。",
+            "6. **on**: 固定搭配 **effects on sth.**= 对……的影响。",
+            "6. **on**: 固定搭配 **effects on sth.**＝对……的影响。",
+        )) {
+            val text = render(prepareReplyMarkdown(source))
+            assertTrue("加粗标记应被消费，实际文本: $text", !text.contains("**"))
+            assertEquals(source, listOf("on", "effects on sth."), boldSpans(text).sortedBy(text::getSpanStart).map {
+                text.substring(text.getSpanStart(it), text.getSpanEnd(it))
+            })
+        }
+    }
+
+    @Test
+    fun `全角符号与加粗相邻时保留原字符和独立的样式范围`() {
+        for (symbol in listOf("＝", "＋", "＄", "｜", "～")) {
+            val text = render(prepareReplyMarkdown("$symbol**(短语)**、**句末.**${symbol}后文"))
+            assertEquals("${symbol}(短语)、句末.${symbol}后文", text.toString())
+            assertEquals(listOf("(短语)", "句末."), boldSpans(text).sortedBy(text::getSpanStart).map {
+                text.substring(text.getSpanStart(it), text.getSpanEnd(it))
+            })
+        }
+    }
+
+    @Test
+    fun `流式末段中的完整英文加粗不用等空行才渲染`() {
+        val source = "6. **on**: 固定搭配 **effects on sth.** = 对……的影响。"
+        val view = createMarkdownTextView(ctx, 0xFF000000.toInt(), 0xFF0000FF.toInt(), selectable = false)
+        val tokenizer = StreamingMarkdownTokenizer()
+        for (end in listOf(source.indexOf("effects") + 4, source.length)) {
+            renderStreamingMarkdown(view, tokenizer.update(source.take(end)), 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
+        }
+        assertTrue("完整的加粗不应留在纯文本尾段: ${view.text}", !view.text.contains("**"))
+        val text = view.text as Spanned
+        assertEquals(listOf("on", "effects on sth."), boldSpans(text).sortedBy(text::getSpanStart).map {
+            text.substring(text.getSpanStart(it), text.getSpanEnd(it))
+        })
+        assertTrue(text.endsWith(" = 对……的影响。"))
+        val span = boldSpans(text).maxBy(text::getSpanStart)
+        assertEquals("effects on sth.", selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)))
+        renderStreamingMarkdown(view, tokenizer.update(source + "继续说明"), 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
+        val appended = view.text as Spanned
+        assertSame("追加普通文字应复用已经渲染的加粗", span, boldSpans(appended).maxBy(appended::getSpanStart))
+    }
+
+    @Test
+    fun `流式加粗包裹公式时保留两种样式且后续半截公式保持原样`() {
+        val view = createMarkdownTextView(ctx, 0xFF000000.toInt(), 0xFF0000FF.toInt(), selectable = false)
+        val source = "**系数 \$2t\$**，后续 \$x+"
+        renderStreamingMarkdown(view, StreamingMarkdownTokenizer().update(source), 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
+        val text = view.text as Spanned
+        val formula = text.getSpans(0, text.length, BaselineLatexSpan::class.java).single()
+        val bold = boldSpans(text).single()
+        assertEquals("2t", formula.drawable.destination)
+        assertTrue(text.getSpanStart(bold) <= text.getSpanStart(formula))
+        assertTrue(text.getSpanEnd(bold) >= text.getSpanEnd(formula))
+        assertTrue(text.contains("，后续"))
+        assertTrue(text.endsWith("\$x+"))
+        assertTrue(!text.contains("**"))
+    }
 
     @Test
     fun `评分句末标点后的中文不应阻止双星号闭合`() {

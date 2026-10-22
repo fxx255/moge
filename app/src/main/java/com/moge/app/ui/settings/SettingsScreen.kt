@@ -141,7 +141,7 @@ fun SettingsScreen(
                 onAutoCleanup = vm::setHistoryAutoCleanupEnabled,
                 onRetentionDays = vm::setHistoryRetentionDays,
             )
-            BackgroundGenerationSection()
+            BackgroundGenerationSection(report = vm::backgroundGenerationReport)
             SettingsSection("关于与更新") {
                 TextButton(onClick = { updating = true }) { Text("版本与检查更新") }
             }

@@ -238,7 +238,7 @@ interface ConversationDao {
     )
     suspend fun deleteIfEmpty(id: String): Int
 
-    @Query("UPDATE conversation SET title = :title, updated_at = :updatedAt WHERE id = :id")
+    @Query("UPDATE conversation SET title = :title, title_user_edited = 1, updated_at = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Instant): Int
 
     @Query("UPDATE conversation SET pinned = :pinned WHERE id = :id")

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
@@ -24,7 +23,9 @@ internal fun FloatingPaperToolbar(
     toolbar: @Composable ColumnScope.() -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    SubcomposeLayout(modifier.clipToBounds()) { constraints ->
+    // Only the scrolling body is clipped below. The raised toolbar's shadow must
+    // be able to extend above this viewport into the paper behind the page title.
+    SubcomposeLayout(modifier) { constraints ->
         val header = subcompose(FloatingToolbarSlot.Toolbar) {
             Column(Modifier.fillMaxWidth()
                 // The toolbar owns its hit region while cards scroll underneath.

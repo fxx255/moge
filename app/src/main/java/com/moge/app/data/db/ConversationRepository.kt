@@ -3,6 +3,7 @@ package com.moge.app.data.db
 import com.moge.app.core.IoDispatcher
 import com.moge.app.domain.SolveMode
 import com.moge.app.domain.ConversationMode
+import com.moge.app.domain.ConversationName
 import com.moge.app.data.prefs.UserSettings
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -41,9 +42,7 @@ class ConversationRepository @Inject constructor(
     suspend fun setPinned(id: String, pinned: Boolean) = withContext(io) { dao.setPinned(id, pinned) }
 
     suspend fun rename(id: String, title: String): Boolean = withContext(io) {
-        val cleaned = title.trim()
-        require(cleaned.isNotEmpty()) { "标题不能为空" }
-        require(cleaned.codePointCount(0, cleaned.length) <= 80) { "标题最多 80 个字" }
+        val cleaned = ConversationName.normalize(title)
         dao.rename(id, cleaned, Instant.now()) > 0
     }
 

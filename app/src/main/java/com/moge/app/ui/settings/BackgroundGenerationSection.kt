@@ -1,6 +1,8 @@
 package com.moge.app.ui.settings
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
@@ -17,6 +19,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -25,11 +28,13 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun BackgroundGenerationSection() {
+internal fun BackgroundGenerationSection(report: suspend () -> String) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     fun notificationsAllowed() = NotificationManagerCompat.from(context).areNotificationsEnabled()
     fun unrestricted() = runCatching {
@@ -68,6 +73,13 @@ internal fun BackgroundGenerationSection() {
                         else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                             Uri.parse("package:${context.packageName}")))
                 }) { Text(if (battery) "后台运行设置" else "允许息屏联网") }
+                TextButton(onClick = {
+                    scope.launch {
+                        val text = report()
+                        context.getSystemService(ClipboardManager::class.java)
+                            ?.setPrimaryClip(ClipData.newPlainText("后台生成诊断", text))
+                    }
+                }) { Text("复制后台诊断") }
             }
         }
     }

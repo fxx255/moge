@@ -20,7 +20,7 @@ internal fun Modifier.cropGestures(
     if (saving) return@pointerInput
     val handleRadius = 30.dp.toPx()
     val minimumSize = 24.dp.toPx()
-    val edgeZone = 24.dp.toPx()
+    val zoomRampDistance = 24.dp.toPx()
     coroutineScope {
         awaitEachGesture {
             val first = awaitFirstDown(requireUnconsumed = false)
@@ -35,7 +35,7 @@ internal fun Modifier.cropGestures(
                 while (true) {
                     val now = withFrameNanos { it }
                     if (!multiTouch && pullingOutwards && mode.isResize) {
-                        state.expandAtEdge(mode, target, (now - previous) / 1_000_000_000f, edgeZone, minimumSize)
+                        state.expandAtEdge(mode, target, (now - previous) / 1_000_000_000f, zoomRampDistance, minimumSize)
                     }
                     previous = now
                 }

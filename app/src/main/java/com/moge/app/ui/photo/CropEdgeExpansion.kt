@@ -5,6 +5,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.exp
 
+// Reaching the viewport edge is still a normal resize. Require a deliberate
+// extra pull of three percent on that axis before revealing hidden photo pixels.
+internal const val CROP_EDGE_OVERSHOOT_FRACTION = .03f
+
 internal val CropDragMode.isResize: Boolean get() = this != CropDragMode.PAN_IMAGE && this != CropDragMode.MOVE_CROP
 private val CropDragMode.left: Boolean get() = this == CropDragMode.LEFT_EDGE || this == CropDragMode.TOP_LEFT || this == CropDragMode.BOTTOM_LEFT
 private val CropDragMode.right: Boolean get() = this == CropDragMode.RIGHT_EDGE || this == CropDragMode.TOP_RIGHT || this == CropDragMode.BOTTOM_RIGHT
@@ -30,21 +34,24 @@ internal fun resizeCropToHandle(crop: Rect, mode: CropDragMode, target: Offset, 
 /** Reveal hidden source pixels with a time-based zoom, anchored at the untouched edge/corner. */
 internal fun expandCropAtEdge(
     current: CropFraming, image: IntSize, viewport: IntSize, mode: CropDragMode,
-    target: Offset, elapsedSeconds: Float, edgeZone: Float, minimumSize: Float,
+    target: Offset, elapsedSeconds: Float, zoomRampDistance: Float, minimumSize: Float,
 ): CropFraming {
-    if (!mode.isResize || edgeZone <= 0f || elapsedSeconds <= 0f || current.cropRect == Rect.Zero) return current
+    if (!mode.isResize || zoomRampDistance <= 0f || elapsedSeconds <= 0f || current.cropRect == Rect.Zero) return current
     val crop = current.cropRect
     val full = displayedImageRect(image, viewport, current.zoom, current.imageOffset)
-    fun pressure(distance: Float) = (1f - distance / edgeZone).coerceIn(0f, 1f)
+    // Use the unclamped handle target, not its last visible position. The dead
+    // zone is stable across frames, and pulling back into it stops zooming.
+    fun pressure(overshoot: Float, axisSize: Int) =
+        ((overshoot - axisSize * CROP_EDGE_OVERSHOOT_FRACTION) / zoomRampDistance).coerceIn(0f, 1f)
     // Stop at the real image boundary, even if a finger keeps pulling out of the viewport.
     val horizontal = when {
-        mode.left && crop.left > full.left + .01f && target.x <= crop.left + .5f -> pressure(target.x)
-        mode.right && crop.right < full.right - .01f && target.x >= crop.right - .5f -> pressure(viewport.width - target.x)
+        mode.left && crop.left > full.left + .01f && target.x <= crop.left + .5f -> pressure(-target.x, viewport.width)
+        mode.right && crop.right < full.right - .01f && target.x >= crop.right - .5f -> pressure(target.x - viewport.width, viewport.width)
         else -> 0f
     }
     val vertical = when {
-        mode.top && crop.top > full.top + .01f && target.y <= crop.top + .5f -> pressure(target.y)
-        mode.bottom && crop.bottom < full.bottom - .01f && target.y >= crop.bottom - .5f -> pressure(viewport.height - target.y)
+        mode.top && crop.top > full.top + .01f && target.y <= crop.top + .5f -> pressure(-target.y, viewport.height)
+        mode.bottom && crop.bottom < full.bottom - .01f && target.y >= crop.bottom - .5f -> pressure(target.y - viewport.height, viewport.height)
         else -> 0f
     }
     val strength = maxOf(horizontal, vertical)

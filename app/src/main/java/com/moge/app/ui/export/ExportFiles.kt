@@ -1,5 +1,7 @@
 package com.moge.app.ui.export
 
+import com.moge.app.data.image.StreamingPngWriter
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas

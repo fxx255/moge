@@ -774,6 +774,7 @@ class GenerationManager @Inject constructor(
         } catch (error: Throwable) {
             // 运行阶段的失败由它自己处理（内部已 catch Throwable 并广播），
             // 这里只兜准备阶段的异常。
+            token?.let { guard.recordFailure(it, error) }
             settleFailureOnce(owner, record, describePreparationError(error), classify(error), "")
         } finally {
             // 令牌**只释放一次**：runGeneration 在 guardToken 非空时不释放，
@@ -878,6 +879,7 @@ class GenerationManager @Inject constructor(
             settleStoppedOnce(owner, record, prefix)
             throw cancelledError
         } catch (error: Throwable) {
+            token?.let { guard.recordFailure(it, error) }
             settleFailureOnce(owner, record, describePreparationError(error), classify(error), prefix)
         } finally {
             token?.let(guard::release)
@@ -1494,6 +1496,7 @@ class GenerationManager @Inject constructor(
             throw cancelledError
         } catch (error: Throwable) {
             timer.markInterrupted()
+            guard.recordFailure(token, error)
             val kind = classify(error)
             val message = error.message ?: "未知错误"
             diagnostics.record(

@@ -4,6 +4,8 @@
 
     <!-- 模型请求、用户检查与下载版本更新 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 记录断流时网络是否丢失或被系统阻止，不读取网络名称或地址。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 生成期间的前台服务保活（dataSync），以及它的进度通知 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

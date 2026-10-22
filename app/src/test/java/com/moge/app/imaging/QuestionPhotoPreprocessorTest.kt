@@ -46,19 +46,19 @@ class QuestionPhotoPreprocessorTest {
         coVerify(exactly = 0) { settings.current() }
         coEvery { settings.current() } returns UserSettings(questionPhotoPreprocessing = false)
         assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare("unused", ConversationMode.SOLVE))
-        verify(exactly = 0) { pages.render(any()) }
+        verify(exactly = 0) { pages.render(any(), any()) }
     }
 
     @Test fun `enabled solve preserves model source and reuses full resolution presentation file`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
         val output = Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
-        every { pages.render(original.path) } returns output
+        every { pages.render(original.path, any()) } returns output
         assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE))
         assertEquals("original", original.readText())
         val display = QuestionPhotoFiles.displayPath(original.path)
         assertNotEquals(original.path, display)
         assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE))
-        verify(exactly = 1) { pages.render(original.path) }
+        verify(exactly = 1) { pages.render(original.path, any()) }
         val saved = BitmapFactory.decodeFile(display)
         assertEquals(80, saved.width)
         assertEquals(120, saved.height)
@@ -78,9 +78,9 @@ class QuestionPhotoPreprocessorTest {
         val oldHash = QuestionPhotoFiles.fingerprint(original.path)!!
         original.writeText("after!")
         assertEquals(PhotoPreparationResult.SKIPPED, processor.prepare(original.path, ConversationMode.SOLVE, oldHash))
-        verify(exactly = 0) { pages.render(any()) }
+        verify(exactly = 0) { pages.render(any(), any()) }
         val output = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
-        every { pages.render(original.path) } answers {
+        every { pages.render(original.path, any()) } answers {
             original.writeText("newest")
             output
         }
@@ -95,7 +95,7 @@ class QuestionPhotoPreprocessorTest {
     @Test fun `accepting the complete photo reuses its encoded snapshot result without rendering it again`() = runBlocking {
         val snapshot = temporary.newFile().apply { writeText("snapshot") }
         val original = temporary.newFile().apply { writeText("snapshot") }
-        every { pages.render(snapshot.path) } returns Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888)
+        every { pages.render(snapshot.path, any()) } returns Bitmap.createBitmap(80, 120, Bitmap.Config.ARGB_8888)
         val hash = QuestionPhotoFiles.fingerprint(snapshot.path)!!
         processor.prepare(snapshot.path, ConversationMode.SOLVE, hash, publishChange = false)
         val prepared = QuestionPhotoFiles.output(snapshot.path, hash).readBytes()
@@ -104,27 +104,27 @@ class QuestionPhotoPreprocessorTest {
             PreparedPhotoCrop(snapshot.path, hash, PhotoCropEdit()))
         assertEquals(PhotoPreparationResult.PROCESSED, result)
         assertArrayEquals(prepared, java.io.File(QuestionPhotoFiles.displayPath(original.path)).readBytes())
-        verify(exactly = 1) { pages.render(any()) }
+        verify(exactly = 1) { pages.render(any(), any()) }
     }
 
     @Test fun `missing crop snapshot falls back to processing the accepted original`() = runBlocking {
         val original = temporary.newFile().apply { writeText("accepted crop") }
         val snapshot = java.io.File(temporary.root, "gone")
         val hash = QuestionPhotoFiles.fingerprint(original.path)!!
-        every { pages.render(original.path) } returns Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
+        every { pages.render(original.path, any()) } returns Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
         assertEquals(PhotoPreparationResult.PROCESSED, processor.prepare(original.path, ConversationMode.SOLVE, hash,
             PreparedPhotoCrop(snapshot.path, hash, PhotoCropEdit(0, 0f, 0f, .5f, 1f))))
         assertNotEquals(original.path, QuestionPhotoFiles.displayPath(original.path))
-        verify(exactly = 1) { pages.render(original.path) }
+        verify(exactly = 1) { pages.render(original.path, any()) }
     }
 
     @Test fun `native failure and failed save retain original without leaving temporary files`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
-        every { pages.render(original.path) } throws UnsatisfiedLinkError("native unavailable")
+        every { pages.render(original.path, any()) } throws UnsatisfiedLinkError("native unavailable")
         assertEquals(PhotoPreparationResult.ORIGINAL_RETAINED, processor.prepare(original.path, ConversationMode.SOLVE))
         assertEquals("original", original.readText())
         val output = mockk<Bitmap>(relaxed = true) { every { compress(any(), any(), any()) } returns false }
-        every { pages.render(original.path) } returns output
+        every { pages.render(original.path, any()) } returns output
         assertEquals(PhotoPreparationResult.ORIGINAL_RETAINED, processor.prepare(original.path, ConversationMode.SOLVE))
         assertEquals("original", original.readText())
         assertEquals(listOf(original.name), temporary.root.listFiles()!!.map { it.name })
@@ -133,13 +133,13 @@ class QuestionPhotoPreprocessorTest {
 
     @Test fun `cancellation is propagated and never becomes fallback success`() = runBlocking {
         val original = temporary.newFile().apply { writeText("original") }
-        every { pages.render(original.path) } throws CancellationException("leaving capture")
+        every { pages.render(original.path, any()) } throws CancellationException("leaving capture")
         try {
             processor.prepare(original.path, ConversationMode.SOLVE)
             fail("Cancellation must be propagated")
         } catch (_: CancellationException) { }
         assertEquals("original", original.readText())
-        verify(exactly = 1) { pages.render(original.path) }
+        verify(exactly = 1) { pages.render(original.path, any()) }
     }
 
     @Test fun `preprocessing defaults on and preference persists across repository recreation`() = runBlocking {

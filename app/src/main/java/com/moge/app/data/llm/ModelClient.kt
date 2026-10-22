@@ -821,7 +821,7 @@ class ModelClient @Inject constructor(
         previous: StreamOutput,
         onUsage: (UsageSample?) -> Unit,
         onEvent: suspend (StreamEvent) -> Unit,
-        instruction: String = "请基于前面的题目和分析，立即生成最终答案。不要再展开冗长的内部思考；正文保留用户需要看到的公式与推导。严格遵守系统要求，只输出完整 JSON 对象。",
+        instruction: String,
     ): StreamOutput {
         currentCoroutineContext().ensureActive()
         // Keep the original picture with the original question, not the recovery instruction.
@@ -1707,11 +1707,11 @@ private fun extractDeepSeekCitations(element: JsonElement?, out: MutableList<Mod
 
 internal fun reasoningInstruction(effort: AiReasoningEffort): String = when (effort) {
     AiReasoningEffort.LOW ->
-        "本轮思考强度：低。直接作答，保留必要依据。"
+        "本轮思考强度：低。优先快速、直接作答，避免冗长内部分析或反复验证；最终正文仍按解题模式保留必要步骤与依据。"
     AiReasoningEffort.MEDIUM ->
-        "本轮思考强度：中。核对关键条件，及时输出完整回答。"
+        "本轮思考强度：中。在内部充分核对关键条件，控制内部分析长度，及时按解题模式输出完整最终正文。"
     AiReasoningEffort.HIGH ->
-        "本轮思考强度：高。深入核对条件和结论，为完整回答保留输出空间。"
+        "本轮思考强度：高。在内部深入核对条件与结论，必须为完整最终正文保留充足输出空间；正文展示整理后的教学说明。"
 }
 
 /** Whether this turn needs a provider-backed web search. */
