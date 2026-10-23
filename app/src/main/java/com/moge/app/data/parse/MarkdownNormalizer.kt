@@ -464,9 +464,10 @@ private fun looksLikeInlineMath(raw: String): Boolean {
     if ('\\' in value) return true
     if (value.any { it in "=<>^_{}()[]+-*/|!≤≥≠≈∞∈∉⊂⊆⊃⊇∪∩∑∏∫√±×÷→⇒∂" }) return true
     if (value.all { it.isDigit() || it == '.' }) return true
-    // State/output sequences such as $00,10,11,01$ are math even without
-    // variables or operators. Keep prose and currency ranges outside this rule.
-    if (Regex("""\d+(?:\.\d+)?(?:\s*[,;]\s*\d+(?:\.\d+)?)+""").matches(value)) return true
+    // Symbol lists ($P,Q$, $A,B$) and state sequences ($00,10,11,01$)
+    // need no operator. Restrict each item to a number or one letter, so
+    // ordinary word lists and prose between currency amounts stay literal.
+    if (Regex("""(?:\d+(?:\.\d+)?|\p{L})(?:\s*[,;]\s*(?:\d+(?:\.\d+)?|\p{L}))+""").matches(value)) return true
     // Multi-letter symbols such as $QPSK$ or $abc$ are still explicitly
     // delimited mathematics. Leaving them untouched exposes the dollar signs
     // because the Markdown renderer only recognizes the normalized $$ form.

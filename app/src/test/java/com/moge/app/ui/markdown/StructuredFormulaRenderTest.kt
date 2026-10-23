@@ -37,9 +37,26 @@ class StructuredFormulaRenderTest {
         "\\left[$polynomial\\right]r\\,dr",
         "\\iint_{D_{xy}}\\left[$integrand\\right]dxdy",
         "\\boxed{$set}.",
+        "\\langle Ax,Ay\\rangle=(Ax)^T(Ay)=x^TA^TAy=x^Ty=\\langle x,y\\rangle",
     )
 
     @Before fun init() { LatexEngine.init(RuntimeEnvironment.getApplication()) }
+
+    @Test fun `reported inner product derivation renders whole brackets across narrow widths`() {
+        val first = "\\langle Ax,Ay\\rangle"
+        val last = "\\langle x,y\\rangle"
+        val source = "$first=(Ax)^T(Ay)=x^TA^TAy=x^Ty=$last"
+        for (size in listOf(26f, 36f)) for (width in listOf(260, 400, 520)) {
+            val rows = splitFormula(source, width, formulaWidthMeasurer(size))
+            assertEquals(source.filterNot(Char::isWhitespace), rows.joinToString("").filterNot(Char::isWhitespace))
+            assertTrue(rows.toString(), rows.any { first in it })
+            assertTrue(rows.toString(), rows.any { last in it })
+            rows.forEach { row ->
+                val drawable = JLatexMathDrawable.builder(row).textSize(size).padding(0).build()
+                assertTrue("$width / $size: $row", drawable.intrinsicWidth > 0 && drawable.intrinsicWidth <= width)
+            }
+        }
+    }
 
     @Test fun `reported formulas wrap at normal text size without losing terms or growing past the viewport`() {
         for (size in listOf(26f, 36f)) for (width in listOf(400, 520, 740)) {

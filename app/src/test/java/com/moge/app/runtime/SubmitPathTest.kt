@@ -899,4 +899,33 @@ class SubmitPathTest {
         assertEquals("问题：解这道题", retried.history.last().content)
         assertEquals("user", retried.history.last().role)
     }
+
+    @Test
+    fun `retry repairs captured prompts before freezing the model facing turn context`() = runBlocking {
+        val submission = GenerationManager.Submission("c1", "画出坐标图", emptyList())
+        val initial = preparer.captureInitialSnapshot(submission, "c1", "q", "a")
+        val chat = com.moge.app.data.llm.PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "",
+            primaryIdentity.reasoningEffort, com.moge.app.domain.SolveMode.DETAILED,
+            conversationMode = com.moge.app.domain.ConversationMode.CHAT)
+        val compact = com.moge.app.data.llm.PromptSegments("简洁回答，只输出 JSON", "旧上下文")
+        for (prepared in listOf(false, true)) {
+            for (wrong in listOf(chat, compact)) {
+                val captured = initial.copy(prompt = wrong, prepared = prepared)
+                val owner = com.moge.app.data.db.RequestEntity(conversationId = "c1", userMessageId = "q",
+                    answerMessageId = "a", attemptId = "retry", status = RequestStatus.PREPARING.name,
+                    userText = submission.userText, snapshotJson = SnapshotCodec.encode(captured))
+                val result = preparer.prepareRetry(owner)
+                assertEquals(null, result.failure)
+                assertEquals(initial.prompt!!.stableSystem, result.policy.prompt!!.stableSystem)
+                assertEquals(result.policy.prompt, result.snapshot.prompt)
+                assertEquals(result.policy.prompt!!.volatileSystem, result.history.last().turnContext)
+                assertEquals(submission.userText, result.history.last().content)
+                assertEquals(initial.primaryProfileId, result.policy.primaryProfileId)
+                assertEquals(initial.originalHistory, result.snapshot.originalHistory)
+                // A subsequent retry must keep the repaired prefix, including its original time.
+                val repeated = preparer.prepareRetry(owner.copy(snapshotJson = SnapshotCodec.encode(result.snapshot)))
+                assertEquals(result.policy.prompt, repeated.policy.prompt)
+            }
+        }
+    }
 }

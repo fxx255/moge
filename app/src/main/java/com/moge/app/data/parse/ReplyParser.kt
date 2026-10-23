@@ -11,6 +11,7 @@ import com.moge.app.domain.plot.ConstellationSite
 import com.moge.app.domain.plot.VoronoiSpec
 import com.moge.app.domain.plot.Series
 import com.moge.app.domain.plot.ShadeRegion
+import com.moge.app.domain.plot.compilePolarExpression
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -382,6 +383,8 @@ object ReplyParser {
     }
 
     private fun parsePlot(obj: JsonObject, warnings: MutableList<String>): PlotSpec {
+        val polar = parsePolarAxes(obj["polar"])
+        require(polar == null || obj["voronoi"] == null) { "极坐标图不能使用星座判决域" }
         val voronoi = (obj["voronoi"] as? JsonObject)?.let { geometry ->
             val siteArray = geometry["sites"] as? JsonArray ?: error("判决域缺少星座点")
             require(siteArray.size <= 64) { "星座点超过 64 个，不能截掉部分点后计算判决域" }
@@ -403,7 +406,7 @@ object ReplyParser {
         }
         val seriesArray = obj["series"] as? JsonArray ?: if (voronoi != null) JsonArray(emptyList()) else throw IllegalArgumentException("缺少 series")
         val series = seriesArray.take(MAX_SERIES).mapIndexedNotNull { index, element ->
-            parsePlotSeries(element as? JsonObject ?: return@mapIndexedNotNull null, index)
+            parsePlotSeries(element as? JsonObject ?: return@mapIndexedNotNull null, index, polar != null)
         }
         require(series.isNotEmpty() || voronoi != null) { "series 为空" }
         return PlotSpec(
@@ -411,8 +414,9 @@ object ReplyParser {
             x = parseAxis(obj["x"] as? JsonObject),
             y = parseAxis(obj["y"] as? JsonObject),
             series = series,
-            equalAspect = (obj["equalAspect"] as? JsonPrimitive)?.booleanOrNull ?: (voronoi != null),
+            equalAspect = polar != null || ((obj["equalAspect"] as? JsonPrimitive)?.booleanOrNull ?: (voronoi != null)),
             voronoi = voronoi,
+            polar = polar,
             legend = (obj["legend"] as? JsonPrimitive)?.booleanOrNull ?: (series.size > 1),
             markLines = (obj["markLines"] as? JsonArray)?.take(MAX_MARKS)
                 ?.mapNotNull { el ->
@@ -476,7 +480,7 @@ object ReplyParser {
             (obj["label"] as? JsonPrimitive)?.contentOrNull?.take(16))
     }
 
-    private fun parsePlotSeries(obj: JsonObject, index: Int): Series? {
+    private fun parsePlotSeries(obj: JsonObject, index: Int, polar: Boolean): Series? {
         val expr = (obj["expr"] as? JsonPrimitive)?.contentOrNull?.take(240)?.takeIf { it.isNotBlank() }
         val points = (obj["points"] as? JsonArray)?.take(MAX_POINTS)?.mapNotNull { el ->
             val pair = el as? JsonArray ?: return@mapNotNull null
@@ -489,8 +493,13 @@ object ReplyParser {
         if (expr != null) {
             // 表达式里出现分号/换行一律拒绝；再试编译一次，写坏的别留到渲染时才发现
             require(expr.none { it == ';' || it == '\n' || it == '\r' }) { "表达式包含非法字符" }
-            ExprEval.compile(expr)
+            if (polar) compilePolarExpression(expr) else ExprEval.compile(expr)
         }
+        fun angle(key: String, fallback: Double): Double = if (polar && obj.containsKey(key))
+            finiteNumber(obj, key) ?: error("极坐标角度必须为有限数值") else fallback
+        val thetaMin = angle("thetaMin", 0.0)
+        val thetaMax = angle("thetaMax", 2 * kotlin.math.PI)
+        if (polar) require(thetaMax > thetaMin && (thetaMax - thetaMin).isFinite()) { "极坐标角度区间无效" }
         return Series(
             label = (obj["label"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(40),
             expr = expr,
@@ -504,6 +513,8 @@ object ReplyParser {
             color = plotColor(obj),
             markerShape = (obj["markerShape"] as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("circle", "open_circle", "square", "diamond", "triangle", "cross") } ?: "circle",
             markerSize = (finiteNumber(obj, "markerSize") ?: 3.0).coerceIn(2.0, 8.0).toFloat(),
+            thetaMin = thetaMin,
+            thetaMax = thetaMax,
         )
     }
 

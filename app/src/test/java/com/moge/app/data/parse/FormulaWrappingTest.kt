@@ -12,6 +12,34 @@ class FormulaWrappingTest {
     private val d = "$$"
     private val measure: (String) -> Int = { it.length * 10 }
 
+    @Test fun `inner products in a derivation only wrap between complete mathematical units`() {
+        for ((open, close) in listOf(
+            "\\langle" to "\\rangle", "\\left\\langle" to "\\right\\rangle",
+            "\\bigl\\langle" to "\\bigr\\rangle", "⟨" to "⟩",
+        )) {
+            val first = "$open Ax,Ay$close"
+            val last = "$open x,y$close"
+            val source = "$first=(Ax)^T(Ay)=x^TA^TAy=x^Ty=$last"
+            val width = maxOf(measure(first), measure(last), 200)
+            val rows = splitFormula(source, width, measure)
+            assertTrue(rows.toString(), rows.size > 1)
+            assertEquals(source.filterNot(Char::isWhitespace), rows.joinToString("").filterNot(Char::isWhitespace))
+            assertTrue(rows.toString(), rows.any { first in it })
+            assertTrue(rows.toString(), rows.any { last in it })
+            assertTrue(rows.toString(), rows.none { it.startsWith(',') || "\\begin{array}" in it })
+        }
+    }
+
+    @Test fun `named delimiters protect operators while comparison symbols remain break points`() {
+        for ((open, close) in listOf("\\lfloor" to "\\rfloor", "\\lceil" to "\\rceil", "\\lVert" to "\\rVert")) {
+            val unit = "$open a+b+c$close"
+            val rows = splitFormula("A=$unit+$unit", 260, measure)
+            assertEquals(rows.toString(), 2, rows.count { unit in it })
+            assertTrue(rows.none { "\\begin{array}" in it })
+        }
+        assertTrue(splitFormula("a+b<c+d>e+f", 50, measure).size > 1)
+    }
+
     @Test fun `short inline formulas preserve authored hard breaks and indentation`() {
         for (ending in listOf("  ", "\\")) {
             val source = "  首行 ${d}x=1${d}。$ending\n  次行 ${d}y=2${d}。"

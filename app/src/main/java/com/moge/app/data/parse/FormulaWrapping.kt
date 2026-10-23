@@ -55,12 +55,13 @@ internal fun wrapLongFormulas(
                 index++
                 continue
             }
+            val punctuation = TRAILING_FORMULA_PUNCTUATION.find(rest.substring(close + 2))?.value.orEmpty()
             block.append('\n').append(rest.substring(0, close))
-            out += splitFormulaBlocks(trimSegment(block.toString()), maxWidthPx, measure)
+            out += splitFormulaBlocks(trimSegment(block.toString()) + punctuation.trimStart(), maxWidthPx, measure)
                 .map { it.prependIndent(displayIndent) }
             block.setLength(0)
             inDisplay = false
-            rest = rest.substring(close + 2)
+            rest = rest.substring(close + 2 + punctuation.length)
             if (rest.isEmpty()) {
                 index++
                 continue
@@ -177,6 +178,9 @@ private fun isTableSeparatorRow(line: String): Boolean {
 
 private const val DISPLAY_DELIMITER = "$$"
 
+/** Keep sentence punctuation attached when a formula becomes a display block. */
+private val TRAILING_FORMULA_PUNCTUATION = Regex("""^[ \t]*[,;，；。.!?！？、]+""")
+
 /** Promoted math and its trailing prose must remain inside the original list item. */
 private fun formulaContinuationIndent(line: String): String {
     val leading = line.takeWhile { it == ' ' || it == '\t' }
@@ -213,8 +217,14 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
                 text.append(line, i, line.length)
                 break
             }
-            val latex = line.substring(i + 2, close)
-            if (measure(latex) > maxWidthPx) {
+            var latex = line.substring(i + 2, close)
+            var end = close + 2
+            val punctuation = TRAILING_FORMULA_PUNCTUATION.find(line.substring(end))?.value.orEmpty()
+            if (measure(latex + punctuation.trimStart()) > maxWidthPx) {
+                // Otherwise promoting the math leaves its comma/period as a
+                // separate prose paragraph after the final display delimiter.
+                latex += punctuation.trimStart()
+                end += punctuation.length
                 val rows = splitFormula(latex, maxWidthPx, measure)
                 if (rows.size == 1 && measure(rows.single()) <= maxWidthPx) {
                     // A wrapped frame is still one inline object. Preserve its
@@ -235,7 +245,7 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
             } else {
                 text.append(DISPLAY_DELIMITER).append(latex).append(DISPLAY_DELIMITER)
             }
-            i = close + 2
+            i = end
         } else {
             text.append(line[i])
             i++
@@ -394,6 +404,13 @@ private fun splitTopLevelRows(body: String): Pair<List<String>, Boolean> {
     var skippedRowBreak = false
     var i = 0
     while (i < body.length) {
+        val token = mathDelimiterAt(body, i)
+        if (token != null) {
+            delimiterDepth += if (token.isOpening) 1 else -1
+            current.append(body, i, token.end)
+            i = token.end
+            continue
+        }
         if (body.startsWith("\\\\", i)) {
             if (depth == 0 && delimiterDepth == 0) {
                 rows += current.toString()
@@ -406,13 +423,6 @@ private fun splitTopLevelRows(body: String): Pair<List<String>, Boolean> {
             continue
         }
         if (body[i] == '\\') {
-            val commandEnd = sizedDelimiterEnd(body, i)
-            if (commandEnd != null) {
-                if (body.startsWith("\\left", i)) delimiterDepth++ else delimiterDepth--
-                current.append(body, i, commandEnd)
-                i = commandEnd
-                continue
-            }
             // 控制符必须整体处理，转义花括号并非分组边界。
             val start = i++
             if (body.getOrNull(i)?.isLetter() == true) {
@@ -441,8 +451,12 @@ private fun greedySplit(latex: String, priority: Int, maxWidthPx: Int, measure: 
     val segments = mutableListOf<String>()
     var start = 0
     for (cut in cuts) {
-        if (cut > start) segments += latex.substring(start, cut)
-        start = cut
+        // Commas finish the preceding expression. Include them in its width
+        // budget before trying relation/sign breaks inside a long expression.
+        // Relation and sign operators still begin the continuation row.
+        val end = if (priority == 1) cut + 1 else cut
+        if (end > start) segments += latex.substring(start, end)
+        start = end
     }
     segments += latex.substring(start)
     val merged = mutableListOf<StringBuilder>()
@@ -498,6 +512,12 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
     var delimiterDepth = 0
     var i = 0
     while (i < latex.length) {
+        val delimiter = mathDelimiterAt(latex, i)
+        if (delimiter != null) {
+            delimiterDepth += if (delimiter.isOpening) 1 else -1
+            i = delimiter.end
+            continue
+        }
         val c = latex[i]
         if (c == '\\') {
             if (latex.startsWith("\\begin{", i)) {
@@ -512,12 +532,6 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
                 i += "\\end{".length
                 while (i < latex.length && latex[i] != '}') i++
                 i++
-                continue
-            }
-            val commandEnd = sizedDelimiterEnd(latex, i)
-            if (commandEnd != null) {
-                if (latex.startsWith("\\left", i)) delimiterDepth++ else delimiterDepth--
-                i = commandEnd
                 continue
             }
             if (priority == 0 && envDepth == 0 && delimiterDepth == 0 && latex.startsWith("\\\\", i)) {
@@ -552,7 +566,7 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
         }
         if (depth == 0 && envDepth == 0 && delimiterDepth == 0) {
             val isPoint = when (priority) {
-                1 -> c == ',' || c == ';'
+                1 -> c in ",;，；"
                 2 -> c == '=' || c == '<' || c == '>'
                 3 -> c == '+' || c == '-'
                 else -> false
@@ -562,22 +576,6 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
         i++
     }
     return points
-}
-
-/** Consume both the sizing command and its delimiter, including invisible or mixed delimiters. */
-private fun sizedDelimiterEnd(latex: String, start: Int): Int? {
-    val command = listOf("\\left", "\\right").firstOrNull {
-        latex.startsWith(it, start) && latex.getOrNull(start + it.length)?.isLetter() != true
-    } ?: return null
-    var end = start + command.length
-    while (latex.getOrNull(end)?.isWhitespace() == true) end++
-    if (latex.getOrNull(end) == '\\') {
-        end++
-        if (latex.getOrNull(end)?.isLetter() == true) {
-            while (latex.getOrNull(end)?.isLetter() == true) end++
-        } else if (end < latex.length) end++
-    } else if (end < latex.length) end++
-    return end
 }
 
 private val RELATION_COMMANDS = listOf(

@@ -22,14 +22,14 @@ class PlotImageStore @Inject constructor(
     dirName = "plots",
     prefix = "plot",
     serializer = PlotSpec.serializer(),
-    renderVersion = "p4",
+    renderVersion = "p5",
 ) {
     override fun draw(spec: PlotSpec, dark: Boolean): Bitmap {
         val metrics = context.resources.displayMetrics
         // 按短边定宽：横屏时重画也得到同样的图，不会因为屏幕变宽而把字缩小
         val shortSide = minOf(metrics.widthPixels, metrics.heightPixels)
         val widthPx = (shortSide * 0.92f).toInt().coerceIn(600, 1600)
-        val heightPx = (widthPx * if (spec.equalAspect || spec.voronoi != null) .82f else PLOT_HEIGHT_RATIO).toInt()
+        val heightPx = (widthPx * if (spec.equalAspect || spec.voronoi != null || spec.polar != null) .82f else PLOT_HEIGHT_RATIO).toInt()
         val theme = if (dark) PlotBitmapRenderer.Theme.DARK else PlotBitmapRenderer.Theme.LIGHT
         return PlotBitmapRenderer(metrics.density, theme).render(spec, widthPx, heightPx)
     }

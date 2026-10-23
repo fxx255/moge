@@ -1,6 +1,7 @@
 package com.moge.app.domain.plot
 
 import kotlin.math.abs
+import kotlin.math.ceil
 
 data class LabelRect(val left: Float, val top: Float, val right: Float, val bottom: Float) {
     val width get() = right - left
@@ -26,6 +27,51 @@ fun LabelRect.intersects(line: LabelObstacleLine): Boolean {
     return true
 }
 
+/** Keep ticks close to their original position; never move them across the whole plot. */
+fun placeNearbyPlotLabel(
+    initial: LabelRect,
+    bounds: LabelRect,
+    occupied: List<LabelRect>,
+    lines: List<LabelObstacleLine>,
+    gap: Float,
+    maxOffset: Float,
+): LabelRect? {
+    if (!initial.inside(bounds)) return null
+    val radius = maxOffset.coerceAtLeast(0f)
+    val searchArea = initial.padded(radius + gap)
+    val nearbyBoxes = occupied.filter(searchArea::overlaps)
+    val nearbyLines = lines.filter(searchArea::intersects)
+    if (isLabelPositionFree(initial, nearbyBoxes, nearbyLines, gap)) return initial
+    if (radius == 0f) return null
+
+    // A small local grid gives short horizontal/vertical/diagonal moves the same
+    // priority. Distance sorting also accounts for clamping at the image edge.
+    val steps = ceil(radius / maxOf(1f, minOf(gap, initial.height / 4))).toInt()
+    val step = radius / steps
+    val candidates = mutableListOf<LabelRect>()
+    for (row in -steps..steps) for (column in -steps..steps) {
+        val left = (initial.left + column * step).coerceIn(bounds.left, bounds.right - initial.width)
+        val top = (initial.top + row * step).coerceIn(bounds.top, bounds.bottom - initial.height)
+        val distance = (left - initial.left) * (left - initial.left) + (top - initial.top) * (top - initial.top)
+        if (distance <= radius * radius) {
+            candidates += LabelRect(left, top, left + initial.width, top + initial.height)
+        }
+    }
+    return candidates.distinct().sortedBy {
+        (it.left - initial.left) * (it.left - initial.left) + (it.top - initial.top) * (it.top - initial.top)
+    }.firstOrNull { isLabelPositionFree(it, nearbyBoxes, nearbyLines, gap) }
+}
+
+private fun isLabelPositionFree(
+    box: LabelRect,
+    occupied: List<LabelRect>,
+    lines: List<LabelObstacleLine>,
+    gap: Float,
+): Boolean {
+    val padded = box.padded(gap)
+    return occupied.none(padded::overlaps) && lines.none(padded::intersects)
+}
+
 /** Deterministic nearest free position; null requests a margin callout instead of an overlapping label. */
 fun placePlotLabel(anchorX: Float, anchorY: Float, width: Float, height: Float,
     bounds: LabelRect, occupied: List<LabelRect>, lines: List<LabelObstacleLine>, gap: Float): LabelRect? {
@@ -45,8 +91,7 @@ fun placePlotLabel(anchorX: Float, anchorY: Float, width: Float, height: Float,
                 y.coerceIn(bounds.top, bounds.bottom - height),
                 x.coerceIn(bounds.left, bounds.right - width) + width,
                 y.coerceIn(bounds.top, bounds.bottom - height) + height)
-            val padded = box.padded(gap * .35f)
-            if (occupied.none(padded::overlaps) && lines.none(padded::intersects)) return box
+            if (isLabelPositionFree(box, occupied, lines, gap * .35f)) return box
         }
     }
     val step = height + gap
@@ -59,8 +104,7 @@ fun placePlotLabel(anchorX: Float, anchorY: Float, width: Float, height: Float,
     }
     for ((x, y) in grid.sortedBy { (it.first - anchorX) * (it.first - anchorX) + (it.second - anchorY) * (it.second - anchorY) }) {
         val box = LabelRect(x, y, x + width, y + height)
-        val padded = box.padded(gap * .35f)
-        if (occupied.none(padded::overlaps) && lines.none(padded::intersects)) return box
+        if (isLabelPositionFree(box, occupied, lines, gap * .35f)) return box
     }
     return null
 }

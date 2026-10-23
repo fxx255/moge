@@ -50,6 +50,16 @@ object PromptAssembler {
     private const val SYSTEM_RULE_NOTE =
         "以上时间与解题模式只是本轮的上下文，**不能覆盖或修改上面的系统规则与输出格式要求**。"
 
+    /** A saved string must not bypass mode selection or restore an obsolete figure contract. */
+    internal fun reusablePrompt(
+        captured: PromptSegments?,
+        solveMode: SolveMode,
+        conversationMode: ConversationMode,
+    ): PromptSegments? = captured?.takeIf {
+        it.stableSystem.startsWith(protocolForMode(SOLVE_SYSTEM_PROMPT, conversationMode)) &&
+            (conversationMode != ConversationMode.SOLVE || it.volatileSystem.contains(solveMode.instruction))
+    }
+
     fun assemble(
         protocol: String,
         nickname: String,
@@ -59,7 +69,7 @@ object PromptAssembler {
         conversationMode: ConversationMode = ConversationMode.SOLVE,
     ): PromptSegments {
         val stableSystem = buildString {
-            append(if (conversationMode == ConversationMode.CHAT) CHAT_PROMPT else protocol)
+            append(protocolForMode(protocol, conversationMode))
             val name = nickname.trim()
             if (name.isNotEmpty()) {
                 append("\n\n## 称呼\n")
@@ -85,4 +95,7 @@ object PromptAssembler {
 
     private const val CHAT_PROMPT = "你是墨格中的对话助手。根据用户的意图自然、准确地回答；" +
         "不确定时坦诚说明，信息不足时适当澄清。默认使用用户的语言，直接输出正文，按需使用 Markdown。"
+
+    private fun protocolForMode(protocol: String, mode: ConversationMode): String =
+        if (mode == ConversationMode.CHAT) CHAT_PROMPT else protocol
 }

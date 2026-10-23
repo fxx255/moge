@@ -103,6 +103,8 @@ class StreamRecoveryTest {
         assertEquals("final answer", result.reply)
         assertEquals(2, requests.size)
         val recovery = requests.last()
+        assertTrue(recovery["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
+            .startsWith(ModelClient.SYSTEM_PROMPT))
         assertEquals(200000, recovery["max_tokens"]!!.jsonPrimitive.int)
         assertEquals("low", recovery["reasoning_effort"]!!.jsonPrimitive.content)
         val messages = recovery["messages"]!!.jsonArray

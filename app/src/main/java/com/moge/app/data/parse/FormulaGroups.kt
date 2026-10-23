@@ -11,9 +11,17 @@ internal data class FormulaGroup(
     val end: Int,
     val opening: String,
     val closing: String,
+    /** Inner products, norms and rounding operators must remain one mathematical unit. */
+    val allowsInnerWrapping: Boolean = true,
 )
 
-private data class MathDelimiter(val start: Int, val end: Int, val value: String, val sized: Boolean)
+internal data class MathDelimiter(
+    val start: Int,
+    val end: Int,
+    val value: String,
+    val sized: Boolean,
+    val isOpening: Boolean,
+)
 
 internal fun formulaGroups(latex: String): List<FormulaGroup> {
     val groups = mutableListOf<FormulaGroup>()
@@ -59,19 +67,10 @@ internal fun formulaGroups(latex: String): List<FormulaGroup> {
             continue
         }
 
-        val sized = command == "left" || command == "right" || command in FIXED_DELIMITER_SIZES
-        val token = if (sized) {
-            val delimiterStart = skipSpaces(latex, cursor)
-            val delimiterEnd = delimiterEnd(latex, delimiterStart)
-            cursor = delimiterEnd
-            MathDelimiter(start, cursor, latex.substring(delimiterStart, delimiterEnd), command == "left")
-        } else MathDelimiter(start, cursor, latex.substring(start, cursor), false)
-        // A period is a delimiter only after \left/\right, never ordinary punctuation.
-        if (token.value == "." && command != "left" && command != "right") continue
-        val isOpen = command == "left" || command != "right" && token.value in OPEN_DELIMITERS
-        val isClose = command == "right" || command != "left" && token.value in CLOSE_DELIMITERS
-        if (isOpen) stack += token
-        else if (isClose) {
+        val token = mathDelimiterAt(latex, start) ?: continue
+        cursor = token.end
+        if (token.isOpening) stack += token
+        else {
             val open = stack.lastOrNull() ?: continue
             // Scalable delimiters may be mixed (e.g. an interval [a,b)); ordinary
             // delimiters must match, so damaged input never exposes inner cuts.
@@ -83,11 +82,32 @@ internal fun formulaGroups(latex: String): List<FormulaGroup> {
                 groups += FormulaGroup(
                     FormulaGroupKind.Delimiter, open.start, open.end, token.start, token.end,
                     "\\left${OPEN_DELIMITERS.getValue(open.value)}", "\\right${CLOSE_DELIMITERS.getValue(token.value)}",
+                    allowsInnerWrapping = OPEN_DELIMITERS.getValue(open.value) !in ATOMIC_DELIMITERS,
                 )
             }
         }
     }
     return if (stack.isEmpty() && environmentDepth == 0) groups else emptyList()
+}
+
+/** Shared by group discovery and line breaking; '<' and '>' remain relation operators. */
+internal fun mathDelimiterAt(source: String, start: Int): MathDelimiter? {
+    var end = delimiterEnd(source, start)
+    val command = source.substring(start, end).removePrefix("\\")
+    val sized = command == "left" || command == "right"
+    val hasSize = sized || source[start] == '\\' && command in FIXED_DELIMITER_SIZES
+    val delimiterStart = if (hasSize) skipSpaces(source, end) else start
+    if (hasSize) end = delimiterEnd(source, delimiterStart)
+    val value = source.substring(delimiterStart, end)
+    // A period is invisible only with a scalable delimiter, not ordinary punctuation.
+    if (value == "." && !sized) return null
+    val opening = when {
+        sized -> command == "left"
+        value in OPEN_DELIMITERS -> true
+        value in CLOSE_DELIMITERS -> false
+        else -> return null
+    }
+    return MathDelimiter(start, end, value, command == "left", opening)
 }
 
 private fun skipSpaces(source: String, from: Int): Int {
@@ -125,11 +145,21 @@ private fun balancedGroupEnd(source: String, start: Int, open: Char, close: Char
 
 private val OPEN_DELIMITERS = mapOf(
     "(" to "(", "[" to "[", "\\{" to "\\{", "\\lbrace" to "\\{", "\\lbrack" to "[", "." to ".",
+    "\\langle" to "\\langle", "⟨" to "\\langle", "〈" to "\\langle",
+    "\\lfloor" to "\\lfloor", "⌊" to "\\lfloor", "\\lceil" to "\\lceil", "⌈" to "\\lceil",
+    "\\lvert" to "\\lvert", "\\lVert" to "\\lVert",
 )
 private val CLOSE_DELIMITERS = mapOf(
     ")" to ")", "]" to "]", "\\}" to "\\}", "\\rbrace" to "\\}", "\\rbrack" to "]", "." to ".",
+    "\\rangle" to "\\rangle", "⟩" to "\\rangle", "〉" to "\\rangle",
+    "\\rfloor" to "\\rfloor", "⌋" to "\\rfloor", "\\rceil" to "\\rceil", "⌉" to "\\rceil",
+    "\\rvert" to "\\rvert", "\\rVert" to "\\rVert",
 )
-private val MATCHING_DELIMITERS = mapOf("(" to ")", "[" to "]", "\\{" to "\\}")
+private val MATCHING_DELIMITERS = mapOf(
+    "(" to ")", "[" to "]", "\\{" to "\\}", "\\langle" to "\\rangle",
+    "\\lfloor" to "\\rfloor", "\\lceil" to "\\rceil", "\\lvert" to "\\rvert", "\\lVert" to "\\rVert",
+)
+private val ATOMIC_DELIMITERS = setOf("\\langle", "\\lfloor", "\\lceil", "\\lvert", "\\lVert")
 private val FIXED_DELIMITER_SIZES = setOf(
     "big", "Big", "bigg", "Bigg", "bigl", "bigr", "Bigl", "Bigr", "biggl", "biggr", "Biggl", "Biggr",
 )

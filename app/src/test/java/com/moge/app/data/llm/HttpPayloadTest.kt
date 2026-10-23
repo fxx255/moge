@@ -5,6 +5,7 @@ import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.credential.AiCredentialStore
+import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.credential.AiModelProfile
 import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiResolvedIdentity
@@ -12,6 +13,7 @@ import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.parse.ParsedReply
 import com.moge.app.data.parse.ReplyFigure
 import com.moge.app.data.parse.orderedFigures
+import com.moge.app.domain.ConversationMode
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -118,8 +120,112 @@ data: [DONE]
     private fun messageRoles(payload: JsonObject): List<String> =
         payload["messages"]!!.jsonArray.map { it.jsonObject["role"]!!.jsonPrimitive.content }
 
+    private fun systemContent(payload: JsonObject, protocol: AiApiProtocol): String =
+        if (protocol == AiApiProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
+        else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
+
+    private fun streamedResponse(protocol: AiApiProtocol, text: String): String {
+        val encoded = JsonPrimitive(text)
+        return if (protocol == AiApiProtocol.RESPONSES) {
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":$encoded}\n\n" +
+                "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+        } else {
+            "data: {\"choices\":[{\"delta\":{\"content\":$encoded},\"finish_reason\":\"stop\"}]}\n\n" +
+                "data: [DONE]\n\n"
+        }
+    }
+
     @Test
-    fun `reviewed 060 contract reaches both protocols and title answer and figures remain usable`() = runBlocking {
+    fun `standard answers use adaptive instructions instead of the saved four part template`() = runBlocking {
+        val oldInstruction = "本题使用「详细讲解」模式：按「分析 → 分步解答 → 最终答案 → 易错点」组织正文。" +
+            "每一步写清依据与必要公式，最终答案单独成段并加粗。"
+        val current = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
+        val saved = current.copy(volatileSystem = current.volatileSystem.replace(SolveMode.DETAILED.instruction, oldInstruction))
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear()
+            client(responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
+                .chatStreaming(listOf(ChatMessage("user", "解释这个英语词组")),
+                    policy = RequestPolicy(prompt = saved, apiProtocol = protocol.name)) {}
+            val payload = requests.single()
+            val turns = payload[if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
+            val user = turns.last().jsonObject["content"]!!.jsonPrimitive.content
+            assertTrue(user, user.contains(SolveMode.DETAILED.instruction))
+            assertFalse(user, user.contains(oldInstruction))
+            assertTrue(systemContent(payload, protocol).contains("diagrams"))
+            assertTrue(systemContent(payload, protocol).contains("conversation_title"))
+        }
+    }
+
+    @Test
+    fun `saved chat compact or incomplete prompts cannot override the solving contract`() = runBlocking {
+        val chat = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "旧称呼", AiReasoningEffort.MEDIUM,
+            SolveMode.DETAILED, conversationMode = ConversationMode.CHAT)
+        val detailed = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "旧称呼", AiReasoningEffort.MEDIUM,
+            SolveMode.DETAILED)
+        val invalid = listOf(chat, PromptSegments("请简洁回答，只输出 JSON。", ""),
+            detailed.copy(stableSystem = detailed.stableSystem.substringBefore("9. 需要画图时")))
+        val baseline = javaClass.getResource("/prompts/solve-v0.6.1.txt")!!.readText().replace("\r\n", "\n")
+        for (protocol in AiApiProtocol.entries) {
+            for (mode in SolveMode.entries) {
+                val otherMode = SolveMode.entries.first { it != mode }
+                val wrongMode = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "旧称呼", AiReasoningEffort.MEDIUM, otherMode)
+                for (saved in invalid + wrongMode) {
+                    requests.clear()
+                    val policy = SnapshotCodec.decode(SnapshotCodec.encode(RequestSnapshot(
+                        conversationMode = ConversationMode.SOLVE.name, prompt = saved,
+                        apiProtocol = protocol.name, solveMode = mode.name,
+                    )))!!.toPolicy()
+                    val parsed = client(responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
+                        .chatStreaming(listOf(ChatMessage("user", "画出坐标图和框图")), solveMode = mode, policy = policy) {}
+                    val payload = requests.single()
+                    assertEquals(PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, mode).stableSystem,
+                        systemContent(payload, protocol))
+                    val turns = payload[if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
+                    assertTrue(turns.last().jsonObject["content"]!!.jsonPrimitive.content.contains(mode.instruction))
+                    assertEquals(2, parsed.orderedFigures().size)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `valid saved prompts retain the original nickname time and solving mode in both protocols`() = runBlocking {
+        for (protocol in AiApiProtocol.entries) {
+            for (mode in SolveMode.entries) {
+                requests.clear()
+                val saved = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "原称呼", AiReasoningEffort.MEDIUM,
+                    mode, java.time.Clock.fixed(java.time.Instant.parse("2026-10-01T08:00:00Z"), java.time.ZoneOffset.UTC))
+                client(responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
+                    .chatStreaming(listOf(ChatMessage("user", "画图")), solveMode = mode,
+                        policy = RequestPolicy(prompt = saved, apiProtocol = protocol.name)) {}
+                val payload = requests.single()
+                assertEquals(saved.stableSystem, systemContent(payload, protocol))
+                val turns = payload[if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
+                assertTrue(turns.last().jsonObject["content"]!!.jsonPrimitive.content.contains(saved.volatileSystem))
+            }
+        }
+    }
+
+    @Test
+    fun `switching back to chat rejects a saved solving prompt and keeps plain output`() = runBlocking {
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear()
+            val saved = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "旧称呼", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
+            val expected = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "小明", AiReasoningEffort.MEDIUM,
+                SolveMode.DETAILED, conversationMode = ConversationMode.CHAT)
+            val literal = """{"reply":"这是 JSON 示例"}"""
+            val parsed = client(responses = listOf(200 to streamedResponse(protocol, literal)))
+                .chatStreaming(listOf(ChatMessage("user", "给出 JSON 示例")), policy = RequestPolicy(
+                    prompt = saved, apiProtocol = protocol.name, conversationMode = ConversationMode.CHAT)) {}
+            val payload = requests.single()
+            assertEquals(expected.stableSystem, systemContent(payload, protocol))
+            assertFalse(payload.containsKey(if (protocol == AiApiProtocol.RESPONSES) "text" else "response_format"))
+            assertEquals(literal, parsed.reply)
+        }
+    }
+
+    @Test
+    fun `reviewed plotting contract reaches both protocols and title answer and figures remain usable`() = runBlocking {
         val encoded = JsonPrimitive(SOLVE_FIGURE_RESPONSE_EXAMPLE)
         for (protocol in listOf(AiSearchProtocol.OFF, AiSearchProtocol.RESPONSES)) {
             requests.clear()
@@ -140,9 +246,9 @@ data: [DONE]
             assertEquals("json_object", format["type"]!!.jsonPrimitive.content)
             val system = if (protocol == AiSearchProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
                 else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
-            val baseline = javaClass.getResource("/prompts/solve-v0.6.0.txt")!!.readText().replace("\r\n", "\n")
+            val baseline = javaClass.getResource("/prompts/solve-v0.6.1.txt")!!.readText().replace("\r\n", "\n")
             val reviewedPrompt = PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
-            assertEquals("Both protocols must carry the reviewed 0.6.0 contract", reviewedPrompt.stableSystem, system)
+            assertEquals("Both protocols must carry the reviewed plotting contract", reviewedPrompt.stableSystem, system)
             assertEquals("绘图协议示例", parsed.conversationTitle)
             assertEquals("示例结论", parsed.finalAnswer)
             val turns = payload[if (protocol == AiSearchProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
@@ -159,6 +265,25 @@ data: [DONE]
             assertEquals("in", diagram.edges.single().from)
             assertEquals("f", diagram.edges.single().to)
             assertEquals("曲线说明。\n[[FIGURE:1]]\n框图说明。\n[[FIGURE:2]]", parsed.reply)
+        }
+    }
+
+    @Test
+    fun `polar contract reaches actual requests and returned plots parse in both protocols`() = runBlocking {
+        val response = """{"conversation_title":"极坐标心形线","reply":"曲线如下。\n[[FIGURE:1]]",
+            "plots":[{"polar":{"radiusMax":2.2},"series":[{"expr":"1-cos(theta)"}]}]}"""
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear()
+            val parsed = client(responses = listOf(200 to streamedResponse(protocol, response)))
+                .chatStreaming(listOf(ChatMessage("user", "用极坐标画心形线 r=1-cos θ")),
+                    policy = RequestPolicy(apiProtocol = protocol.name)) {}
+            val system = systemContent(requests.single(), protocol)
+            assertTrue(system.contains("\"polar\":{\"radiusMax\":2.2"))
+            assertTrue(system.contains("thetaMin"))
+            val plot = (parsed.orderedFigures().single() as ReplyFigure.Plot).spec
+            assertEquals(2.2, plot.polar!!.radiusMax!!, 0.0)
+            assertEquals("1-cos(theta)", plot.series.single().expr)
+            assertTrue(plot.equalAspect)
         }
     }
 

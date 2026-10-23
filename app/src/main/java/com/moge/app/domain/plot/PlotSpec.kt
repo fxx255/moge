@@ -44,6 +44,9 @@ data class Series(
     val color: String? = null,
     val markerShape: String = "circle",
     val markerSize: Float = 3f,
+    /** Angular domain in radians, used only when the plot has polar axes. */
+    val thetaMin: Double = 0.0,
+    val thetaMax: Double = 2 * PI,
 )
 
 @Serializable
@@ -97,6 +100,7 @@ data class PlotSpec(
     val shades: List<ShadeRegion> = emptyList(),
     val equalAspect: Boolean = false,
     val voronoi: VoronoiSpec? = null,
+    val polar: PolarAxes? = null,
 )
 
 /**
@@ -166,16 +170,16 @@ object ExprEval {
     // 一元负号优先级：低于 ^(3)、高于 *(2) ⇒ -x^2 解析为 -(x^2)，-x*y 解析为 (-x)*y
     private const val UNARY_PREC = 2.5
 
-    fun compile(expr: String): (Double) -> Double {
+    fun compile(expr: String, variable: String = "x"): (Double) -> Double {
         val rpn = toRpn(insertImplicitMul(tokenize(expr)))
         // 编译期就把未知符号挑出来：只生成逆波兰式的话，写错的表达式要等到求值
-        // （也就是渲染已经开始之后）才暴露。变量只允许 x，其余必须命中常量表。
+        // （也就是渲染已经开始之后）才暴露。只允许指定变量，其余必须命中常量表。
         for (tok in rpn) {
-            if (tok is Tok.Name && tok.v != "x" && !consts.containsKey(tok.v)) {
+            if (tok is Tok.Name && tok.v != variable && !consts.containsKey(tok.v)) {
                 throw IllegalArgumentException("未知符号 ${tok.v}")
             }
         }
-        return { x -> eval(rpn, x) }
+        return { value -> eval(rpn, value, variable) }
     }
 
     private fun tokenize(src: String): List<Tok> {
@@ -300,13 +304,13 @@ object ExprEval {
         return out
     }
 
-    private fun eval(rpn: List<Tok>, x: Double): Double {
+    private fun eval(rpn: List<Tok>, value: Double, variable: String): Double {
         val st = ArrayDeque<Double>()
         for (tk in rpn) {
             when (tk) {
                 is Tok.Num -> st.addLast(tk.v)
                 is Tok.Name -> when {
-                    tk.v == "x" -> st.addLast(x)
+                    tk.v == variable -> st.addLast(value)
                     consts.containsKey(tk.v) -> st.addLast(consts.getValue(tk.v))
                     else -> throw IllegalArgumentException("未知符号 ${tk.v}")
                 }

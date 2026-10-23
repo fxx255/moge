@@ -28,7 +28,7 @@ internal fun wrapFormulaGroup(
     maxWidthPx: Int,
     measure: (String) -> Int,
 ): List<String>? {
-    for (group in formulaGroups(latex).filter { it.kind == kind }) {
+    for (group in formulaGroups(latex).filter { it.kind == kind && it.allowsInnerWrapping }) {
         val body = trimSegment(latex.substring(group.bodyStart, group.bodyEnd))
         if (body.isEmpty()) continue
         val prefix = latex.substring(0, group.start) + group.opening
@@ -40,7 +40,7 @@ internal fun wrapFormulaGroup(
         var width = maxWidthPx - overhead
         for (attempt in 0 until 3) {
             if (width <= 0) break
-            val rows = moveLeadingSeparators(splitFormula(body, width, measure))
+            val rows = splitFormula(body, width, measure)
             if (rows.isEmpty() || rows == listOf(body)) break
             val candidate = render(rows)
             val overflow = measure(candidate) - maxWidthPx
@@ -69,7 +69,7 @@ private fun wrapDelimitedRows(
     var width = maxWidthPx - overhead.coerceAtLeast(0)
     for (attempt in 0 until 3) {
         if (width <= 0) break
-        val rows = moveLeadingSeparators(splitFormula(body, width, measure))
+        val rows = splitFormula(body, width, measure)
         if (rows.size < 2) break
         val candidates = rows.mapIndexed { index, row ->
             (if (index == 0) prefix else "\\left.") + row +
@@ -84,17 +84,3 @@ private fun wrapDelimitedRows(
 
 private fun formulaRows(rows: List<String>): String =
     "\\begin{array}{l}" + rows.joinToString(" \\\\ ") + "\\end{array}"
-
-/** Commas/semicolons finish the previous condition; signs stay on continuation rows. */
-private fun moveLeadingSeparators(rows: List<String>): List<String> {
-    val result = mutableListOf<String>()
-    for (source in rows) {
-        var row = source
-        while (result.isNotEmpty() && (row.startsWith(',') || row.startsWith(';'))) {
-            result[result.lastIndex] += row.first()
-            row = trimSegment(row.drop(1))
-        }
-        if (row.isNotEmpty()) result += row
-    }
-    return result
-}

@@ -133,7 +133,7 @@ class ModelClient @Inject constructor(
     ): ParsedReply = modelRequest {
         val response = ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE)
         val configured = resolveConfigured(policy).copy(conversationMode = response.mode)
-        val prompt = policy?.prompt ?: PromptAssembler.assemble(
+        val prompt = PromptAssembler.reusablePrompt(policy?.prompt, solveMode, response.mode) ?: PromptAssembler.assemble(
             protocol = SYSTEM_PROMPT,
             nickname = settings.current().nickname,
             reasoningEffort = configured.reasoningEffort,

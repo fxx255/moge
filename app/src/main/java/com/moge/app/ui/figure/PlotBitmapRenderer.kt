@@ -115,10 +115,12 @@ class PlotBitmapRenderer(
      * 保证图内的注释/标记标签不会画到图片外面。
      */
     private var labelBounds: RectF = RectF()
+    private enum class LabelPlacement { Fixed, Nearby, Annotation }
     private data class PendingLabel(val raw: String, val x: Float, val baseline: Float, val size: Float,
-        val color: Int, val centered: Boolean, val bounds: RectF, val movable: Boolean, val matrix: Matrix)
+        val color: Int, val centered: Boolean, val bounds: RectF, val placement: LabelPlacement, val matrix: Matrix)
+    private data class MeasuredLabel(val source: PendingLabel, val above: Float, val initial: LabelRect)
     private var pendingLabels: MutableList<PendingLabel>? = null
-    private var movableLabel = false
+    private var labelPlacement = LabelPlacement.Fixed
     internal val labelPlacements = mutableListOf<Pair<String, LabelRect>>()
 
     private fun dp(v: Float) = v * density
@@ -153,7 +155,7 @@ class PlotBitmapRenderer(
         alignCenter: Boolean = false,
     ) {
         pendingLabels?.let {
-            it += PendingLabel(raw, x, baselineY, textSizePx, color, alignCenter, RectF(labelBounds), movableLabel, Matrix(canvas.matrix))
+            it += PendingLabel(raw, x, baselineY, textSizePx, color, alignCenter, RectF(labelBounds), labelPlacement, Matrix(canvas.matrix))
             return
         }
         val pieces = splitLabelPieces(raw)
@@ -327,7 +329,8 @@ class PlotBitmapRenderer(
             series = source.series + geometry.sites.mapIndexed { index, site ->
                 Series(label = site.label, points = listOf(site.x to site.y), style = "marker",
                     colorIndex = geometry.colorIndex(index))
-            }) } ?: source
+            }) } ?: if (source.polar != null) source.copy(equalAspect = true) else source
+        val polar = spec.polar
         pendingLabels = mutableListOf()
         labelPlacements.clear()
         // 整个画面的绘图范围：所有标签的默认夹取边界。
@@ -337,7 +340,7 @@ class PlotBitmapRenderer(
         val sampled: List<List<Pair<Double, Double?>>> = spec.series.map { s ->
             val xMin = spec.x.min ?: s.points?.minOfOrNull { it.first } ?: -5.0
             val xMax = spec.x.max ?: s.points?.maxOfOrNull { it.first } ?: 5.0
-            sampleSeries(s, xMin, xMax, 900)
+            if (polar != null) samplePolarSeries(s, polar.radiusMax) else sampleSeries(s, xMin, xMax, 900)
         }
         val allPoints = sampled.flatten()
 
@@ -346,8 +349,10 @@ class PlotBitmapRenderer(
         // y 轴用 balancedRange：主体完整 + 适当边距 + 极端离群点折叠（见其注释）。
         val xDataLo = allPoints.minOfOrNull { it.first } ?: -1.0
         val xDataHi = allPoints.maxOfOrNull { it.first } ?: 1.0
-        val (xLo, xHi) = conservativeRange(xDataLo, xDataHi, spec.x.min, spec.x.max)
-        val yRange = balancedRange(allPoints.map { it.second }, spec.y.min, spec.y.max)
+        val radiusMax = polar?.let { polarRadius(allPoints, it) }
+        val (xLo, xHi) = if (radiusMax != null) -radiusMax to radiusMax else conservativeRange(xDataLo, xDataHi, spec.x.min, spec.x.max)
+        val yRange = if (radiusMax != null) AxisRange(-radiusMax, radiusMax)
+            else balancedRange(allPoints.map { it.second }, spec.y.min, spec.y.max)
         val yLo = yRange.lo
         val yHi = yRange.hi
         val spanX = if (xHi - xLo == 0.0) 1.0 else xHi - xLo
@@ -388,8 +393,8 @@ class PlotBitmapRenderer(
         // 字号同样按画布缩放：画布是固定像素尺寸，用 dp 会在高 density 机器上
         // 把标签顶到挤出画面。
 
-        val xTicks = spec.x.ticks ?: niceTicks(xLo, xHi, 5)
-        val yTicks = spec.y.ticks ?: niceTicks(yLo, yHi, 4)
+        val xTicks = if (polar != null) emptyList() else spec.x.ticks ?: niceTicks(xLo, xHi, 5)
+        val yTicks = if (polar != null) emptyList() else spec.y.ticks ?: niceTicks(yLo, yHi, 4)
 
         // y 轴刻度文案的排版方案：**在确定绘图区位置之前先算**。
         //
@@ -431,8 +436,8 @@ class PlotBitmapRenderer(
         //
         // 注意 [sx]/[sy] 映射的是内缩后的矩形，所以曲线、网格、markLine、markArea
         // 全部自动获得余量；坐标轴画在内缩矩形的边上，刻度仍按真实数值定位。
-        val insetX = plotW * if (spec.equalAspect) .04f else PLOT_INSET_X_RATIO
-        val insetY = plotH * PLOT_INSET_Y_RATIO
+        val insetX = plotW * if (polar != null) .08f else if (spec.equalAspect) .04f else PLOT_INSET_X_RATIO
+        val insetY = plotH * if (polar != null) .10f else PLOT_INSET_Y_RATIO
         val availableW = (plotW - insetX * 2f).coerceAtLeast(1f)
         val availableH = (plotH - insetY * 2f).coerceAtLeast(1f)
         val (drawW, drawH) = if (spec.equalAspect) equalAspectSize(availableW, availableH, spanX, spanY) else availableW to availableH
@@ -448,8 +453,13 @@ class PlotBitmapRenderer(
 
         // Filled regions stay behind the grid, axes and every data series.
         val plotBounds = RectF(drawX, drawY, drawX + drawW, drawY + drawH)
+        val polarViewport = radiusMax?.let { PolarViewport(sx(0.0), sy(0.0), drawW / 2, it) }
+        val polarClip = polarViewport?.let { Path().apply { addCircle(it.centerX, it.centerY, it.radiusPx, Path.Direction.CW) } }
+        fun visiblePoint(x: Double, y: Double) = x in xLo..xHi && y in yLo..yHi &&
+            (radiusMax == null || kotlin.math.hypot(x, y) <= radiusMax)
         val fillSave = canvas.save()
         canvas.clipRect(plotBounds)
+        if (polarClip != null) canvas.clipPath(polarClip)
         regions?.cells.orEmpty().forEach { cell ->
             val path = Path().apply {
                 cell.polygon.forEachIndexed { index, point -> if (index == 0) moveTo(sx(point.first), sy(point.second)) else lineTo(sx(point.first), sy(point.second)) }
@@ -476,7 +486,8 @@ class PlotBitmapRenderer(
         spec.series.forEachIndexed { index, series ->
             if (series.fill) {
                 fillPaint.color = withAlpha(plotColor(series.color, series.colorIndex), (38 * series.opacity).toInt())
-                fillArea(canvas, sampled[index], ::sx, ::sy, sy(0.0).coerceIn(drawY, drawY + drawH))
+                fillArea(canvas, sampled[index], ::sx, ::sy, sy(0.0).coerceIn(drawY, drawY + drawH),
+                    originX = polarViewport?.centerX)
             }
         }
         canvas.restoreToCount(fillSave)
@@ -496,6 +507,14 @@ class PlotBitmapRenderer(
                 val py = sy(t)
                 canvas.drawLine(drawX, py, drawX + drawW, py, linePaint)
             }
+        }
+        if (polar != null && polarViewport != null) {
+            drawPolarAxes(canvas, polar, polarViewport, tickSize, dp(AXIS_STROKE_DP), theme, ::formatTick,
+                labelWidth = { smartTextWidth(it, tickSize) }) { item ->
+                labelPlacement = if (item.radial) LabelPlacement.Nearby else LabelPlacement.Fixed
+                drawSmartText(canvas, item.text, item.centerX, item.baseline, tickSize, theme.subText, alignCenter = true)
+            }
+            labelPlacement = LabelPlacement.Fixed
         }
 
         // ---- 7. 坐标轴 ----
@@ -523,7 +542,7 @@ class PlotBitmapRenderer(
         }
         val axisLeft = plotX - width * AXIS_OVERHANG_L_RATIO
         val axisRight = plotX + plotW + width * AXIS_OVERHANG_R_RATIO
-        canvas.drawLine(axisLeft, axisY, axisRight, axisY, linePaint)
+        if (polar == null) canvas.drawLine(axisLeft, axisY, axisRight, axisY, linePaint)
 
         // y 轴竖线：画在绘图区左边（含内缩），上下都略伸出。
         // 注意这里只画 x=0 那一根通高竖线当 y 轴**是错的**：坐标系原点不一定在
@@ -538,7 +557,7 @@ class PlotBitmapRenderer(
         // 纵轴必须贯穿横轴下方的负半轴；横轴移到原点后不能仍只画到
         // axisY 附近，否则 y<0 的数据会落在没有纵轴的半幅区域。
         val yAxisBottom = drawY + drawH + height * AXIS_VERT_BELOW_RATIO
-        canvas.drawLine(yAxisX, yAxisTop, yAxisX, yAxisBottom, linePaint)
+        if (polar == null) canvas.drawLine(yAxisX, yAxisTop, yAxisX, yAxisBottom, linePaint)
 
         // 轴端箭头：替代原先的「小刻度」——箭头对「这是坐标轴」的表达比一小截刻度
         // 更明确，也是教材插图的通行画法（用户要求「坐标轴头部改成箭头」）。
@@ -546,8 +565,10 @@ class PlotBitmapRenderer(
         // 尺寸一律取**画布宽/高的比例**，绝不能用 dp：画布是物理像素，dp 会随
         // density 放大，在高密度屏上箭头会大得离谱（这是本项目 v1.0.32 的真根因，
         // 内边距与字号都踩过同一个坑）。
-        drawAxisArrowX(canvas, axisRight, axisY, linePaint, +1, width, height)
-        drawAxisArrowY(canvas, yAxisX, yAxisTop, linePaint, -1, width, height)
+        if (polar == null) {
+            drawAxisArrowX(canvas, axisRight, axisY, linePaint, +1, width, height)
+            drawAxisArrowY(canvas, yAxisX, yAxisTop, linePaint, -1, width, height)
+        }
 
         // 轴名贴在**轴的远端**（教材参考图里 `f` 就标在 x 轴右端下方）。
         // 位置取轴末端而不是绘图区中心——居中那个位置留给「轴标题」的语义已废弃，
@@ -556,7 +577,7 @@ class PlotBitmapRenderer(
         // 与端刻度错开：若两者都紧贴 `axisRight`，轴名会压在端刻度上。
         // 这里把轴名**右移半个字宽**并让它以自身左边缘贴住轴端右侧一点点，
         // 保证「刻度在上、轴名在下且不重叠」。
-        if (spec.x.label.isNotEmpty()) {
+        if (polar == null && spec.x.label.isNotEmpty()) {
             val axisNameSize = tickSize * 1.02f
             val w = smartTextWidth(spec.x.label, axisNameSize)
             val nameX = (axisRight + width * 0.006f)
@@ -580,28 +601,34 @@ class PlotBitmapRenderer(
         // 刻度文字夹在**画布**内（它们本来就在绘图区外、贴着轴排布），
         // 但要留出底部/左侧的固定余量，避免被裁掉半个字。
         val tickBottomLimit = height - height * 0.012f
+        val tickGap = maxOf(tickSize * .65f, dp(AXIS_STROKE_DP))
+        val tickBounds = LabelRect(0f, 0f, width, tickBottomLimit)
         // x 轴：参数化刻度（如 `-f_c-B/2`、`O`、`f_c+B/2`）比纯数字宽得多，
         // 挨着画会糊成一片（用户截图里 `-f_c-B/2-f_cf_c-B/2` 挤在一起就是这个）。
         // 这里按「与上一个标签是否重叠」做一次过滤：放不下就跳过这一个刻度，
         // 宁可少标几个，也不要叠成一团看不清。
         var lastLabelRight = -Float.MAX_VALUE
         val minGap = tickSize * 0.8f
+        labelPlacement = LabelPlacement.Nearby
         for (t in xTicks) {
             val raw = spec.x.tickLabels[t] ?: formatTick(t)
             val w = smartTextWidth(raw, tickSize)
             val centerX = sx(t)
-            val left = centerX - w / 2f
-            if (left < lastLabelRight + minGap) continue
+            val (above, below) = smartTextExtent(raw, tickSize)
+            val box = avoidPlotAxisLines(
+                LabelRect(centerX - w / 2, axisY + tickGap, centerX + w / 2, axisY + tickGap + above + below),
+                tickBounds, tickGap, verticalAxis = yAxisX, horizontalAxis = axisY,
+            )
+            if (box.left < lastLabelRight + minGap) continue
             drawSmartText(
                 canvas,
                 raw,
-                centerX,
-                min(axisY + height * 0.038f, tickBottomLimit),
+                box.left,
+                box.top + above,
                 tickSize,
                 theme.subText,
-                alignCenter = true,
             )
-            lastLabelRight = centerX + w / 2f
+            lastLabelRight = box.right
         }
         // y 轴：右对齐到绘图区左侧，并且**把夹取范围收进绘图区左侧的留白**。
         // 参数化的刻度文案可能很长（如 $2\pi^2N_0(f_c+B/2)^2$），
@@ -618,47 +645,69 @@ class PlotBitmapRenderer(
         for ((index, t) in yTicks.withIndex()) {
             val raw = yTickRaws[index]
             val w = smartTextWidth(raw, tickSizeY)
+            val (above, below) = smartTextExtent(raw, tickSizeY)
+            val baseline = sy(t) + tickSizeY * .36f
+            val left = drawX - width * Y_TICK_GAP_RATIO - w
+            val box = avoidPlotAxisLines(LabelRect(left, baseline - above, left + w, baseline + below),
+                LabelRect(labelBounds.left, labelBounds.top - above, labelBounds.right, labelBounds.bottom + below),
+                tickGap, verticalAxis = yAxisX, horizontalAxis = axisY)
             drawSmartText(
                 canvas,
                 raw,
-                drawX - width * Y_TICK_GAP_RATIO - w,
-                sy(t) + tickSizeY * 0.36f,
+                box.left,
+                box.top + above,
                 tickSizeY,
                 theme.subText,
             )
         }
         labelBounds = savedBounds
+        labelPlacement = LabelPlacement.Fixed
 
         // ---- 9. 轴标题 ----
         // x 轴名已在第 7 步贴着**轴末端**画好了（参考图的画法），这里不再重复居中绘制，
         // 否则同一串文字会在图上出现两次。
-        if (spec.y.label.isNotEmpty()) {
+        if (polar == null && spec.y.label.isNotEmpty()) {
             val withUnit = if (spec.y.unit.isNotEmpty()) "${spec.y.label} (${spec.y.unit})" else spec.y.label
-            val axisX = width * 0.018f
-            val axisCenterY = drawY + drawH / 2
-            // 竖排轴标题：先把文字沿 y 轴的**可用长度**（绘图区高度）当作横向限额，
-            // 在未旋转的坐标系里截断，再整体旋转 -90°。
-            // 这样不必去推「旋转后坐标 → 原坐标」的映射，逻辑与横排标签完全一致：
-            // 用 planLabelLayout 拿到「保留几段、起点在哪」，然后照常绘制即可。
-            val save = canvas.save()
-            canvas.rotate(-90f, axisX, axisCenterY)
-            labelBounds = RectF(
-                axisX - drawH / 2,
-                axisCenterY - labelSize,
-                axisX + drawH / 2,
-                axisCenterY + labelSize,
-            )
-            drawSmartText(
-                canvas,
-                withUnit,
-                axisX,
-                axisCenterY + labelSize * 0.34f,
-                labelSize,
-                theme.text,
-                alignCenter = true,
-            )
-            labelBounds = RectF(0f, 0f, width, height)
-            canvas.restoreToCount(save)
+            val nameWidth = smartTextWidth(withUnit, labelSize)
+            // Short variables belong beside the arrow. Descriptive names with units
+            // retain the margin layout so they cannot crowd the title or legend.
+            val besideArrow = spec.y.unit.isEmpty() && nameWidth <= labelSize * 4 &&
+                withUnit.none { it in '\u3400'..'\u9fff' }
+            if (besideArrow) {
+                val (above, below) = smartTextExtent(withUnit, labelSize)
+                val box = avoidPlotAxisLines(
+                    LabelRect(yAxisX + tickGap, yAxisTop + tickGap / 4,
+                        yAxisX + tickGap + nameWidth, yAxisTop + tickGap / 4 + above + below),
+                    LabelRect(0f, plotY, width, height), tickGap, verticalAxis = yAxisX,
+                )
+                drawSmartText(canvas, withUnit, box.left, box.top + above, labelSize, theme.text)
+            } else {
+                val axisX = width * 0.018f
+                val axisCenterY = drawY + drawH / 2
+                // 竖排轴标题：先把文字沿 y 轴的**可用长度**（绘图区高度）当作横向限额，
+                // 在未旋转的坐标系里截断，再整体旋转 -90°。
+                // 这样不必去推「旋转后坐标 → 原坐标」的映射，逻辑与横排标签完全一致：
+                // 用 planLabelLayout 拿到「保留几段、起点在哪」，然后照常绘制即可。
+                val save = canvas.save()
+                canvas.rotate(-90f, axisX, axisCenterY)
+                labelBounds = RectF(
+                    axisX - drawH / 2,
+                    axisCenterY - labelSize,
+                    axisX + drawH / 2,
+                    axisCenterY + labelSize,
+                )
+                drawSmartText(
+                    canvas,
+                    withUnit,
+                    axisX,
+                    axisCenterY + labelSize * 0.34f,
+                    labelSize,
+                    theme.text,
+                    alignCenter = true,
+                )
+                labelBounds = RectF(0f, 0f, width, height)
+                canvas.restoreToCount(save)
+            }
         }
 
         // ---- 10. 标题 ----
@@ -667,7 +716,7 @@ class PlotBitmapRenderer(
         }
 
         // ---- 11. markLine ----
-        movableLabel = true
+        labelPlacement = LabelPlacement.Annotation
         // 竖直标记线（`±B/2` 这类**定义域边界**）改成**实线**，并且只画到曲线为止。
         //
         // 教材参考图里这两条边界是实线、从 x 轴升到曲线端点、不越到曲线之上——
@@ -676,6 +725,8 @@ class PlotBitmapRenderer(
         //   · 有曲线经过 ⇒ 画到该 x 处曲线的最高点（端点正好接住曲线）；
         //   · 没有曲线经过（纯标记位置）⇒ 退化为整段实线。
         // 颜色仍用 markLine（比轴线暗），保证边界不抢曲线的视觉重心。
+        val markLineSave = canvas.save()
+        if (polarClip != null) canvas.clipPath(polarClip)
         for (line in spec.markLines) {
             if (line.x == null) {
                 val y = line.y ?: continue
@@ -708,9 +759,12 @@ class PlotBitmapRenderer(
             }
         }
 
+        canvas.restoreToCount(markLineSave)
+
         // Lines above axes; points above all lines, including points located exactly on an axis.
         val seriesSave = canvas.save()
         canvas.clipRect(plotBounds)
+        if (polarClip != null) canvas.clipPath(polarClip)
         spec.series.forEachIndexed { index, series ->
             if (series.style != "marker") drawPolyline(canvas, sampled[index], ::sx, ::sy,
                 withAlpha(plotColor(series.color, series.colorIndex), (255 * series.opacity).toInt()), series.width, series.style)
@@ -722,11 +776,12 @@ class PlotBitmapRenderer(
         val markerSave = canvas.save()
         // Keep endpoint markers whole; reject out-of-range centers instead of showing folded points.
         canvas.clipRect(drawX - dp(8f), drawY - dp(8f), drawX + drawW + dp(8f), drawY + drawH + dp(8f))
+        if (polarClip != null) canvas.clipPath(polarClip)
         spec.series.forEachIndexed { index, series ->
             if (series.style == "marker" || series.style == "line_marker") {
                 val color = withAlpha(plotColor(series.color, series.colorIndex), (255 * series.opacity).toInt())
                 sampled[index].forEach { (x, y) ->
-                    if (y != null && y.isFinite() && x in xLo..xHi && y in yLo..yHi)
+                    if (y != null && y.isFinite() && visiblePoint(x, y))
                         drawMarker(canvas, sx(x), sy(y), dp(series.markerSize), series.markerShape, color)
                 }
             }
@@ -736,7 +791,7 @@ class PlotBitmapRenderer(
         spec.series.forEach { series ->
             if (series.style == "marker" && series.points?.size == 1 && series.label.isNotBlank()) {
                 val (x, y) = series.points.single()
-                if (x in xLo..xHi && y in yLo..yHi) drawSmartText(canvas, series.label, sx(x), sy(y), tickSize, theme.text)
+                if (visiblePoint(x, y)) drawSmartText(canvas, series.label, sx(x), sy(y), tickSize, theme.text)
             }
         }
         spec.markAreas.forEach { area -> area.label?.let {
@@ -747,7 +802,7 @@ class PlotBitmapRenderer(
             drawSmartText(canvas, it, sx(middle), drawY + height * .085f, tickSize, theme.subText, true)
         } }
         labelBounds = RectF(0f, 0f, width, height)
-        movableLabel = false
+        labelPlacement = LabelPlacement.Fixed
 
         // ---- 12. 图例：横排在标题下方、绘图区之外 ----
         // 早先画在绘图区内部左上角，会被曲线压住（左右对称的谱线尤其明显）。
@@ -778,34 +833,54 @@ class PlotBitmapRenderer(
         val labels = pendingLabels.orEmpty().toList()
         pendingLabels = null
         val occupied = mutableListOf<LabelRect>()
-        val obstacles = mutableListOf(LabelObstacleLine(drawX, axisY, drawX + drawW, axisY),
-            LabelObstacleLine(yAxisX, drawY, yAxisX, drawY + drawH))
+        val obstacles = if (polarViewport != null) mutableListOf(LabelObstacleLine(polarViewport.centerX, polarViewport.centerY,
+            polarViewport.centerX + polarViewport.radiusPx, polarViewport.centerY))
+            else mutableListOf(LabelObstacleLine(axisLeft, axisY, axisRight, axisY),
+                LabelObstacleLine(yAxisX, yAxisTop, yAxisX, yAxisBottom))
         decisionEdges.forEach { edge -> obstacles += LabelObstacleLine(sx(edge[0].first), sy(edge[0].second), sx(edge[1].first), sy(edge[1].second)) }
         sampled.forEachIndexed { index, points ->
             if (spec.series[index].style != "marker") points.zipWithNext().forEach { (a, b) ->
                 if (a.second != null && b.second != null) obstacles += LabelObstacleLine(sx(a.first), sy(a.second!!), sx(b.first), sy(b.second!!))
             }
             if (spec.series[index].style in setOf("marker", "line_marker")) points.forEach { (x, y) ->
-                if (y != null && x in xLo..xHi && y in yLo..yHi) occupied += LabelRect(sx(x) - dp(4f), sy(y) - dp(4f), sx(x) + dp(4f), sy(y) + dp(4f))
+                if (y != null && visiblePoint(x, y)) {
+                    val radius = dp(maxOf(4f, spec.series[index].markerSize))
+                    occupied += LabelRect(sx(x) - radius, sy(y) - radius, sx(x) + radius, sy(y) + radius)
+                }
             }
         }
-        // Labels are drawn over geometry with transparent backgrounds. Their
-        // placement avoids collisions; a backing would erase axes and curves.
-        for (label in labels.sortedBy { it.movable }) {
-            labelBounds = label.bounds
+        val measured = labels.sortedBy { it.placement }.map { label ->
             val w = smartTextWidth(label.raw, label.size).coerceAtMost(label.bounds.width())
             val (above, below) = smartTextExtent(label.raw, label.size)
-            val h = above + below
-            val initialX = (if (label.centered) label.x - w / 2 else label.x).coerceIn(label.bounds.left, (label.bounds.right - w).coerceAtLeast(label.bounds.left))
-            val initial = LabelRect(initialX, label.baseline - above, initialX + w, label.baseline + below)
-            val box = if (label.movable) placePlotLabel(label.x, label.baseline, w, h,
-                LabelRect(label.bounds.left, label.bounds.top, label.bounds.right, label.bounds.bottom), occupied, obstacles, width * .009f)
-                ?: placePlotLabel(label.x, label.baseline, w, h, LabelRect(width * .01f, height * .075f, width * .99f, height * .98f),
-                    occupied, obstacles, width * .009f)
-                ?: initial else initial
+            val x = (if (label.centered) label.x - w / 2 else label.x)
+                .coerceIn(label.bounds.left, (label.bounds.right - w).coerceAtLeast(label.bounds.left))
+            MeasuredLabel(label, above, LabelRect(x, label.baseline - above, x + w, label.baseline + below))
+        }
+        val remainingTicks = measured.filter { it.source.placement == LabelPlacement.Nearby }.toMutableList()
+        val strokeClearance = dp(maxOf(AXIS_STROKE_DP, spec.series.maxOfOrNull { it.width } ?: 0f)) / 2
+        // Labels are drawn over geometry with transparent backgrounds. Their
+        // placement avoids collisions; a backing would erase axes and curves.
+        for ((label, above, initial) in measured) {
+            labelBounds = label.bounds
+            val bounds = LabelRect(label.bounds.left, label.bounds.top, label.bounds.right, label.bounds.bottom)
+            val box = when (label.placement) {
+                LabelPlacement.Fixed -> initial
+                LabelPlacement.Nearby -> {
+                    remainingTicks.removeAll { it.source === label }
+                    // Reserve other ticks before moving this one, including ticks
+                    // not drawn yet, so a shift cannot obscure a neighbour.
+                    placeNearbyPlotLabel(initial, bounds, occupied + remainingTicks.map { it.initial }, obstacles,
+                        maxOf(label.size * .18f, strokeClearance + 1f), maxOffset = label.size * 1.5f) ?: initial
+                }
+                LabelPlacement.Annotation -> placePlotLabel(label.x, label.baseline, initial.width, initial.height,
+                    bounds, occupied, obstacles, width * .009f)
+                    ?: placePlotLabel(label.x, label.baseline, initial.width, initial.height,
+                        LabelRect(width * .01f, height * .075f, width * .99f, height * .98f), occupied, obstacles, width * .009f)
+                    ?: initial
+            }
             val save = canvas.save()
             canvas.setMatrix(label.matrix)
-            if (label.movable && kotlin.math.hypot(box.left - initial.left, box.top - initial.top) > label.size * 1.7f) {
+            if (label.placement == LabelPlacement.Annotation && kotlin.math.hypot(box.left - initial.left, box.top - initial.top) > label.size * 1.7f) {
                 val connectorSave = canvas.save()
                 occupied.forEach { canvas.clipOutRect(it.left - 2, it.top - 2, it.right + 2, it.bottom + 2) }
                 linePaint.color = theme.subText
@@ -814,7 +889,7 @@ class PlotBitmapRenderer(
                 canvas.drawLine(label.x, label.baseline, (box.left + box.right) / 2, (box.top + box.bottom) / 2, linePaint)
                 canvas.restoreToCount(connectorSave)
             }
-            labelBounds = RectF(0f, 0f, width, height).takeIf { label.movable } ?: label.bounds
+            labelBounds = RectF(0f, 0f, width, height).takeIf { label.placement == LabelPlacement.Annotation } ?: label.bounds
             drawSmartText(canvas, label.raw, box.left, box.top + above, label.size, label.color)
             val mapped = RectF(box.left, box.top, box.right, box.bottom)
             label.matrix.mapRect(mapped)
@@ -960,6 +1035,7 @@ class PlotBitmapRenderer(
         sx: (Double) -> Float,
         sy: (Double) -> Float,
         baseline: Float,
+        originX: Float? = null,
     ) {
         val path = Path()
         var segment = mutableListOf<Pair<Float, Float>>()
@@ -967,9 +1043,9 @@ class PlotBitmapRenderer(
 
         fun flush() {
             if (segment.size >= 2) {
-                path.moveTo(segment.first().first, baseline)
+                path.moveTo(originX ?: segment.first().first, baseline)
                 for (p in segment) path.lineTo(p.first, p.second)
-                path.lineTo(segment.last().first, baseline)
+                path.lineTo(originX ?: segment.last().first, baseline)
                 path.close()
                 hasSegment = true
             }

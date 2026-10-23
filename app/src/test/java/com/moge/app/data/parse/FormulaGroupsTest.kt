@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FormulaGroupsTest {
+    @Test fun `inner product groups preserve nested tuples and cannot be wrapped internally`() {
+        val source = "\\langle A(x,y),B(x,y)\\rangle=\\bigl\\langle x,y\\bigr\\rangle"
+        val groups = formulaGroups(source)
+        assertEquals(2, groups.size)
+        assertEquals("A(x,y),B(x,y)", source.substring(groups.first().bodyStart, groups.first().bodyEnd).trim())
+        assertTrue(groups.all { !it.allowsInnerWrapping })
+        assertTrue(formulaGroups("\\langle x,y").isEmpty())
+    }
+
     @Test fun `only complete outer visible groups are exposed for wrapping`() {
         for ((open, close) in listOf("[" to "]", "\\left[" to "\\right]", "\\bigl[" to "\\bigr]")) {
             val source = "\\iint_{D_{xy}}${open}a+(b+c)+d${close}dxdy"

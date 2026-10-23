@@ -1,6 +1,10 @@
 package com.moge.app.data.parse
 
 import com.moge.app.data.parse.ReplyParser
+import com.moge.app.domain.plot.PlotSpec
+import com.moge.app.domain.plot.samplePolarSeries
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -11,6 +15,46 @@ import org.junit.Test
  * 坏数据要能局部丢弃而不是拖垮整条回答。
  */
 class PlotParsingTest {
+
+    @Test fun `polar expressions settings and Cartesian markers survive parsing and storage`() {
+        val raw = """{"reply":"心形线\n[[FIGURE:1]]","plots":[{"polar":{"radiusMax":2.2,
+            "radialTicks":[2,1,1,-1],"angleStepDegrees":45,"grid":false},"series":[
+            {"expr":"1-cos(theta)","thetaMin":0,"thetaMax":3.141592653589793},
+            {"points":[[-2,0]],"style":"marker","label":"端点"}]}]}"""
+        val parsed = ReplyParser.parse(raw)
+        val plot = parsed.plots.single()
+        assertTrue(plot.equalAspect)
+        assertEquals(2.2, plot.polar!!.radiusMax!!, 0.0)
+        assertEquals(listOf(1.0, 2.0), plot.polar!!.radialTicks)
+        assertEquals(45, plot.polar!!.angleStepDegrees)
+        assertEquals(false, plot.polar!!.grid)
+        assertEquals(Math.PI, plot.series.first().thetaMax, 0.0)
+        assertEquals(listOf(-2.0 to 0.0), samplePolarSeries(plot.series.last()))
+        assertEquals(plot, Json.decodeFromString<PlotSpec>(Json.encodeToString(plot)))
+        assertTrue(parsed.warnings.toString(), parsed.warnings.isEmpty())
+    }
+
+    @Test fun `polar defaults and existing Cartesian plots work in the same answer`() {
+        val parsed = ReplyParser.parse("""{"reply":"两种坐标","plots":[
+            {"polar":true,"series":[{"expr":"cos(2*θ)"}]},
+            {"polar":false,"series":[{"expr":"x^2"}]}]}""")
+        assertEquals(2, parsed.plots.size)
+        assertEquals(2 * Math.PI, parsed.plots[0].series.single().thetaMax, 0.0)
+        assertNull(parsed.plots[1].polar)
+    }
+
+    @Test fun `invalid polar configuration does not discard the answer or following plots`() {
+        for (invalid in listOf("\"polar\":{\"radiusMax\":-1}", "\"polar\":{\"angleStepDegrees\":7}",
+            "\"polar\":true,\"series\":[{\"expr\":\"theta\",\"thetaMin\":2,\"thetaMax\":1}]",
+            "\"polar\":true,\"series\":[{\"expr\":\"theta\",\"thetaMax\":\"infinity\"}]")) {
+            val series = if (invalid.contains("series")) "" else ",\"series\":[{\"expr\":\"theta\"}]"
+            val parsed = ReplyParser.parse("""{"reply":"正文保留","plots":[{$invalid$series},{"series":[{"expr":"x"}]}]}""")
+            assertEquals(invalid, "正文保留", parsed.reply)
+            assertEquals(invalid, 1, parsed.plots.size)
+            assertNull(parsed.plots.single().polar)
+            assertTrue(invalid, parsed.warnings.any { it.contains("图表") })
+        }
+    }
 
     @Test
     fun `parses plots array into specs`() {

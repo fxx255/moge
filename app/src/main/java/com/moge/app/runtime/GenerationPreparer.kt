@@ -69,18 +69,19 @@ class GenerationPreparer @Inject constructor(
     }
 
     /**
-     * 新提问的准备：**全部以 [captureInitialSnapshot] 钉下的 [initial] 为准**，
+     * 新提问的准备：**全部以 [captureInitialSnapshot] 钉下的 [initialSnapshot] 为准**，
      * 不重读活动档案、不重建历史，只做网络工作（转写）并把结果补写进快照。
      */
     suspend fun prepare(
         submission: GenerationManager.Submission,
         owner: RequestEntity,
-        initial: RequestSnapshot,
+        initialSnapshot: RequestSnapshot,
     ): Prepared {
-        validateConfiguration(initial, submission.attachmentPaths.isNotEmpty())
-        if (!initial.isComplete) {
+        validateConfiguration(initialSnapshot, submission.attachmentPaths.isNotEmpty())
+        if (!initialSnapshot.isComplete) {
             return failure(owner, "本轮恢复信息不完整，无法安全准备；请重新发送本次消息")
         }
+        val initial = refreshCapturedPrompt(initialSnapshot)
         val photo = when (initial.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_NONE -> PhotoOutcome(emptyList(), submission.userText)
             RequestSnapshot.PHOTO_ROUTE_DIRECT -> {
@@ -220,13 +221,14 @@ class GenerationPreparer @Inject constructor(
      *   数量不符即失败，绝不静默降级成无图提问。
      */
     suspend fun prepareRetry(owner: RequestEntity): Prepared {
-        val snapshot = SnapshotCodec.decode(owner.snapshotJson)
+        val captured = SnapshotCodec.decode(owner.snapshotJson)
         when {
-            snapshot == null -> return failure(owner, "这一轮没有恢复信息，无法安全重发。请重新发送本次消息。")
-            !snapshot.isComplete -> return failure(owner, "这一轮的恢复信息不完整，无法安全重发。请重新发送本次消息。")
+            captured == null -> return failure(owner, "这一轮没有恢复信息，无法安全重发。请重新发送本次消息。")
+            !captured.isComplete -> return failure(owner, "这一轮的恢复信息不完整，无法安全重发。请重新发送本次消息。")
         }
         val attachments = RequestRepository.decodePathList(owner.attachmentPaths)
-        validateConfiguration(snapshot, attachments.isNotEmpty())
+        validateConfiguration(captured, attachments.isNotEmpty())
+        val snapshot = refreshCapturedPrompt(captured)
         if (snapshot.prepared) return preparedRetryFromSnapshot(snapshot, owner, attachments)
         val submission = GenerationManager.Submission(
             conversationId = owner.conversationId,
@@ -237,6 +239,20 @@ class GenerationPreparer @Inject constructor(
             forceWebSearch = snapshot.forceWebSearch,
         )
         return prepare(submission, owner, snapshot)
+    }
+
+    /** Persist the repaired prompt before HTTP so later history replays what was actually sent. */
+    private suspend fun refreshCapturedPrompt(snapshot: RequestSnapshot): RequestSnapshot {
+        if (snapshot.prompt == null) return snapshot // Legacy snapshots retain the client's configuration fallback.
+        val mode = ConversationMode.fromName(snapshot.conversationMode)
+        val solveMode = SolveMode.fromName(snapshot.solveMode) ?: SolveMode.DETAILED
+        if (PromptAssembler.reusablePrompt(snapshot.prompt, solveMode, mode) != null) return snapshot
+        val effort = AiReasoningEffort.entries.firstOrNull { it.name == snapshot.reasoningEffort }
+            ?: (if (snapshot.primaryProfileId.isBlank()) credentialStore.resolveActiveIdentity()
+                else credentialStore.resolveIdentityFor(snapshot.primaryProfileId))?.reasoningEffort
+            ?: AiReasoningEffort.LOW
+        return snapshot.copy(prompt = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT,
+            settings.current().nickname, effort, solveMode, conversationMode = mode))
     }
 
     private suspend fun preparedRetryFromSnapshot(
