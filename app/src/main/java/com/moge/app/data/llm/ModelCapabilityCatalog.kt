@@ -19,6 +19,8 @@ data class ModelCapability(
     val supportsReasoning: Boolean? = null,
     val canDisableThinking: Boolean? = null,
     val chatOutputParameter: String? = null,
+    val supportsJsonSchema: Boolean? = null,
+    val supportsJsonObject: Boolean? = null,
 )
 
 data class ModelCatalog(val capabilities: Map<String, ModelCapability>) {
@@ -47,6 +49,10 @@ internal fun parseModelCatalog(raw: String): ModelCatalog {
             defaultEffort = effort(model.string("reasoning_default_effort")),
             supportsReasoning = model.flag("supports_reasoning"),
             canDisableThinking = model.flag("can_disable_thinking"),
+            supportsJsonSchema = model.flag("supports_json_schema") ?: model.flag("supports_structured_outputs")
+                ?: true.takeIf { "structured_outputs" in parameters },
+            supportsJsonObject = model.flag("supports_json_object")
+                ?: true.takeIf { "response_format" in parameters },
             chatOutputParameter = "max_completion_tokens".takeIf {
                 positive(model, it) != null || it in parameters && "max_tokens" !in parameters
             },

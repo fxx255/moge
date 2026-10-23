@@ -1922,6 +1922,8 @@ class GenerationManagerTest {
                 coEvery { current() } returns com.moge.app.data.prefs.UserSettings()
             },
             credentialStore = store,
+            requestRepository = repository,
+            visionImages = com.moge.app.data.llm.VisionInputImageStore(ApplicationProvider.getApplicationContext()),
         )
         val local = GenerationManager(
             modelClient = modelClient,

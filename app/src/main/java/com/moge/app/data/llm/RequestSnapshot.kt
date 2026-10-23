@@ -56,6 +56,10 @@ data class RequestSnapshot(
     val documentReadRequired: Boolean = false,
     val apiProtocol: String = "",
     val conversationMode: String = ConversationMode.SOLVE.name,
+    /** Captured once before preparation; later turns replay the original per-turn instructions. */
+    val prompt: PromptSegments? = null,
+    /** Version 1 stores individual model-facing messages, before adjacent-assistant merging. */
+    val modelHistoryVersion: Int = 0,
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean
@@ -84,6 +88,7 @@ data class RequestSnapshot(
         apiProtocol = apiProtocol,
         visionEnabled = primaryVisionEnabled,
         conversationMode = ConversationMode.fromName(conversationMode),
+        prompt = prompt,
     )
 
     companion object {
@@ -93,7 +98,7 @@ data class RequestSnapshot(
     }
 }
 
-/** 历史只保存本机图片路径；发送时才重新压缩，不持久化 base64。 */
+/** Immutable model-facing text and local attachment paths; encoded images stay out of Room. */
 @Serializable
 data class SnapshotHistoryMessage(
     val id: String = "",
@@ -101,6 +106,9 @@ data class SnapshotHistoryMessage(
     val text: String = "",
     val imagePaths: List<String> = emptyList(),
     val documentPaths: List<String> = emptyList(),
+    val turnContext: String = "",
+    /** A regenerated answer must not inherit text from an earlier attempt with the same message id. */
+    val sourceAttemptId: String = "",
 )
 
 /**
@@ -121,6 +129,7 @@ data class RequestPolicy(
     val apiProtocol: String = "",
     val visionEnabled: Boolean? = null,
     val conversationMode: ConversationMode = ConversationMode.SOLVE,
+    val prompt: PromptSegments? = null,
 )
 
 /** 快照的序列化；坏快照解码成 null，调用方按「不可重试」处理。 */

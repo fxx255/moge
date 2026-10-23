@@ -131,9 +131,9 @@ class ModelClient @Inject constructor(
         policy: RequestPolicy? = null,
         onEvent: suspend (StreamEvent) -> Unit,
     ): ParsedReply = modelRequest {
-        val configured = resolveConfigured(policy)
         val response = ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE)
-        val prompt = PromptAssembler.assemble(
+        val configured = resolveConfigured(policy).copy(conversationMode = response.mode)
+        val prompt = policy?.prompt ?: PromptAssembler.assemble(
             protocol = SYSTEM_PROMPT,
             nickname = settings.current().nickname,
             reasoningEffort = configured.reasoningEffort,
@@ -153,8 +153,8 @@ class ModelClient @Inject constructor(
             return@modelRequest run {
                 (documentAgent ?: throw ModelException(ModelException.Kind.CONFIG_INVALID, "文档分析模块不可用"))
                     .run(client, configured.baseUrl, configured.model, configured.apiKey, apiProtocol,
-                    configured.visionEnabled, messages, imageBase64s,
-                    listOf(prompt.stableSystem, prompt.volatileSystem).joinToString("\n\n"),
+                    configured.visionEnabled, promptMessageSequence(messages, imageBase64s, prompt), emptyList(),
+                    prompt.stableSystem,
                     webSearchOn, forceWebSearch, onUsage, onEvent,
                     requireRead = messages.lastOrNull { it.role == "user" }?.documentReadRequired == true,
                     conversationMode = response.mode, reasoningEffort = configured.reasoningEffort,
@@ -704,6 +704,8 @@ class ModelClient @Inject constructor(
         val requestWebSearch: Boolean = true,
         val finalAnswer: Boolean = false,
         val capability: ModelCapability? = null,
+        /** Null for configuration probes, whose prompts do not request solving JSON. */
+        val conversationMode: ConversationMode? = null,
     ) {
         /** 安全端点身份（主机+路径），用于诊断归集与重试校验。 */
         val endpointIdentity: String get() = endpointIdentityOf(baseUrl)
@@ -720,6 +722,10 @@ class ModelClient @Inject constructor(
         put("model", configured.model)
         put("temperature", 0.4)
         put("stream", stream)
+        configured.conversationMode?.let { mode ->
+            solveOutputFormatFields(mode, configured.capability, AiApiProtocol.CHAT_COMPLETIONS)
+                .forEach { (key, value) -> put(key, value) }
+        }
         ModelGenerationParameters.fields(
             baseUrl = configured.baseUrl,
             model = configured.model,
@@ -742,58 +748,21 @@ class ModelClient @Inject constructor(
             }
         }
         put("messages", buildJsonArray {
-            // ── 顺序 ─────────────────────────────────────────────────────────
-            //   [稳定前缀]  固定协议 → 称呼/推理设定
-            //   [稳定历史]  既有历史（**不含**当前这一轮）
-            //   [易变尾部]  当前时间 → 解题模式
-            //   [当前问题]  必须**最后一条**，且带它自己的图片
-            //
-            // 当前问题必须最后：模型最看重「最后说的话」，把上下文放在它后面，回答就会跑偏。
             add(buildJsonObject { put("role", "system"); put("content", prompt.stableSystem) })
-            // 稳定历史：排除最后一条 user（它是当前问题，稍后单独放）。
-            val currentTurnIndex = messages.indexOfLast { it.role == "user" }
-            messages.forEachIndexed { index, message ->
-                if (index == currentTurnIndex) return@forEachIndexed
-                val images = message.imageBase64s
+            promptMessageSequence(messages, imageBase64s, prompt).forEach { message ->
                 add(buildJsonObject {
                     put("role", message.role)
-                    if (images.isNotEmpty()) {
+                    if (message.imageBase64s.isNotEmpty()) {
                         put("content", buildJsonArray {
-                            if (message.content.isNotBlank()) add(buildJsonObject { put("type", "text"); put("text", message.content) })
-                            images.forEach { base64 ->
-                                add(buildJsonObject {
-                                    put("type", "image_url")
-                                    put("image_url", buildJsonObject { put("url", "data:image/jpeg;base64,$base64") })
-                                })
-                            }
+                            if (message.content.isNotBlank()) add(buildJsonObject {
+                                put("type", "text"); put("text", message.content)
+                            })
+                            message.imageBase64s.forEach { base64 -> add(buildJsonObject {
+                                put("type", "image_url")
+                                put("image_url", buildJsonObject { put("url", "data:image/jpeg;base64,$base64") })
+                            }) }
                         })
-                    } else {
-                        put("content", message.content)
-                    }
-                })
-            }
-            // ── 易变尾部：时间与解题模式靠近当前问题，并声明不能覆盖系统规则 ──
-            add(buildJsonObject { put("role", "system"); put("content", prompt.volatileSystem) })
-            // ── 当前问题（必须是最后一条）────────────────────────────────────
-            val current = currentTurnIndex.takeIf { it >= 0 }?.let { messages[it] }
-            if (current != null) {
-                // 当前轮的图片由调用方直接给出（历史图片走 message.imageBase64s）。
-                val images = if (imageBase64s.isNotEmpty()) imageBase64s else current.imageBase64s
-                add(buildJsonObject {
-                    put("role", "user")
-                    if (images.isNotEmpty()) {
-                        put("content", buildJsonArray {
-                            if (current.content.isNotBlank()) add(buildJsonObject { put("type", "text"); put("text", current.content) })
-                            images.forEach { base64 ->
-                                add(buildJsonObject {
-                                    put("type", "image_url")
-                                    put("image_url", buildJsonObject { put("url", "data:image/jpeg;base64,$base64") })
-                                })
-                            }
-                        })
-                    } else {
-                        put("content", current.content)
-                    }
+                    } else put("content", message.content)
                 })
             }
         })
@@ -1477,8 +1446,11 @@ class ModelClient @Inject constructor(
         put("model", configured.model)
         ModelGenerationParameters.fields(configured.baseUrl, configured.model, configured.reasoningEffort,
             AiApiProtocol.RESPONSES, configured.finalAnswer, configured.capability).forEach { (key, value) -> put(key, value) }
-        // 与 Chat Completions 保持同一分段顺序：instructions 只放稳定前缀
-        // （固定协议 + 稳定用户资料 + 推理设定），时间与只读数据挪到 input 尾部。
+        configured.conversationMode?.let { mode ->
+            solveOutputFormatFields(mode, configured.capability, AiApiProtocol.RESPONSES)
+                .forEach { (key, value) -> put(key, value) }
+        }
+        // Fixed rules stay in instructions; each historical turn keeps its original context in input.
         put("instructions", prompt.stableSystem)
         if (configured.requestWebSearch) put("tools", buildJsonArray { add(buildJsonObject { put("type", "web_search") }) })
         // 用户明确开启搜索时强制调用：默认 auto 时模型可能完全不用这个工具。
@@ -1486,50 +1458,19 @@ class ModelClient @Inject constructor(
             put("tool_choice", buildJsonObject { put("type", "web_search") })
         }
         put("input", buildJsonArray {
-            // 与 Chat Completions 完全相同的顺序约束：
-            // 稳定历史（**不含**当前轮）→ 易变时间/只读数据 → **当前问题最后**。
-            val currentTurnIndex = messages.indexOfLast { it.role == "user" }
-            messages.forEachIndexed { index, message ->
-                if (index == currentTurnIndex) return@forEachIndexed
-                val images = message.imageBase64s
+            promptMessageSequence(messages, imageBase64s, prompt).forEach { message ->
                 add(buildJsonObject {
                     put("role", message.role)
-                    if (images.isNotEmpty()) {
+                    if (message.imageBase64s.isNotEmpty()) {
                         put("content", buildJsonArray {
-                            if (message.content.isNotBlank()) add(buildJsonObject { put("type", "input_text"); put("text", message.content) })
-                            images.forEach { base64 ->
-                                add(buildJsonObject {
-                                    put("type", "input_image")
-                                    put("image_url", "data:image/jpeg;base64,$base64")
-                                })
-                            }
+                            if (message.content.isNotBlank()) add(buildJsonObject {
+                                put("type", "input_text"); put("text", message.content)
+                            })
+                            message.imageBase64s.forEach { base64 -> add(buildJsonObject {
+                                put("type", "input_image"); put("image_url", "data:image/jpeg;base64,$base64")
+                            }) }
                         })
-                    } else {
-                        put("content", message.content)
-                    }
-                })
-            }
-            // 易变尾部：当前时间永远靠近当前问题；只读数据紧随其后。
-            add(buildJsonObject { put("role", "system"); put("content", prompt.volatileSystem) })
-            // 当前问题必须最后。
-            val current = currentTurnIndex.takeIf { it >= 0 }?.let { messages[it] }
-            if (current != null) {
-                val images = if (imageBase64s.isNotEmpty()) imageBase64s else current.imageBase64s
-                add(buildJsonObject {
-                    put("role", "user")
-                    if (images.isNotEmpty()) {
-                        put("content", buildJsonArray {
-                            if (current.content.isNotBlank()) add(buildJsonObject { put("type", "input_text"); put("text", current.content) })
-                            images.forEach { base64 ->
-                                add(buildJsonObject {
-                                    put("type", "input_image")
-                                    put("image_url", "data:image/jpeg;base64,$base64")
-                                })
-                            }
-                        })
-                    } else {
-                        put("content", current.content)
-                    }
+                    } else put("content", message.content)
                 })
             }
         })
@@ -1707,11 +1648,11 @@ private fun extractDeepSeekCitations(element: JsonElement?, out: MutableList<Mod
 
 internal fun reasoningInstruction(effort: AiReasoningEffort): String = when (effort) {
     AiReasoningEffort.LOW ->
-        "本轮思考强度：低。优先快速、直接作答，避免冗长内部分析或反复验证；最终正文仍按解题模式保留必要步骤与依据。"
+        "本轮使用低思考强度。优先快速、直接作答；普通问题不要展开冗长内部分析或反复验证。复杂题仍须在最终答案中保留必要公式和关键推导。"
     AiReasoningEffort.MEDIUM ->
-        "本轮思考强度：中。在内部充分核对关键条件，控制内部分析长度，及时按解题模式输出完整最终正文。"
+        "本轮使用中等思考强度。对关键条件做充分检查，但控制内部分析长度，并及时输出完整最终答案。"
     AiReasoningEffort.HIGH ->
-        "本轮思考强度：高。在内部深入核对条件与结论，必须为完整最终正文保留充足输出空间；正文展示整理后的教学说明。"
+        "本轮使用高思考强度。适合复杂证明与多步规划；可以深入检查，但仍必须为完整最终答案保留输出空间。"
 }
 
 /** Whether this turn needs a provider-backed web search. */

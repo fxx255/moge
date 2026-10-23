@@ -94,9 +94,12 @@ class EndToEndGenerationTest {
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId).status)
             withTimeout(3_000) { while (manager.isRunning()) delay(10) }
             enqueueReply("""{"reply":"根据补图，更正第3问的边界。"}""")
-            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath)))
+            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath),
+                solveMode = com.moge.app.domain.SolveMode.CHECK_WORK))
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(second.requestId).status)
             withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+            // A display/content refresh must not rewrite a message already sent as model history.
+            db.requestDao().updateMessageContent(first.answerMessageId, "界面后来重新排版的回答")
             enqueueReply("""{"reply":"右上角标的是第二个星座点。"}""")
             val third = manager.submit(GenerationManager.Submission("c1", "右上角标的是什么？", emptyList()))
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(third.requestId).status)
@@ -106,7 +109,16 @@ class EndToEndGenerationTest {
             fun messages(index: Int) = bodies[index][if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!
                 .jsonArray.map { it.jsonObject }
             fun imageText(message: kotlinx.serialization.json.JsonObject) =
-                message["content"]!!.jsonArray.first().jsonObject["text"]!!.jsonPrimitive.content
+                message["content"]!!.jsonArray.first().jsonObject["text"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n")
+            for (index in 1..2) {
+                val previous = messages(index - 1)
+                assertEquals("$protocol must append to the exact prior input, including turn instructions and image bytes",
+                    previous, messages(index).take(previous.size))
+            }
+            if (protocol == AiApiProtocol.RESPONSES) {
+                assertEquals(bodies[0]["instructions"], bodies[1]["instructions"])
+                assertEquals(bodies[1]["instructions"], bodies[2]["instructions"])
+            }
             val secondMessages = messages(1)
             val exchange = secondMessages.filter { it["role"]!!.jsonPrimitive.content != "system" }
             assertEquals(listOf("user", "assistant", "user"), exchange.map { it["role"]!!.jsonPrimitive.content })
@@ -123,7 +135,7 @@ class EndToEndGenerationTest {
             val historicalUsers = messages(2).filter { it["role"]!!.jsonPrimitive.content == "user" }
             assertEquals(PhotoTurnPrompt.INITIAL_QUESTION, imageText(historicalUsers[0]))
             assertEquals(PhotoTurnPrompt.FOLLOW_UP, imageText(historicalUsers[1]))
-            assertEquals("右上角标的是什么？", historicalUsers[2]["content"]!!.jsonPrimitive.content)
+            assertEquals("右上角标的是什么？", historicalUsers[2]["content"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
             assertEquals("", db.requestDao().getMessage(second.userMessageId)!!.content)
         } finally { photo.delete() }
     }
@@ -177,7 +189,8 @@ class EndToEndGenerationTest {
             for (body in listOf(initialPayload, followupPayload)) {
                 val parts = body["messages"]!!.jsonArray.map { it.jsonObject }
                     .first { it["role"]!!.jsonPrimitive.content == "user" }["content"]!!.jsonArray
-                assertEquals("请描述这些图片。", parts.first().jsonObject["text"]!!.jsonPrimitive.content)
+                assertEquals("请描述这些图片。",
+                    parts.first().jsonObject["text"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
                 assertEquals("image_url", parts[1].jsonObject["type"]!!.jsonPrimitive.content)
                 assertFalse(body.toString().contains("完整推导过程"))
             }
@@ -290,7 +303,8 @@ class EndToEndGenerationTest {
             every { profiles() } returns listOf(profile)
         }
         val modelClient = ModelClient(settings, credentials, Dispatchers.Unconfined).withTestModelCatalog()
-        val preparer = GenerationPreparer(modelClient, db.conversationDao(), settings, credentials)
+        val preparer = GenerationPreparer(modelClient, db.conversationDao(), settings, credentials, repository,
+            com.moge.app.data.llm.VisionInputImageStore(context))
         manager = GenerationManager(
             modelClient = modelClient,
             requestRepository = repository,
@@ -371,7 +385,8 @@ class EndToEndGenerationTest {
             assertEquals(1, server.requestCount)
             val body = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
             val parts = body["messages"]!!.jsonArray.last().jsonObject["content"]!!.jsonArray
-            assertEquals(submission.userText, parts.first().jsonObject["text"]!!.jsonPrimitive.content)
+            assertEquals(submission.userText,
+                parts.first().jsonObject["text"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
             assertEquals("image_url", parts[1].jsonObject["type"]!!.jsonPrimitive.content)
             assertEquals("看图回答成功", db.requestDao().getMessage(record.answerMessageId)!!.content)
         } finally { photo.delete() }
@@ -417,10 +432,11 @@ class EndToEndGenerationTest {
                 .map { it.jsonObject }.filter { it["role"]!!.jsonPrimitive.content != "system" }
             assertEquals(listOf("user", "assistant", "user"), sent.map { it["role"]!!.jsonPrimitive.content })
             val parts = sent.first()["content"]!!.jsonArray
-            assertEquals(GenerationPreparer.DEFAULT_VISION_PROMPT, parts.first().jsonObject["text"]!!.jsonPrimitive.content)
+            assertEquals(GenerationPreparer.DEFAULT_VISION_PROMPT,
+                parts.first().jsonObject["text"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
             assertEquals("image_url", parts[1].jsonObject["type"]!!.jsonPrimitive.content)
             assertTrue(sent[1]["content"]!!.jsonPrimitive.content.contains("按原图题目继续解答"))
-            assertEquals("解释第二步", sent.last()["content"]!!.jsonPrimitive.content)
+            assertEquals("解释第二步", sent.last()["content"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
         } finally { photo.delete() }
     }
 

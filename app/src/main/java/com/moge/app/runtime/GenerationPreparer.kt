@@ -8,15 +8,14 @@ import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.ChatMessage
-import com.moge.app.data.llm.HISTORY_MAX_CHARS
 import com.moge.app.data.llm.HISTORY_MAX_MESSAGES
-import com.moge.app.data.llm.ImagePrep
+import com.moge.app.data.llm.PromptAssembler
+import com.moge.app.data.llm.VisionInputImageStore
 import com.moge.app.data.llm.ModelClient
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.RequestPolicy
 import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.llm.SnapshotCodec
-import com.moge.app.data.llm.SnapshotHistoryMessage
 import com.moge.app.data.llm.endpointIdentityOf
 import com.moge.app.data.llm.shouldUseWebSearch
 import com.moge.app.data.parse.replaceFigureAnchors
@@ -47,6 +46,8 @@ class GenerationPreparer @Inject constructor(
     private val conversationDao: ConversationDao,
     private val settings: SettingsRepository,
     private val credentialStore: AiCredentialStore,
+    private val requestRepository: RequestRepository,
+    private val visionImages: VisionInputImageStore,
 ) {
     /** 准备结果：[failure] 非空表示这一轮无法开始，调用方须落终态。 */
     data class Prepared(
@@ -96,7 +97,7 @@ class GenerationPreparer @Inject constructor(
         val outgoing = photo.outgoingText
         // 历史来自快照，绝不重读当前会话。
         val history = historyFromSnapshot(initial) + ChatMessage("user", outgoing, documentPaths = initial.documentPaths,
-            documentReadRequired = initial.documentReadRequired)
+            documentReadRequired = initial.documentReadRequired, turnContext = initial.prompt?.volatileSystem.orEmpty())
         val policy = initial.toPolicy()
         return Prepared(
             outgoingText = outgoing,
@@ -160,7 +161,10 @@ class GenerationPreparer @Inject constructor(
         else if (submission.parentMessageId == ConversationBranches.AUTO_PARENT)
             ConversationBranches.visible(allMessages, conversationDao.getBranchSelections(conversationId))
         else ConversationBranches.ancestors(allMessages, submission.parentMessageId)
-        val bounded = boundedHistory(sourceHistory, userMessageId, answerMessageId, conversationMode)
+        val eligible = sourceHistory.filterNot { it.id == userMessageId || it.id == answerMessageId }
+            .takeLast(HISTORY_MAX_MESSAGES)
+        val bounded = ModelHistorySnapshot.capture(eligible,
+            requestRepository.forMessages(conversationId, eligible.map { it.id }), conversationMode)
         val visionDirect = identity?.visionEnabled ?: false
         val recognizer = if (visionDirect || conversationMode == ConversationMode.CHAT) null else credentialStore.questionVisionProfileId()
             ?.let { credentialStore.resolveIdentityFor(it) }
@@ -194,6 +198,10 @@ class GenerationPreparer @Inject constructor(
             visionEndpointIdentity = recognizer?.let { endpointIdentityOf(it.baseUrl) }.orEmpty(),
             photoRoute = route,
             originalHistory = bounded,
+            prompt = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, prefs.nickname,
+                identity?.reasoningEffort ?: AiReasoningEffort.LOW, submission.solveMode,
+                conversationMode = conversationMode),
+            modelHistoryVersion = 1,
         )
     }
 
@@ -231,7 +239,7 @@ class GenerationPreparer @Inject constructor(
     ): Prepared {
         val outgoing = snapshot.sourceUserText
         val history = historyFromSnapshot(snapshot) + ChatMessage("user", outgoing, documentPaths = snapshot.documentPaths,
-            documentReadRequired = snapshot.documentReadRequired)
+            documentReadRequired = snapshot.documentReadRequired, turnContext = snapshot.prompt?.volatileSystem.orEmpty())
         val imageBase64s = when (snapshot.photoRoute) {
             RequestSnapshot.PHOTO_ROUTE_DIRECT -> {
                 if (attachments.isEmpty()) {
@@ -339,7 +347,7 @@ class GenerationPreparer @Inject constructor(
     /** 编码全部附件；**数量不符即失败**，绝不偷偷少传一张图。 */
     private suspend fun encodeAll(photoPaths: List<String>): PhotoOutcome {
         val encoded = withContext(Dispatchers.Default) {
-            photoPaths.mapNotNull { ImagePrep.encodeForVision(it) }
+            photoPaths.mapNotNull { visionImages.encode(it) }
         }
         return if (encoded.size == photoPaths.size) {
             PhotoOutcome(encoded, "")
@@ -349,54 +357,8 @@ class GenerationPreparer @Inject constructor(
     }
 
     /**
-     * **有界历史**：排除本请求自己的消息位与空回答；相邻助手消息合并；
-     * 条数与总字符双限，超长时从最早的消息开始丢（至少保留最近一条）。
-     */
-    private suspend fun boundedHistory(
-        source: List<com.moge.app.data.db.MessageEntity>,
-        userMessageId: String,
-        answerMessageId: String,
-        conversationMode: ConversationMode,
-    ): List<SnapshotHistoryMessage> {
-        val merged = mutableListOf<SnapshotHistoryMessage>()
-        fun answerText(message: com.moge.app.data.db.MessageEntity): String {
-            val text = message.displayContent ?: message.content
-            return if (conversationMode == ConversationMode.CHAT) text else historyAnswerText(text, message.finalAnswer)
-        }
-        source
-            .filterNot { it.id == userMessageId || it.id == answerMessageId }
-            .filterNot { it.role == "assistant" && it.content.isBlank() }
-            .forEach { message ->
-                val previous = merged.lastOrNull()
-                if (previous != null && previous.role == "assistant" && message.role == "assistant") {
-                    merged[merged.lastIndex] = previous.copy(text = previous.text + "\n\n" + answerText(message))
-                } else {
-                    merged += SnapshotHistoryMessage(
-                        id = message.id,
-                        role = message.role,
-                        text = if (message.role == "assistant") answerText(message) else message.content,
-                        // 助手消息的 imagePaths 是渲染出的图表，不回传给模型。
-                        documentPaths = if (message.role == "user") RequestRepository.decodePathList(message.documentPaths) else emptyList(),
-                        imagePaths = if (message.role == "user") {
-                            RequestRepository.decodePathList(message.imagePaths).filter { it.isNotBlank() }
-                        } else emptyList(),
-                    )
-                }
-            }
-        var chars = 0
-        val kept = ArrayDeque<SnapshotHistoryMessage>()
-        for (message in merged.takeLast(HISTORY_MAX_MESSAGES).asReversed()) {
-            val cost = message.text.length + 8
-            if (kept.isNotEmpty() && chars + cost > HISTORY_MAX_CHARS) break
-            kept.addFirst(message)
-            chars += cost
-        }
-        return kept.toList()
-    }
-
-    /**
      * 快照历史 → 发给模型的消息。主模型能看图时回带最近的 [HISTORY_IMAGE_LIMIT] 张历史图
-     * （压低分辨率省 token）；其余带图的用户消息附一句说明，避免模型以为图不存在。
+     * （与首次发送复用相同编码）；超出历史附件预算时附说明，避免模型以为图不存在。
      */
     private suspend fun historyFromSnapshot(snapshot: RequestSnapshot): List<ChatMessage> {
         val pathsByIndex = if (snapshot.primaryVisionEnabled) {
@@ -409,7 +371,7 @@ class GenerationPreparer @Inject constructor(
         } else emptyMap()
         val imagesByIndex = if (pathsByIndex.isEmpty()) emptyMap() else withContext(Dispatchers.Default) {
             pathsByIndex.mapValues { (_, paths) ->
-                paths.mapNotNull { ImagePrep.encodeForVision(it, maxDim = 1280, quality = 82) }
+                paths.mapNotNull { visionImages.encode(it) }
             }
         }
         return snapshot.originalHistory.mapIndexed { index, message ->
@@ -425,7 +387,14 @@ class GenerationPreparer @Inject constructor(
                 message.text.isBlank() -> defaultImagePrompt(snapshot, index)
                 else -> message.text
             }
-            ChatMessage(message.role, text, imageBase64s = images, documentPaths = message.documentPaths)
+            ChatMessage(message.role, text, imageBase64s = images, documentPaths = message.documentPaths,
+                turnContext = message.turnContext)
+        }.fold(mutableListOf<ChatMessage>()) { result, message ->
+            val previous = result.lastOrNull()
+            if (previous?.role == "assistant" && message.role == "assistant") {
+                result[result.lastIndex] = previous.copy(content = previous.content + "\n\n" + message.content)
+            } else result += message
+            result
         }
     }
 

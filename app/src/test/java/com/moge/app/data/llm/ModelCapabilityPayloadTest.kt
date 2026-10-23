@@ -64,6 +64,65 @@ class ModelCapabilityPayloadTest {
             put("delta", buildJsonObject { put("content", text) }); put("finish_reason", finish)
         }) }) }}\n\ndata: [DONE]\n\n"
 
+    private fun finalSse(protocol: AiApiProtocol, text: String = """{"reply":"正文"}""") =
+        if (protocol == AiApiProtocol.CHAT_COMPLETIONS) chatSse(text)
+        else "data: {\"type\":\"response.output_text.delta\",\"delta\":${JsonPrimitive(text)}}\n\n" +
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+
+    @Test fun `declared schema reaches both protocols without requiring figures for every answer`() = runBlocking {
+        for (protocol in AiApiProtocol.entries) {
+            payloads.clear()
+            val model = client("model", protocol,
+                { 200 to """{"data":[{"id":"model","supports_json_schema":true}]}""" },
+                listOf(200 to finalSse(protocol)))
+            assertEquals("正文", model.chatStreaming(listOf(ChatMessage("user", "题目"))) {}.reply)
+            val payload = payloads.single()
+            val format = if (protocol == AiApiProtocol.RESPONSES) payload["text"]!!.jsonObject["format"]!!.jsonObject
+                else payload["response_format"]!!.jsonObject
+            assertEquals("json_schema", format["type"]!!.jsonPrimitive.content)
+            val schema = (if (protocol == AiApiProtocol.RESPONSES) format else format["json_schema"]!!.jsonObject)["schema"]!!.jsonObject
+            assertEquals(listOf("conversation_title", "reply"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content })
+            val properties = schema["properties"]!!.jsonObject
+            assertEquals(setOf("conversation_title", "answer", "reply", "plots", "diagrams"), properties.keys)
+            assertEquals("array", properties["plots"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("array", properties["diagrams"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        }
+    }
+
+    @Test fun `explicit format rejections relax only the format and preserve all input in both protocols`() = runBlocking {
+        for (protocol in AiApiProtocol.entries) {
+            payloads.clear()
+            val model = client("model", protocol,
+                { 200 to """{"data":[{"id":"model","supports_json_schema":true}]}""" }, listOf(
+                    400 to "json_schema is not supported",
+                    422 to "${if (protocol == AiApiProtocol.RESPONSES) "text.format" else "response_format"} unsupported",
+                    200 to finalSse(protocol),
+                ))
+            val usage = mutableListOf<UsageSample?>()
+            assertEquals("正文", model.chatStreaming(listOf(ChatMessage("user", "画图")), listOf("ORIGINALIMAGE"), onUsage = usage::add) {}.reply)
+            assertEquals(3, payloads.size)
+            assertEquals(3, usage.size)
+            val key = if (protocol == AiApiProtocol.RESPONSES) "text" else "response_format"
+            val objectFormat = if (key == "text") payloads[1][key]!!.jsonObject["format"]!!.jsonObject else payloads[1][key]!!.jsonObject
+            assertEquals("json_object", objectFormat["type"]!!.jsonPrimitive.content)
+            assertFalse(payloads.last().containsKey(key))
+            assertTrue(payloads.all { JsonObject(it - key) == JsonObject(payloads[0] - key) })
+        }
+    }
+
+    @Test fun `models declaring no JSON support are sent the original prompt without format options`() = runBlocking {
+        for (protocol in AiApiProtocol.entries) {
+            payloads.clear()
+            val model = client("model", protocol,
+                { 200 to """{"data":[{"id":"model","supports_json_object":false}]}""" },
+                listOf(200 to finalSse(protocol)))
+            assertEquals("正文", model.chatStreaming(listOf(ChatMessage("user", "题目"))) {}.reply)
+            assertFalse(payloads.single().containsKey("response_format"))
+            assertFalse(payloads.single().containsKey("text"))
+            assertTrue(payloads.single().toString().contains("plots"))
+        }
+    }
+
     @Test fun `gateway chat pins flash budget and disables thinking only for final answer recovery`() = runBlocking {
         var declaredLimit = 50000
         val catalog = { 200 to """{"data":[{"id":"cn:deepseek-v4-flash","max_output_tokens":$declaredLimit,"can_disable_thinking":true,"reasoning_supported_efforts":["low","high","xhigh"]}]}""" }

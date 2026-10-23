@@ -8,6 +8,22 @@ class GenerationParameterNegotiationTest {
     private fun payload(key: String = "max_tokens") = buildJsonObject { put(key, Int.MAX_VALUE); put("reasoning_effort", "medium"); put("messages", "unchanged") }
     private fun rejected(body: String, status: Int = 400) = ModelException(ModelException.Kind.SERVER, "HTTP $status: $body", rejectedHttpStatus = status)
 
+    @Test fun `format fallback preserves responses text options and never retries unrelated or started responses`() {
+        val initial = JsonObject(payload() + ("text" to buildJsonObject {
+            put("verbosity", "low"); put("format", buildJsonObject { put("type", "json_object") })
+        }))
+        val next = GenerationParameterNegotiation(initial).afterRejection(rejected("text.format is unsupported"))!!
+        assertEquals(buildJsonObject { put("verbosity", "low") }, next["text"])
+        assertEquals(JsonObject(initial - "text"), JsonObject(next - "text"))
+        for (status in listOf(401, 403, 429, 500)) {
+            assertNull(GenerationParameterNegotiation(initial).afterRejection(rejected("text.format is unsupported", status)))
+        }
+        assertNull(GenerationParameterNegotiation(initial).afterRejection(rejected("model is not supported")))
+        assertNull(GenerationParameterNegotiation(initial).afterRejection(ModelException(
+            ModelException.Kind.SERVER, "text.format is unsupported", // SSE errors after HTTP 200 have no rejection status.
+        )))
+    }
+
     @Test fun `extracts explicit protocol upper bounds without fixed provider caps`() {
         for (key in listOf("max_tokens", "max_completion_tokens", "max_output_tokens")) {
             for (detail in listOf("too large, maximum is 32768", "must be <= 32768", "must be less than or equal to 32,768",

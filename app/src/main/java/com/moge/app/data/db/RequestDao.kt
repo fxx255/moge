@@ -30,6 +30,10 @@ interface RequestDao {
     @Query("SELECT * FROM request WHERE conversation_id = :conversationId ORDER BY created_at ASC")
     suspend fun getRequestsForConversation(conversationId: String): List<RequestEntity>
 
+    @Query("SELECT * FROM request WHERE conversation_id = :conversationId AND " +
+        "(user_message_id IN (:messageIds) OR answer_message_id IN (:messageIds)) ORDER BY created_at ASC")
+    suspend fun getRequestsForMessages(conversationId: String, messageIds: List<String>): List<RequestEntity>
+
     /**
      * 观察某个会话的请求记录（状态迁移 / 重试 / 中断都会重新发射）。
      *

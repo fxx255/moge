@@ -112,14 +112,14 @@ data: [DONE]
                 } else {
                     content.jsonPrimitive.content
                 }
-            }
+            }.substringAfter("\n\n【用户消息】\n")
     }
 
     private fun messageRoles(payload: JsonObject): List<String> =
         payload["messages"]!!.jsonArray.map { it.jsonObject["role"]!!.jsonPrimitive.content }
 
     @Test
-    fun `complete drawing example reaches both protocols and returns ordered renderable figures`() = runBlocking {
+    fun `original 054 contract reaches both protocols and drawing responses remain renderable`() = runBlocking {
         val encoded = JsonPrimitive(SOLVE_FIGURE_RESPONSE_EXAMPLE)
         for (protocol in listOf(AiSearchProtocol.OFF, AiSearchProtocol.RESPONSES)) {
             requests.clear()
@@ -135,10 +135,17 @@ data: [DONE]
                 webSearchEnabled = protocol == AiSearchProtocol.RESPONSES,
             ) {}
             val payload = requests.single()
+            val format = if (protocol == AiSearchProtocol.RESPONSES) payload["text"]!!.jsonObject["format"]!!.jsonObject
+                else payload["response_format"]!!.jsonObject
+            assertEquals("json_object", format["type"]!!.jsonPrimitive.content)
             val system = if (protocol == AiSearchProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
                 else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
-            assertTrue("Actual request must carry the entire drawing contract", system.startsWith(SOLVE_SYSTEM_PROMPT))
-            assertTrue("The tested example must also be the one delivered to the model", system.contains(SOLVE_FIGURE_RESPONSE_EXAMPLE))
+            val baseline = javaClass.getResource("/prompts/solve-v0.5.4.txt")!!.readText().replace("\r\n", "\n")
+            val originalPrompt = PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
+            assertEquals("The real request must carry the original 0.5.4 rules verbatim", originalPrompt.stableSystem, system)
+            val turns = payload[if (protocol == AiSearchProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
+            assertEquals(if (protocol == AiSearchProtocol.RESPONSES) 0 else 1,
+                turns.count { it.jsonObject["role"]!!.jsonPrimitive.content == "system" })
             val figures = parsed.orderedFigures()
             assertEquals(2, figures.size)
             val plot = (figures[0] as ReplyFigure.Plot).spec
@@ -183,8 +190,9 @@ data: [DONE]
                         part["type"]!!.jsonPrimitive.content in setOf("text", "input_text") &&
                             part["text"]!!.jsonPrimitive.content.isBlank()
                     })
-                    assertEquals(1, parts.size)
                 }
+                assertEquals(1, previous.size)
+                assertEquals(2, current.size)
                 assertTrue(previous.toString().contains("HISTORYIMAGE"))
                 assertTrue(current.toString().contains("CURRENTIMAGE"))
                 assertEquals("上一轮回答", turns[1]["content"]!!.jsonPrimitive.content)
@@ -209,11 +217,11 @@ data: [DONE]
     }
 
     /**
-     * 易变段（时间 + 解题模式）必须排在**历史之后、当前问题之前**，
+     * 易变段（时间 + 解题模式）必须随当前问题放在历史之后，
      * 且解题模式不能混进稳定前缀——否则每换一次模式 prompt cache 就失效。
      */
     @Test
-    fun `solve mode goes into the volatile segment before the current question`() = runBlocking {
+    fun `one complete system contract is retained while solve mode accompanies the current user`() = runBlocking {
         val model = client()
         model.chatStreaming(
             messages = listOf(ChatMessage("user", "当前问题")),
@@ -225,9 +233,9 @@ data: [DONE]
         assertEquals("当前问题", lastUserContent(payload))
         val systems = messages.filter { it["role"]!!.jsonPrimitive.content == "system" }
             .map { it["content"]!!.jsonPrimitive.content }
-        assertEquals("稳定段 + 易变段各一条", 2, systems.size)
+        assertEquals("Only one complete system message, including for last-system-only gateways", 1, systems.size)
         assertFalse("稳定前缀不含解题模式", systems.first().contains(SolveMode.CHECK_WORK.label))
-        assertTrue("易变段带上解题模式", systems.last().contains(SolveMode.CHECK_WORK.label))
+        assertTrue("当前用户消息带上解题模式", messages.last()["content"]!!.jsonPrimitive.content.contains(SolveMode.CHECK_WORK.label))
         assertTrue("称呼进稳定前缀", systems.first().contains("小明"))
     }
 
@@ -330,7 +338,7 @@ data: {"type":"response.completed","response":{"output":[]}}
         assertEquals(
             "Responses 的 input 最后一条必须是当前问题",
             "当前问题",
-            input.last()["content"]!!.jsonPrimitive.content,
+            input.last()["content"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"),
         )
         assertEquals("user", input.last()["role"]!!.jsonPrimitive.content)
     }
@@ -410,3 +418,5 @@ data: {"type":"response.completed","response":{"output":[{"type":"message","cont
     }
 
 }
+
+private const val SOLVE_FIGURE_RESPONSE_EXAMPLE = """{"conversation_title":"绘图协议示例","answer":"示例结论","reply":"曲线说明。\n[[FIGURE:1]]\n框图说明。\n[[FIGURE:2]]","plots":[{"title":"曲线示例","x":{"label":"x","min":-2,"max":2},"y":{"label":"y","min":0,"max":5},"series":[{"expr":"x^2"}],"legend":false}],"diagrams":[{"title":"框图示例","profile":"generic","nodes":[{"id":"in","label":"输入","shape":"io"},{"id":"f","label":"处理","shape":"block"}],"edges":[{"from":"in","to":"f"}]}]}"""

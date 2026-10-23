@@ -37,6 +37,22 @@ private fun compatibleGenerationParameters(
 ): JsonObject? {
     val body = error.message.orEmpty()
     if (error.kind != ModelException.Kind.SERVER || error.rejectedHttpStatus !in listOf(400, 422)) return null
+    // Relax format constraints only on an explicit rejection, before any answer is read.
+    val chatFormat = payload["response_format"] as? JsonObject
+    val textOptions = payload["text"] as? JsonObject
+    val format = chatFormat ?: textOptions?.get("format") as? JsonObject
+    if (format != null && UNSUPPORTED.containsMatchIn(body) &&
+        listOf("response_format", "json_schema", "json_object", "text.format").any { body.contains(it, true) }) {
+        val schemaRejected = format["type"]?.jsonPrimitive?.contentOrNull == "json_schema" &&
+            body.contains("json_schema", true)
+        val fallback = if (schemaRejected) buildJsonObject { put("type", "json_object") } else null
+        return if (chatFormat != null) {
+            JsonObject(payload - "response_format" + if (fallback != null) mapOf("response_format" to fallback) else emptyMap())
+        } else {
+            val remaining = JsonObject(textOptions.orEmpty() - "format" + if (fallback != null) mapOf("format" to fallback) else emptyMap())
+            JsonObject(payload - "text" + if (remaining.isNotEmpty()) mapOf("text" to remaining) else emptyMap())
+        }
+    }
     val outputKey = BUDGET_KEYS.firstOrNull(payload::containsKey)
     // Some services enforce input+output together. Keep the full input and request all remaining room.
     val remaining = remainingContextAllowance(body)

@@ -36,6 +36,22 @@ class ModelCapabilityCatalogTest {
             .body(body.toResponseBody()).build()
     }.build()
 
+    @Test fun `structured output declarations retain explicit false and unknown support`() {
+        val catalog = parseModelCatalog("""{"data":[
+            {"id":"schema","supports_structured_outputs":true},
+            {"id":"parameters","supported_parameters":["structured_outputs","response_format"]},
+            {"id":"disabled","supports_json_schema":false,"supports_json_object":false,"supported_parameters":["structured_outputs","response_format"]},
+            {"id":"unknown"}
+        ]}""").capabilities
+        assertEquals(true, catalog["schema"]!!.supportsJsonSchema)
+        assertEquals(true, catalog["parameters"]!!.supportsJsonSchema)
+        assertEquals(true, catalog["parameters"]!!.supportsJsonObject)
+        assertEquals(false, catalog["disabled"]!!.supportsJsonSchema)
+        assertEquals(false, catalog["disabled"]!!.supportsJsonObject)
+        assertNull(catalog["unknown"]!!.supportsJsonSchema)
+        assertNull(catalog["unknown"]!!.supportsJsonObject)
+    }
+
     @Test fun `cache isolates endpoint and credential and refreshes after TTL`() = runBlocking {
         var now = 0L
         var calls = 0

@@ -68,6 +68,7 @@ class DocumentAgentClient @Inject constructor(
             currentCoroutineContext().ensureActive()
             val payload = buildJsonObject {
                 put("model", model); put("stream", false); put("tools", tools)
+                solveOutputFormatFields(conversationMode, capability, protocol).forEach { (key, value) -> put(key, value) }
                 ModelGenerationParameters.fields(baseUrl, model, reasoningEffort, protocol,
                     finalAnswer = recovering, capability = capability).forEach { (key, value) -> put(key, value) }
                 if (responses) { put("instructions", if (recovering) finalAnswerPrompt(PromptSegments(prompt, ""), reasoningEffort).stableSystem else prompt); put("input", JsonArray(transcript)); put("store", false) }

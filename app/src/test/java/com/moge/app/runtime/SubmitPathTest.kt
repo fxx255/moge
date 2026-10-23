@@ -123,6 +123,8 @@ class SubmitPathTest {
                 coEvery { current() } returns com.moge.app.data.prefs.UserSettings()
             },
             credentialStore = aiCredentialStore,
+            requestRepository = requestRepository,
+            visionImages = com.moge.app.data.llm.VisionInputImageStore(ApplicationProvider.getApplicationContext()),
         )
         guard = FakeGuard()
         manager = GenerationManager(
@@ -407,6 +409,8 @@ class SubmitPathTest {
                 coEvery { current() } returns com.moge.app.data.prefs.UserSettings()
             },
             credentialStore = aiCredentialStore,
+            requestRepository = requestRepository,
+            visionImages = com.moge.app.data.llm.VisionInputImageStore(ApplicationProvider.getApplicationContext()),
         )
         val failure = runCatching {
             brokenPreparer.captureInitialSnapshot(

@@ -96,6 +96,10 @@ class RequestRepository @Inject constructor(
         dao.getRequestsForConversation(conversationId)
     }
 
+    suspend fun forMessages(conversationId: String, messageIds: List<String>): List<RequestEntity> = withContext(io) {
+        if (messageIds.isEmpty()) emptyList() else dao.getRequestsForMessages(conversationId, messageIds)
+    }
+
     /**
      * 观察会话的请求记录：状态迁移、重试、终态都会推送，
      * 让界面在不依赖一次性事件的情况下恢复重试入口与进行中状态。

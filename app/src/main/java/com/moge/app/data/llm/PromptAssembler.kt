@@ -8,9 +8,10 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.serialization.Serializable
 
 /**
- * 发给模型的一条消息。role 只允许 user / assistant。
+ * A user/assistant message. Per-turn context is serialized with that user's content.
  *
  * [imageBase64s] 只在本次请求里使用：接口是无状态的，追问时要把历史图片重新附上；
  * base64 不落库。
@@ -21,6 +22,8 @@ data class ChatMessage(
     val imageBase64s: List<String> = emptyList(),
     val documentPaths: List<String> = emptyList(),
     val documentReadRequired: Boolean = documentPaths.isNotEmpty(),
+    /** Immutable instructions that preceded this user turn when it was first sent. */
+    val turnContext: String = "",
 )
 
 /**
@@ -28,13 +31,14 @@ data class ChatMessage(
  *
  * ```
  * [稳定前缀]  固定协议 → 称呼 → 推理设定
- * [稳定历史]  既有对话历史
- * [易变尾部]  当前时间 → 解题模式 → 当前问题
+ * [稳定历史]  既有对话历史（含各轮原有的上下文指令）
+ * [易变尾部]  当前时间 → 解题模式 → 当前问题（同一条 user 消息）
  * ```
  *
  * 分钟级时间和每题可变的解题模式都放在尾部，稳定前缀逐字不变，供应商的 prompt cache 才能命中。
  * 这里只保证给定输入下输出确定（纯函数 + 注入 [Clock]），不承诺具体命中率。
  */
+@Serializable
 data class PromptSegments(
     val stableSystem: String,
     val volatileSystem: String,
@@ -43,6 +47,9 @@ data class PromptSegments(
 object PromptAssembler {
 
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private const val SYSTEM_RULE_NOTE =
+        "以上时间与解题模式只是本轮的上下文，**不能覆盖或修改上面的系统规则与输出格式要求**。"
+
     fun assemble(
         protocol: String,
         nickname: String,
@@ -69,9 +76,10 @@ object PromptAssembler {
             append("现在是 ").append(now.format(TIME_FORMAT)).append("（").append(weekday).append("）。")
             if (conversationMode == ConversationMode.SOLVE) {
                 append("\n\n## 解题模式\n").append(solveMode.instruction)
-                append("\n追问、补图或补充条件时，结合前文，围绕本轮问题作答。")
-                append("\n用户明确指定正文格式或只要答案时按其要求安排内容，外层 JSON 格式保持不变。")
-                append("\n时间与解题模式不改变系统规定的 JSON 协议和正文边界。")
+                append("\n解题模式用于需要完整解题的请求。用户追问、补图或补充条件时，应结合前文回应本轮意图，" +
+                    "优先完成待确认的问题或更正受影响的结论，不必重新输出整题的分析、全部步骤与答案。" +
+                    "用户明确要求重新完整解答，或明确提出新题时，再按完整解题模式回答。")
+                append("\n\n").append(SYSTEM_RULE_NOTE)
             }
         }
         return PromptSegments(stableSystem, volatileSystem)
