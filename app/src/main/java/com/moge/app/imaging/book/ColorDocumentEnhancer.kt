@@ -1,6 +1,7 @@
 package com.moge.app.imaging.book
 
 import android.graphics.Bitmap
+import com.moge.app.imaging.PhotoPixelWork
 import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -20,7 +21,13 @@ internal object ColorDocumentEnhancer {
     private fun correctChannel(channel: Int, light: Byte): Int =
         correctedChannels[(channel shl 8) or (light.toInt() and 255)]
 
-    fun apply(bitmap: Bitmap, boundary: List<Corner>? = null, book: Boolean = false, checkpoint: () -> Unit = {}): Bitmap {
+    fun apply(
+        bitmap: Bitmap,
+        boundary: List<Corner>? = null,
+        book: Boolean = false,
+        pixelWork: PhotoPixelWork = PhotoPixelWork.Shared,
+        checkpoint: () -> Unit = {},
+    ): Bitmap {
         checkpoint()
         val scale = min(1.0, ANALYSIS_EDGE.toDouble() / max(bitmap.width, bitmap.height))
         val small = Bitmap.createScaledBitmap(bitmap, max(1, (bitmap.width * scale).roundToInt()),
@@ -97,7 +104,7 @@ internal object ColorDocumentEnhancer {
             rgb.release(); background.release(); smooth.release()
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             output = result
-            render(bitmap, result, field, checkpoint)
+            render(bitmap, result, field, pixelWork, checkpoint)
             PaperBoundary.whitenCanvas(result, boundary)
             // All pixels have now been written with alpha 255. Mark the completed
             // image opaque so PNG can omit its redundant alpha channel.
@@ -107,7 +114,7 @@ internal object ColorDocumentEnhancer {
         finally { listOf(rgba, rgb, background, field, smooth, kernel).forEach { it.release() } }
     }
 
-    private fun render(input: Bitmap, output: Bitmap, field: Mat, checkpoint: () -> Unit) {
+    private fun render(input: Bitmap, output: Bitmap, field: Mat, pixelWork: PhotoPixelWork, checkpoint: () -> Unit) {
         val width = input.width
         val radius = (max(input.width, input.height) / 900).coerceIn(1, 3)
         // Halo rows keep the nearby-ink mask continuous across stripe boundaries.
@@ -128,43 +135,49 @@ internal object ColorDocumentEnhancer {
                     Imgproc.INTER_LINEAR or Imgproc.WARP_INVERSE_MAP, Core.BORDER_REPLICATE)
                 tile.get(0, 0, light)
                 input.getPixels(pixels, 0, width, 0, start, width, count)
-                for (p in 0 until width * count) {
-                    val color = pixels[p]; val offset = p * 4
-                    val r = correctChannel((color ushr 16) and 255, light[offset])
-                    val g = correctChannel((color ushr 8) and 255, light[offset + 1])
-                    val b = correctChannel(color and 255, light[offset + 2])
-                    val hi = maxOf(r, g, b)
-                    pixels[p] = (255 shl 24) or (r shl 16) or (g shl 8) or b
-                    values[p] = hi.toByte()
+                pixelWork.forRange(0, width * count) { first, last ->
+                    for (p in first until last) {
+                        val color = pixels[p]; val offset = p * 4
+                        val r = correctChannel((color ushr 16) and 255, light[offset])
+                        val g = correctChannel((color ushr 8) and 255, light[offset + 1])
+                        val b = correctChannel(color and 255, light[offset + 2])
+                        val hi = maxOf(r, g, b)
+                        pixels[p] = (255 shl 24) or (r shl 16) or (g shl 8) or b
+                        values[p] = hi.toByte()
+                    }
                 }
+                checkpoint()
                 valueMat.create(count, width, CvType.CV_8U)
                 valueMat.put(0, 0, values, 0, width * count)
                 // This minimum is a support mask only. Never filter, dilate or
                 // erode the actual glyph pixels: their native edge tones survive.
                 Imgproc.erode(valueMat, minimum, supportKernel); minimum.get(0, 0, nearbyInk)
-                for (p in (y - start) * width until (y - start + rows) * width) {
-                    val color = pixels[p]
-                    val r = (color ushr 16) and 255; val g = (color ushr 8) and 255; val b = color and 255
-                    val hi = maxOf(r, g, b); val lo = minOf(r, g, b)
-                    // Remove tiny neutral-paper color fluctuations without flattening pink
-                    // boxes or colored ink. Keep their hue and relative channel ordering.
-                    val saturation = if (hi > 0) (hi - lo).toFloat() / hi else 0f
-                    val chroma = ((saturation - .035f) / .065f).coerceIn(0f, 1f)
-                    val brightness = values[p].toInt() and 255
-                    val nearbyMinimum = nearbyInk[p].toInt() and 255
-                    if (chroma == 0f) {
-                        // The original formula reduces to a single gray value.
-                        // Colored panels and ink retain the full channel calculation.
-                        pixels[p] = DocumentInkTone.neutralArgb(brightness, nearbyMinimum)
-                        continue
+                pixelWork.forRange((y - start) * width, (y - start + rows) * width) { first, last ->
+                    for (p in first until last) {
+                        val color = pixels[p]
+                        val r = (color ushr 16) and 255; val g = (color ushr 8) and 255; val b = color and 255
+                        val hi = maxOf(r, g, b); val lo = minOf(r, g, b)
+                        // Remove tiny neutral-paper color fluctuations without flattening pink
+                        // boxes or colored ink. Keep their hue and relative channel ordering.
+                        val saturation = if (hi > 0) (hi - lo).toFloat() / hi else 0f
+                        val chroma = ((saturation - .035f) / .065f).coerceIn(0f, 1f)
+                        val brightness = values[p].toInt() and 255
+                        val nearbyMinimum = nearbyInk[p].toInt() and 255
+                        if (chroma == 0f) {
+                            // The original formula reduces to a single gray value.
+                            // Colored panels and ink retain the full channel calculation.
+                            pixels[p] = DocumentInkTone.neutralArgb(brightness, nearbyMinimum)
+                            continue
+                        }
+                        val v = DocumentInkTone.value(brightness, nearbyMinimum, chroma)
+                        val gain = if (hi > 0) v / hi else 0f
+                        val red = (v - (hi - r) * gain * chroma).roundToInt().coerceIn(0, 255)
+                        val green = (v - (hi - g) * gain * chroma).roundToInt().coerceIn(0, 255)
+                        val blue = (v - (hi - b) * gain * chroma).roundToInt().coerceIn(0, 255)
+                        pixels[p] = (255 shl 24) or (red shl 16) or (green shl 8) or blue
                     }
-                    val v = DocumentInkTone.value(brightness, nearbyMinimum, chroma)
-                    val gain = if (hi > 0) v / hi else 0f
-                    val red = (v - (hi - r) * gain * chroma).roundToInt().coerceIn(0, 255)
-                    val green = (v - (hi - g) * gain * chroma).roundToInt().coerceIn(0, 255)
-                    val blue = (v - (hi - b) * gain * chroma).roundToInt().coerceIn(0, 255)
-                    pixels[p] = (255 shl 24) or (red shl 16) or (green shl 8) or blue
                 }
+                checkpoint()
                 output.setPixels(pixels, (y - start) * width, width, 0, y, width, rows)
             }
         } finally { listOf(transform, tile, valueMat, minimum, supportKernel).forEach { it.release() } }

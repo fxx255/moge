@@ -8,6 +8,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.data.image.decodePhotoBitmap
+import com.moge.app.imaging.PhotoPixelWork
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -39,8 +40,11 @@ class BookPhotoQualityDeviceTest {
             canvas.drawRect(103f, 90f, 104f, 200f, paint)
             paint.color = Color.rgb(25, 24, 23)
             canvas.drawRect(300f, 400f, 600f, 401f, paint)
-            val result = ColorDocumentEnhancer.apply(source, book = true)
+            val result = ColorDocumentEnhancer.apply(source, book = true, pixelWork = PhotoPixelWork(3))
             try {
+                val serial = ColorDocumentEnhancer.apply(source, book = true, pixelWork = PhotoPixelWork(1))
+                try { assertTrue("CPU partitioning must preserve every stroke and stripe seam", serial.sameAs(result)) }
+                finally { serial.recycle() }
                 assertEquals(source.width, result.width)
                 assertEquals(source.height, result.height)
                 assertTrue("White paper must stay clean", Color.red(result.getPixel(400, 200)) >= 250)

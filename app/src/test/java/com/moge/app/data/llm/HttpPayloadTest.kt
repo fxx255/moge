@@ -10,6 +10,8 @@ import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiResolvedIdentity
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.parse.ParsedReply
+import com.moge.app.data.parse.ReplyFigure
+import com.moge.app.data.parse.orderedFigures
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -115,6 +117,41 @@ data: [DONE]
 
     private fun messageRoles(payload: JsonObject): List<String> =
         payload["messages"]!!.jsonArray.map { it.jsonObject["role"]!!.jsonPrimitive.content }
+
+    @Test
+    fun `complete drawing example reaches both protocols and returns ordered renderable figures`() = runBlocking {
+        val encoded = JsonPrimitive(SOLVE_FIGURE_RESPONSE_EXAMPLE)
+        for (protocol in listOf(AiSearchProtocol.OFF, AiSearchProtocol.RESPONSES)) {
+            requests.clear()
+            val body = if (protocol == AiSearchProtocol.RESPONSES) {
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":$encoded}\n\n" +
+                    "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+            } else {
+                "data: {\"choices\":[{\"delta\":{\"content\":$encoded},\"finish_reason\":\"stop\"}]}\n\n" +
+                    "data: [DONE]\n\n"
+            }
+            val parsed = client(searchProtocol = protocol, responses = listOf(200 to body)).chatStreaming(
+                messages = listOf(ChatMessage("user", "画出曲线与处理框图")),
+                webSearchEnabled = protocol == AiSearchProtocol.RESPONSES,
+            ) {}
+            val payload = requests.single()
+            val system = if (protocol == AiSearchProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
+                else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
+            assertTrue("Actual request must carry the entire drawing contract", system.startsWith(SOLVE_SYSTEM_PROMPT))
+            assertTrue("The tested example must also be the one delivered to the model", system.contains(SOLVE_FIGURE_RESPONSE_EXAMPLE))
+            val figures = parsed.orderedFigures()
+            assertEquals(2, figures.size)
+            val plot = (figures[0] as ReplyFigure.Plot).spec
+            assertEquals("x^2", plot.series.single().expr)
+            assertEquals(-2.0, plot.x.min!!, 0.0)
+            assertEquals(2.0, plot.x.max!!, 0.0)
+            val diagram = (figures[1] as ReplyFigure.Diagram).spec
+            assertEquals(listOf("in", "f"), diagram.nodes.map { it.id })
+            assertEquals("in", diagram.edges.single().from)
+            assertEquals("f", diagram.edges.single().to)
+            assertEquals("曲线说明。\n[[FIGURE:1]]\n框图说明。\n[[FIGURE:2]]", parsed.reply)
+        }
+    }
 
     @Test
     fun `multimodal history and current messages never serialize blank text parts in either protocol`() = runBlocking {

@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.data.image.decodePhotoBitmap
+import com.moge.app.imaging.PhotoPixelWork
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
@@ -19,6 +20,57 @@ import kotlin.math.abs
 /** Optional local photographs: measure the real stages, never commit private inputs or outputs. */
 @RunWith(AndroidJUnit4::class)
 class BookPhotoPerformanceDeviceTest {
+    @Test fun suppliedPhotosCompareSerialAndParallelInOneProcess() {
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "photo-preprocess")
+        val inputs = listOf("shadow-input.jpg", "input.jpg", "detail/text.jpg", "detail/notes.jpg")
+        assumeTrue(inputs.all { File(directory, it).isFile })
+        assertTrue(OpenCVLoader.initLocal())
+        val policies = listOf("serial" to PhotoPixelWork(1), "parallel" to PhotoPixelWork.Shared)
+        val rows = JSONArray()
+        val differences = JSONArray()
+        for ((index, input) in inputs.withIndex()) {
+            // Warm both execution paths, including ART and the native illumination model.
+            val warm = requireNotNull(decodePhotoBitmap(File(directory, input).path, preserveResolution = true))
+            try {
+                repeat(2) { for ((_, policy) in policies) {
+                    ColorDocumentEnhancer.apply(warm, book = true, pixelWork = policy).recycle()
+                } }
+            } finally { warm.recycle() }
+            repeat(4) { run ->
+                // Alternate order to reduce time/JIT bias between the two policies.
+                for ((label, policy) in if (run % 2 == 0) policies else policies.reversed()) {
+                    val start = SystemClock.elapsedRealtime()
+                    val original = requireNotNull(decodePhotoBitmap(File(directory, input).path, preserveResolution = true))
+                    val decoded = SystemClock.elapsedRealtime()
+                    val result = try {
+                        ColorDocumentEnhancer.apply(original, book = true, pixelWork = policy)
+                    } finally { original.recycle() }
+                    val enhanced = SystemClock.elapsedRealtime()
+                    try {
+                        val output = File(directory, "cpu-paired-$index-$label.png")
+                        writeBookPhoto(output.path, result)
+                        val saved = SystemClock.elapsedRealtime()
+                        rows.put(JSONObject().put("input", input).put("run", run).put("policy", label)
+                            .put("workers", policy.parallelism).put("width", result.width).put("height", result.height)
+                            .put("decode_ms", decoded - start).put("enhance_ms", enhanced - decoded)
+                            .put("save_ms", saved - enhanced).put("total_ms", saved - start))
+                    } finally { result.recycle() }
+                }
+            }
+            val serial = requireNotNull(BitmapFactory.decodeFile(File(directory, "cpu-paired-$index-serial.png").path))
+            val parallel = requireNotNull(BitmapFactory.decodeFile(File(directory, "cpu-paired-$index-parallel.png").path))
+            try {
+                val difference = pixelDifferences(serial, parallel).put("input", input)
+                differences.put(difference)
+                assertTrue("Parallel processing must preserve every pixel: $difference",
+                    difference.getLong("changed_pixels") == 0L)
+            } finally { serial.recycle(); parallel.recycle() }
+        }
+        File(directory, "cpu-paired.json").writeText(JSONObject()
+            .put("processors", Runtime.getRuntime().availableProcessors())
+            .put("timings", rows).put("differences", differences).toString(2))
+    }
+
     @Test fun suppliedPhotosRecordStageTimingsAndPixelDifferences() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.filesDir, "photo-preprocess")
