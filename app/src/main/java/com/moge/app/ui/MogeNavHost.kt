@@ -30,6 +30,7 @@ import com.moge.app.ui.history.HistoryScreen
 import com.moge.app.ui.settings.SettingsScreen
 import com.moge.app.ui.solve.SolveScreen
 import com.moge.app.ui.solve.SolveViewModel
+import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.update.AppUpdateNotice
 import com.moge.app.ui.components.paperPageEnter
 import com.moge.app.ui.components.paperPageExit
@@ -48,6 +49,9 @@ object Routes {
     const val HISTORY = "history"
     const val SETTINGS = "settings"
     const val ARG_CONVERSATION_ID = "conversationId"
+    /** Explicit mode when opening a new page; also retained after an inline mode switch. */
+    const val ARG_DRAFT_MODE = "draftConversationMode"
+    const val NEW_CONVERSATION_MODE_RESULT = "new_conversation_mode_result"
 
     /** 拍题首问：照片路径 + 模式 + 补充说明的 JSON；解题页取用后从 SavedStateHandle 里清掉。 */
     const val ARG_CAPTURE = "capture"
@@ -55,14 +59,17 @@ object Routes {
     const val CAPTURE_RESULT = "capture_result"
 
     /** 会话 id 是 UUID 字符串，走可选查询参数：缺省（null）表示还没有会话的新题目。 */
-    const val SOLVE = "solve?$ARG_CONVERSATION_ID={$ARG_CONVERSATION_ID}&$ARG_CAPTURE={$ARG_CAPTURE}"
+    const val SOLVE = "solve?$ARG_CONVERSATION_ID={$ARG_CONVERSATION_ID}&$ARG_CAPTURE={$ARG_CAPTURE}&$ARG_DRAFT_MODE={$ARG_DRAFT_MODE}"
 
     fun notebook(entryId: String? = null): String = if (entryId.isNullOrBlank()) NOTEBOOK
         else "$NOTEBOOK?$ARG_NOTEBOOK_ENTRY_ID=${Uri.encode(entryId)}"
 
     /** 新建题目不传 id；打开题册里的已有题目传其 UUID。 */
-    fun solve(conversationId: String? = null): String =
-        if (conversationId.isNullOrBlank()) "solve" else "solve?$ARG_CONVERSATION_ID=${Uri.encode(conversationId)}"
+    fun solve(conversationId: String? = null, newMode: ConversationMode? = null): String = when {
+        !conversationId.isNullOrBlank() -> "solve?$ARG_CONVERSATION_ID=${Uri.encode(conversationId)}"
+        newMode != null -> "solve?$ARG_DRAFT_MODE=${newMode.name}"
+        else -> "solve"
+    }
 
     /** 带照片的新对话只恢复待发附件，用户确认发送后才建立会话。 */
     fun solveCaptured(batch: CaptureBatch): String = "solve?$ARG_CAPTURE=${Uri.encode(encodeCapture(batch))}"
@@ -115,9 +122,9 @@ fun MogeNavHost(
         swipeTransition = null
         swipeTransition = navigateWithSwipe(nav, direction, navigate)
     }
-    val newPage: (Int) -> Unit = { direction ->
-        if (direction == 0) { swipeTransition = null; navigateToNewConversation(nav) }
-        else swipe(direction) { navigateToNewConversation(nav) }
+    val newPage: (Int, ConversationMode?) -> Unit = { direction, mode ->
+        if (direction == 0) { swipeTransition = null; navigateToNewConversation(nav, mode) }
+        else swipe(direction) { navigateToNewConversation(nav, mode) }
     }
     val resume: (Int) -> Unit = { gestureDirection ->
         val navigate = { previousConversation?.let { navigateToConversation(nav, it) } ?: navigateToNewConversation(nav) }
@@ -181,7 +188,7 @@ fun MogeNavHost(
         composable(Routes.HISTORY) {
             HistoryScreen(onBack = back, onOpenConversation = openConversation,
                 onLocateMessage = { id, message -> navigation.saveViewport(id, com.moge.app.ui.solve.ConversationViewport(message, 0, 0)) },
-                onOpenNotebook = openNotebook, onNewConversation = { newPage(-1) })
+                onOpenNotebook = openNotebook, onNewConversation = { newPage(-1, null) })
         }
         composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
             navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -205,23 +212,34 @@ fun MogeNavHost(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument(Routes.ARG_DRAFT_MODE) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { entry ->
             val vm: SolveViewModel = hiltViewModel(entry)
             LaunchedEffect(entry, vm) { relayCaptureResults(entry.savedStateHandle, vm::onCaptureResult) }
+            LaunchedEffect(entry, vm) { relayNewConversationMode(entry.savedStateHandle, vm::requestNewConversationMode) }
+            val openNew: (Int) -> Unit = { direction ->
+                vm.resolveConversationMode { mode ->
+                    if (nav.currentBackStackEntry == entry) newPage(direction, mode)
+                }
+            }
             SolveScreen(
                 conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
                 onBack = if (nav.previousBackStackEntry != null) back else null,
                 onOpenSettings = { ordinary(Routes.SETTINGS) },
                 onOpenHistory = { ordinary(Routes.HISTORY) },
                 onOpenNotebook = { openNotebook(null) },
-                onNewConversation = { newPage(0) },
-                onTakePhoto = { vm.resolveCaptureMode { mode -> ordinary(Routes.capture(mode)) } },
+                onNewConversation = { openNew(0) },
+                onTakePhoto = { vm.resolveConversationMode { mode -> ordinary(Routes.capture(mode)) } },
                 vm = vm,
                 onResumeConversation = previousConversation?.let { { resume(0) } },
                 onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },
                 onSwipeNotebook = { swipe(-1) { nav.navigate(Routes.notebook()) } },
-                onSwipeNewConversation = { newPage(1) },
+                onSwipeNewConversation = { openNew(1) },
                 onSwipeResumeConversation = previousConversation?.let { { resume(-1) } },
                 readViewport = navigation::readViewport,
                 saveViewport = navigation::saveViewport,
@@ -242,12 +260,17 @@ internal fun NavBackStackEntry.logicalConversationId(): String? =
     else arguments?.getString(Routes.ARG_CONVERSATION_ID))?.takeIf { it.isNotBlank() }
 
 /** Reuse the immediately adjacent page to preserve its draft and avoid reciprocal stack growth. */
-internal fun navigateToNewConversation(nav: NavHostController) {
+internal fun navigateToNewConversation(nav: NavHostController, mode: ConversationMode? = null) {
     val current = nav.currentBackStackEntry
-    if (current?.destination?.route == Routes.SOLVE && current.logicalConversationId() == null) return
+    if (current?.destination?.route == Routes.SOLVE && current.logicalConversationId() == null) {
+        mode?.let { current.savedStateHandle[Routes.NEW_CONVERSATION_MODE_RESULT] = it.name }
+        return
+    }
     val previous = nav.previousBackStackEntry
-    if (previous?.destination?.route == Routes.SOLVE && previous.logicalConversationId() == null) nav.popBackStack()
-    else nav.navigate(Routes.solve())
+    if (previous?.destination?.route == Routes.SOLVE && previous.logicalConversationId() == null) {
+        mode?.let { previous.savedStateHandle[Routes.NEW_CONVERSATION_MODE_RESULT] = it.name }
+        nav.popBackStack()
+    } else nav.navigate(Routes.solve(newMode = mode))
 }
 
 internal fun navigateToConversation(nav: NavHostController, id: String) {
@@ -268,5 +291,13 @@ internal suspend fun relayCaptureResults(resultHandle: SavedStateHandle, receive
     resultHandle.getStateFlow<String?>(Routes.CAPTURE_RESULT, null).filterNotNull().collect { raw ->
         receive(raw)
         resultHandle[Routes.CAPTURE_RESULT] = null
+    }
+}
+
+/** Reusing a blank entry must apply the new-page intent to its existing ViewModel as well. */
+internal suspend fun relayNewConversationMode(resultHandle: SavedStateHandle, receive: (ConversationMode) -> Unit) {
+    resultHandle.getStateFlow<String?>(Routes.NEW_CONVERSATION_MODE_RESULT, null).filterNotNull().collect { raw ->
+        ConversationMode.entries.firstOrNull { it.name == raw }?.let(receive)
+        resultHandle[Routes.NEW_CONVERSATION_MODE_RESULT] = null
     }
 }

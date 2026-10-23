@@ -3,6 +3,8 @@ package com.moge.app.runtime
 import android.app.Application
 import android.content.Context
 import androidx.room.Room
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import com.moge.app.data.credential.AiCredentialStore
 import com.moge.app.data.credential.AiApiProtocol
@@ -11,6 +13,7 @@ import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiResolvedIdentity
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.db.ConversationEntity
+import com.moge.app.data.db.ConversationRepository
 import com.moge.app.data.db.MogeDatabase
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
@@ -18,16 +21,28 @@ import com.moge.app.data.llm.GenerationDiagnostics
 import com.moge.app.data.llm.ModelClient
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.MonotonicClock
+import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.llm.withTestModelCatalog
 import com.moge.app.data.parse.ReplyFigure
 import com.moge.app.data.parse.ReplyParser
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.RequestStatus
+import com.moge.app.domain.ConversationMode
+import com.moge.app.ui.solve.SolveViewModel
+import com.moge.app.ui.capture.CaptureStore
+import com.moge.app.ui.Routes
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -49,6 +64,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.UUID
 
 /**
  * 端到端：真实 [ModelClient] + 真实 [GenerationPreparer] + Room，对着 MockWebServer 跑
@@ -59,6 +75,97 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class EndToEndGenerationTest {
+
+    @Test fun `conflicting page and saved modes are rejected before creating a request or calling the model`() = runBlocking {
+        val failure = runCatching {
+            manager.submit(GenerationManager.Submission("c1", "画图", emptyList(), conversationMode = ConversationMode.CHAT))
+        }.exceptionOrNull()
+        assertTrue(failure is ModelException)
+        assertEquals(ModelException.Kind.CONFIG_INVALID, (failure as ModelException).kind)
+        assertTrue(repository.forConversation("c1").isEmpty())
+        assertTrue(db.conversationDao().getMessages("c1").isEmpty())
+        assertEquals(0, server.requestCount)
+        assertFalse(manager.isRunning())
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Config(shadows = [PosixAtomicFileShadow::class])
+    @Test fun `switching new page modes keeps display database prompt and figure parsing aligned`() = runBlocking {
+        val main = StandardTestDispatcher()
+        Dispatchers.setMain(main)
+        val collectors = CoroutineScope(SupervisorJob() + main)
+        val models = ViewModelStore()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val drafts = DraftStore(context)
+        val settings = mockk<SettingsRepository> {
+            coEvery { current() } returns UserSettings()
+            every { this@mockk.settings } returns kotlinx.coroutines.flow.flowOf(UserSettings())
+        }
+        fun newPage(mode: ConversationMode?): SolveViewModel = SolveViewModel(
+            SavedStateHandle(mapOf(Routes.ARG_DRAFT_MODE to mode?.name)), manager, repository,
+            ConversationRepository(db.conversationDao(), Dispatchers.Unconfined),
+            drafts, settings, CaptureStore(context), mockk(relaxed = true), mockk(relaxed = true)).also {
+            models.put(UUID.randomUUID().toString(), it)
+            collectors.launch { it.uiState.collect { } }
+        }
+        suspend fun waitFor(condition: () -> Boolean) = withTimeout(5_000) {
+            while (true) {
+                main.scheduler.runCurrent()
+                if (condition()) break
+                delay(10)
+            }
+        }
+        try {
+            drafts.clear(null)
+            // Both directions, including switching away from a restored CHAT draft.
+            val cases = listOf(null to ConversationMode.CHAT, null to ConversationMode.SOLVE,
+                ConversationMode.SOLVE to ConversationMode.SOLVE)
+            for ((requested, target) in cases) {
+                if (requested != null) drafts.persist(drafts.reserveSave(null, "", emptyList(), conversationMode = ConversationMode.CHAT))
+                val page = newPage(requested)
+                waitFor { page.uiState.value.modeSelectable }
+                if (requested == null) {
+                    page.selectConversationMode(if (target == ConversationMode.SOLVE) ConversationMode.CHAT else ConversationMode.SOLVE)
+                    page.selectConversationMode(target)
+                } else assertEquals(target, page.uiState.value.conversationMode)
+                page.onInputChange("画出 y=x 的图像")
+                server.enqueue(sse(if (target == ConversationMode.SOLVE)
+                    """{"conversation_title":"一次函数图像","reply":"见图。\\n\\n[[FIGURE:1]]","plots":[{"title":"y=x","series":[{"expr":"x"}]}]}"""
+                    else "对话正文", "stop"))
+                // Do not wait for UI recomposition between the last switch and sending.
+                page.send()
+                waitFor { page.uiState.value.conversationId != null && !page.uiState.value.submitting }
+                val id = page.uiState.value.conversationId!!
+                val request = repository.forConversation(id).single()
+                assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(request.requestId).status)
+                waitFor { !manager.isRunning() }
+                assertEquals(target, page.uiState.value.conversationMode)
+                assertEquals(target.name, db.conversationDao().getConversation(id)!!.conversationMode)
+                val snapshot = SnapshotCodec.decode(repository.get(request.requestId)!!.snapshotJson)!!
+                assertEquals(target.name, snapshot.conversationMode)
+                val body = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+                assertEquals("A new page must not inherit the previous conversation's history", 2, body["messages"]!!.jsonArray.size)
+                val system = body["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
+                assertEquals(snapshot.prompt!!.stableSystem, system)
+                val answer = db.requestDao().getMessage(request.answerMessageId)!!
+                if (target == ConversationMode.SOLVE) {
+                    assertTrue(system.startsWith(ModelClient.SYSTEM_PROMPT))
+                    assertEquals("一次函数图像", db.conversationDao().getConversation(id)!!.title)
+                    assertEquals(listOf("/figures/0.png"), RequestRepository.decodePathList(answer.imagePaths))
+                } else {
+                    assertFalse(system.contains(ModelClient.SYSTEM_PROMPT))
+                    assertEquals("对话正文", answer.content)
+                    // Leave a CHAT draft to exercise mode restoration on the next page.
+                    drafts.persist(drafts.reserveSave(null, "", emptyList(), conversationMode = ConversationMode.CHAT))
+                }
+            }
+        } finally {
+            collectors.cancel()
+            models.clear()
+            main.scheduler.runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test fun `captionless supplemental photo keeps context and nonempty text in chat completions`() = runBlocking {
         verifySupplementalPhoto(AiApiProtocol.CHAT_COMPLETIONS)

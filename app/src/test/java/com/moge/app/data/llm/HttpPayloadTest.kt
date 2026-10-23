@@ -119,7 +119,7 @@ data: [DONE]
         payload["messages"]!!.jsonArray.map { it.jsonObject["role"]!!.jsonPrimitive.content }
 
     @Test
-    fun `original 054 contract reaches both protocols and drawing responses remain renderable`() = runBlocking {
+    fun `reviewed 060 contract reaches both protocols and title answer and figures remain usable`() = runBlocking {
         val encoded = JsonPrimitive(SOLVE_FIGURE_RESPONSE_EXAMPLE)
         for (protocol in listOf(AiSearchProtocol.OFF, AiSearchProtocol.RESPONSES)) {
             requests.clear()
@@ -140,9 +140,11 @@ data: [DONE]
             assertEquals("json_object", format["type"]!!.jsonPrimitive.content)
             val system = if (protocol == AiSearchProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
                 else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
-            val baseline = javaClass.getResource("/prompts/solve-v0.5.4.txt")!!.readText().replace("\r\n", "\n")
-            val originalPrompt = PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
-            assertEquals("The real request must carry the original 0.5.4 rules verbatim", originalPrompt.stableSystem, system)
+            val baseline = javaClass.getResource("/prompts/solve-v0.6.0.txt")!!.readText().replace("\r\n", "\n")
+            val reviewedPrompt = PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
+            assertEquals("Both protocols must carry the reviewed 0.6.0 contract", reviewedPrompt.stableSystem, system)
+            assertEquals("绘图协议示例", parsed.conversationTitle)
+            assertEquals("示例结论", parsed.finalAnswer)
             val turns = payload[if (protocol == AiSearchProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
             assertEquals(if (protocol == AiSearchProtocol.RESPONSES) 0 else 1,
                 turns.count { it.jsonObject["role"]!!.jsonPrimitive.content == "system" })

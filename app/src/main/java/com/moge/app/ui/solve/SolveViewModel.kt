@@ -78,10 +78,12 @@ data class SolveUiState(
     val branchPathKey: String = "",
     val conversationMode: ConversationMode = ConversationMode.SOLVE,
     val modeSelectable: Boolean = conversationId == null,
+    /** Input and mode restoration must finish before either can be submitted. */
+    val draftLoaded: Boolean = true,
 ) {
     val canSend: Boolean
         get() = (input.isNotBlank() || photos.isNotEmpty() || documentPaths.isNotEmpty()) && !generating && !busyElsewhere && !submitting && !importingPhotos &&
-            !switchingBranch && (editingQuestionId == null || editChanged)
+            !switchingBranch && draftLoaded && (editingQuestionId == null || editChanged)
 
     val canAddPhoto: Boolean
         get() = photos.size < CaptureStore.MAX_PHOTOS && !submitting && !importingPhotos && !switchingBranch
@@ -118,7 +120,7 @@ class SolveViewModel @Inject constructor(
     )
 
     private val input = MutableStateFlow("")
-    private val selectedMode = MutableStateFlow(ConversationMode.fromName(savedState.get<String>("draftConversationMode")))
+    private val selectedMode = MutableStateFlow(ConversationMode.fromName(savedState.get<String>(Routes.ARG_DRAFT_MODE)))
     private val photos = MutableStateFlow<List<String>>(emptyList())
     private val importingPhotos = MutableStateFlow(false)
     private val photoPasteMutex = Mutex()
@@ -201,9 +203,10 @@ class SolveViewModel @Inject constructor(
                     state.photos != RequestRepository.decodePathList(original.imagePaths) ||
                     state.documentPaths != RequestRepository.decodePathList(original.documentPaths)) }
             .combine(switchingBranch) { state, switching -> state.copy(switchingBranch = switching) }
-            .combine(draftLoaded) { state, loaded -> state.copy(modeSelectable = state.modeSelectable && loaded) }
+            .combine(draftLoaded) { state, loaded -> state.copy(modeSelectable = state.modeSelectable && loaded,
+                draftLoaded = loaded) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
-                SolveUiState(conversationId.value, conversationMode = selectedMode.value, modeSelectable = false))
+                SolveUiState(conversationId.value, conversationMode = selectedMode.value, modeSelectable = false, draftLoaded = false))
 
     init {
         restoreDraft()
@@ -236,6 +239,10 @@ class SolveViewModel @Inject constructor(
             var target: MessageEntity? = null
             val draft = try {
                 if (key != null) {
+                    // Resolve before enabling send, including pages whose Room flow is not active yet.
+                    conversationRepository.getConversation(key)?.let {
+                        selectedMode.value = ConversationMode.fromName(it.conversationMode)
+                    }
                     normalSlot = normalDraftSlot(key)
                     restoredSlot = normalSlot
                     val targetId = draftStore.load(editMetaSlot(key))?.text
@@ -256,7 +263,7 @@ class SolveViewModel @Inject constructor(
                 // 缺图引用照样恢复：发送时 persistAttachments 会明确报错，而不是悄悄丢图。
                 photos.value = draft?.photoPaths.orEmpty().take(CaptureStore.MAX_PHOTOS)
                 documents.value = draft?.documentPaths.orEmpty()
-                if (key == null && !savedState.contains("draftConversationMode")) {
+                if (key == null && savedState.get<String>(Routes.ARG_DRAFT_MODE) == null) {
                     selectedMode.value = draft?.conversationMode ?: ConversationMode.SOLVE
                 }
             } else if (conversationId.value == key && draftSlot == initialSlot) {
@@ -272,6 +279,8 @@ class SolveViewModel @Inject constructor(
             }
             draftRestored = true
             draftLoaded.value = true
+            // A navigation mode takes precedence over the shared draft without discarding its contents.
+            if (key == null && savedState.get<String>(Routes.ARG_DRAFT_MODE) != null) saveDraft()
             draftReady.complete(Unit)
             preparePhotos(photos.value)
         }
@@ -300,10 +309,18 @@ class SolveViewModel @Inject constructor(
 
     fun selectConversationMode(mode: ConversationMode) {
         if (!draftLoaded.value || conversationId.value != null || submitting.value || importingPhotos.value) return
+        requestNewConversationMode(mode)
+    }
+
+    /** Navigation may reuse an unsent page whose draft is still loading. */
+    fun requestNewConversationMode(mode: ConversationMode) {
+        if (conversationId.value != null || submitting.value) return
         selectedMode.value = mode
-        savedState["draftConversationMode"] = mode.name
-        saveDraft()
-        preparePhotos(photos.value)
+        savedState[Routes.ARG_DRAFT_MODE] = mode.name
+        if (draftLoaded.value) {
+            saveDraft()
+            preparePhotos(photos.value)
+        }
     }
 
     private fun editMetaSlot(id: String) = id + "__editing"
@@ -432,21 +449,21 @@ class SolveViewModel @Inject constructor(
     fun newCameraFile(): File = captureStore.newCameraFile()
 
     /** Resolve saved chat mode from storage even if the first UI snapshot has not arrived. */
-    private suspend fun photoConversationMode(): ConversationMode {
+    private suspend fun currentConversationMode(): ConversationMode {
         draftReady.await()
         val id = conversationId.value ?: return selectedMode.value
         val conversation = conversationRepository.getConversation(id) ?: return selectedMode.value
         return ConversationMode.fromName(conversation.conversationMode)
     }
 
-    fun resolveCaptureMode(onReady: (ConversationMode) -> Unit) {
+    fun resolveConversationMode(onReady: (ConversationMode) -> Unit) {
         viewModelScope.launch {
             try {
-                onReady(photoConversationMode())
+                onReady(currentConversationMode())
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                notice.value = "暂时无法打开相机，请稍后再试"
+                notice.value = "暂时无法读取会话模式，请稍后再试"
             }
         }
     }
@@ -526,7 +543,7 @@ class SolveViewModel @Inject constructor(
     /** Use the persisted conversation mode for both prewarming and accepting a crop. */
     suspend fun onPhotoCropStarted(path: String) {
         try {
-            photoPreparation.beginCrop(path, photoConversationMode())
+            photoPreparation.beginCrop(path, currentConversationMode())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -534,7 +551,7 @@ class SolveViewModel @Inject constructor(
         }
     }
     fun onPhotoCropClosed(path: String) = photoPreparation.endCrop(path)
-    suspend fun savePhotoCrop(path: String, edit: PhotoCropEdit) = photoPreparation.saveCrop(path, photoConversationMode(), edit)
+    suspend fun savePhotoCrop(path: String, edit: PhotoCropEdit) = photoPreparation.saveCrop(path, currentConversationMode(), edit)
 
     /** 裁剪界面「取消」：这张不要了。 */
     fun discardPhoto(path: String) {
@@ -611,7 +628,7 @@ class SolveViewModel @Inject constructor(
 
     /** 发送输入框里的内容（文字和 / 或照片）。新题目会先建会话再提交。 */
     fun send() {
-        if (importingPhotos.value || switchingBranch.value) return
+        if (!draftLoaded.value || importingPhotos.value || switchingBranch.value) return
         val original = editing.value
         if (original != null && input.value.trim() == original.content.trim() &&
             photos.value == RequestRepository.decodePathList(original.imagePaths) &&
@@ -641,9 +658,11 @@ class SolveViewModel @Inject constructor(
         val documentsAtSend = documents.value.toList()
         val slotAtSend = draftSlot
         val editAtSend = editing.value
+        val conversationModeAtSend = selectedMode.value
         viewModelScope.launch {
             try {
-                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend, slotAtSend, editAtSend)
+                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend,
+                    slotAtSend, editAtSend, conversationModeAtSend)
             } finally {
                 submitting.value = false
             }
@@ -660,6 +679,7 @@ class SolveViewModel @Inject constructor(
         documentPaths: List<String>,
         slotAtSend: String?,
         editAtSend: MessageEntity?,
+        conversationModeAtSend: ConversationMode,
     ) {
         val mode = requestedMode
             ?: runCatching { settings.current().defaultSolveMode }.getOrDefault(SolveMode.DETAILED)
@@ -689,8 +709,8 @@ class SolveViewModel @Inject constructor(
             // 纯照片题没有文字：先用「图片题目」占位，首次有效回答后由模型概括的主题替换。
             conversationRepository.createConversation(text.ifBlank {
                 if (documentPaths.isNotEmpty()) "文档分析"
-                else if (selectedMode.value == ConversationMode.CHAT) "图片对话" else PHOTO_PLACEHOLDER_TITLE
-            }, mode, selectedMode.value).id
+                else if (conversationModeAtSend == ConversationMode.CHAT) "图片对话" else PHOTO_PLACEHOLDER_TITLE
+            }, mode, conversationModeAtSend).id
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -705,6 +725,7 @@ class SolveViewModel @Inject constructor(
                     attachmentPaths = pinned,
                     documentPaths = documentPaths,
                     solveMode = mode,
+                    conversationMode = conversationModeAtSend,
                     parentMessageId = if (created) null else editAtSend?.parentMessageId ?: if (editAtSend != null) null else ConversationBranches.AUTO_PARENT,
                 ),
             )

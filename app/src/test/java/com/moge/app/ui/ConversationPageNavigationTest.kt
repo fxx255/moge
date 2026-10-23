@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.createGraph
 import androidx.navigation.navArgument
 import androidx.test.core.app.ApplicationProvider
+import com.moge.app.domain.ConversationMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -75,6 +76,7 @@ class ConversationPageNavigationTest {
             composable(Routes.SOLVE, arguments = listOf(
                 navArgument(Routes.ARG_CONVERSATION_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.ARG_CAPTURE) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.ARG_DRAFT_MODE) { type = NavType.StringType; nullable = true; defaultValue = null },
             )) { }
             composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
                 navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -141,6 +143,28 @@ class ConversationPageNavigationTest {
         navigate { navigateToConversation(nav, "existing") }
         assertReturned(original, model, "unfinished followup")
         assertEquals("existing", original.logicalConversationId())
+    }
+
+    @Test fun `new question from saved page carries an explicit solving mode into a fresh entry`() {
+        val old = start("old-question")
+        val oldModel = draft(old).apply { draft = "旧题追问不能带进新题" }
+        navigate { navigateToNewConversation(nav, ConversationMode.SOLVE) }
+        val fresh = requireNotNull(nav.currentBackStackEntry)
+        assertNotSame(old, fresh)
+        assertNotSame(oldModel, draft(fresh))
+        assertNull(fresh.logicalConversationId())
+        assertEquals("SOLVE", fresh.arguments?.getString(Routes.ARG_DRAFT_MODE))
+        assertEquals("", draft(fresh).draft)
+        assertEquals("旧题追问不能带进新题", oldModel.draft)
+    }
+
+    @Test fun `reused blank page receives the requested mode without discarding its draft`() {
+        val blank = start()
+        val blankModel = draft(blank).apply { draft = "保留空白页的待发内容" }
+        navigate { navigateToConversation(nav, "old-question") }
+        navigate { navigateToNewConversation(nav, ConversationMode.SOLVE) }
+        assertReturned(blank, blankModel, "保留空白页的待发内容")
+        assertEquals("SOLVE", blank.savedStateHandle.get<String>(Routes.NEW_CONVERSATION_MODE_RESULT))
     }
 
     @Test fun `existing to notebook to existing reuses the conversation and its draft`() {

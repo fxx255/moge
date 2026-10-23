@@ -151,7 +151,14 @@ class GenerationPreparer @Inject constructor(
         answerMessageId: String,
     ): RequestSnapshot {
         val prefs = settings.current()
-        val conversationMode = ConversationMode.fromName(conversationDao.getConversation(conversationId)?.conversationMode)
+        val conversation = conversationDao.getConversation(conversationId)
+            ?: throw ModelException(ModelException.Kind.CONFIG_INVALID, "这个对话已不存在，内容已保留，请重新发送")
+        val savedMode = ConversationMode.fromName(conversation.conversationMode)
+        val conversationMode = submission.conversationMode ?: savedMode
+        if (conversationMode != savedMode) {
+            throw ModelException(ModelException.Kind.CONFIG_INVALID,
+                "会话模式与发送模式不一致，请返回后重新打开对话再发送")
+        }
         val identity = credentialStore.resolveActiveIdentity()
         val baseUrl = identity?.baseUrl.orEmpty()
         // 历史在此刻钉下：之后用户删消息都不能改变这轮的上下文。

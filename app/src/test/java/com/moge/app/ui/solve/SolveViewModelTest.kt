@@ -14,6 +14,7 @@ import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.FailureKind
+import com.moge.app.domain.ConversationMode
 import com.moge.app.domain.RequestStatus
 import com.moge.app.domain.SolveMode
 import com.moge.app.runtime.DraftStore
@@ -22,6 +23,7 @@ import com.moge.app.runtime.GenerationManager.ActiveState
 import com.moge.app.runtime.PosixAtomicFileShadow
 import com.moge.app.ui.Routes
 import com.moge.app.ui.relayCaptureResults
+import com.moge.app.ui.relayNewConversationMode
 import com.moge.app.ui.capture.CaptureBatch
 import com.moge.app.ui.capture.CaptureStore
 import io.mockk.coEvery
@@ -69,6 +71,67 @@ import java.util.UUID
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class, shadows = [PosixAtomicFileShadow::class])
 class SolveViewModelTest {
+
+    @Test fun `draft recovery must finish before a new page can send`() = runBlocking {
+        val recovered = CompletableDeferred<DraftStore.Draft?>()
+        drafts = spyk(drafts)
+        coEvery { drafts.load(null) } coAnswers { recovered.await() }
+        val page = vm(awaitDraft = false)
+        page.onInputChange("输入不能抢在模式恢复前发送")
+        page.awaitState { it.input.isNotEmpty() }
+        assertFalse(page.uiState.value.canSend)
+        page.send()
+        dispatcher.scheduler.runCurrent()
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+
+        page.requestNewConversationMode(ConversationMode.SOLVE)
+        recovered.complete(DraftStore.Draft("旧对话草稿", emptyList(), conversationMode = ConversationMode.CHAT))
+        page.awaitState { it.canSend && it.modeSelectable }
+        page.selectConversationMode(ConversationMode.CHAT)
+        page.selectConversationMode(ConversationMode.SOLVE)
+        page.send()
+        val sent = page.awaitState { it.items.size == 2 && !it.submitting }
+        assertEquals(ConversationMode.SOLVE, sent.conversationMode)
+        assertEquals("SOLVE", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
+        coVerify { manager.submit(match { it.conversationMode == ConversationMode.SOLVE }, any(), any(), any(), any()) }
+    }
+
+    @Test fun `new page mode overrides shared draft mode and reused page receives later navigation intent`() = runBlocking {
+        for (target in ConversationMode.entries) {
+            val other = if (target == ConversationMode.SOLVE) ConversationMode.CHAT else ConversationMode.SOLVE
+            drafts.persist(drafts.reserveSave(null, "保留待发内容", emptyList(), conversationMode = other))
+            val page = vm(newMode = target)
+            assertEquals(target, page.uiState.value.conversationMode)
+            assertEquals("保留待发内容", page.uiState.value.input)
+            assertEquals(target, drafts.load(null)!!.conversationMode)
+
+            val navigationHandle = SavedStateHandle()
+            val relay = collectors.launch { relayNewConversationMode(navigationHandle, page::requestNewConversationMode) }
+            navigationHandle[Routes.NEW_CONVERSATION_MODE_RESULT] = other.name
+            page.awaitState { it.conversationMode == other }
+            assertEquals("保留待发内容", page.uiState.value.input)
+            assertNull(navigationHandle.get<String>(Routes.NEW_CONVERSATION_MODE_RESULT))
+            relay.cancel()
+            page.send()
+            val sent = page.awaitState { it.items.size == 2 && !it.submitting }
+            assertEquals(other.name, conversations.getConversation(sent.conversationId!!)!!.conversationMode)
+            page.requestNewConversationMode(target)
+            assertEquals(other, page.uiState.value.conversationMode)
+        }
+    }
+
+    @Test fun `retained chat draft keeps its mode when its saved conversation has been deleted`() = runBlocking {
+        val old = conversations.createConversation("已删除对话", SolveMode.DETAILED, ConversationMode.CHAT)
+        drafts.save(old.id, "继续对话", emptyList())
+        val page = vm(old.id)
+        page.awaitState { it.input == "继续对话" && it.conversationMode == ConversationMode.CHAT }
+        conversations.deleteIdle(setOf(old.id))
+        page.send()
+        val sent = page.awaitState { it.items.size == 2 && !it.submitting }
+        assertTrue(sent.conversationId != old.id)
+        assertEquals("CHAT", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
+        coVerify { manager.submit(match { it.conversationMode == ConversationMode.CHAT }, any(), any(), any(), any()) }
+    }
 
     @Test fun `chat choice persists with draft and stays fixed when history is reopened`() = runBlocking {
         drafts.clear(null)
@@ -148,10 +211,12 @@ class SolveViewModelTest {
     private lateinit var captureStore: CaptureStore
     private val preparation = mockk<com.moge.app.runtime.QuestionPhotoPreparation>(relaxed = true)
 
-    private fun vm(conversationId: String? = null, capture: CaptureBatch? = null): SolveViewModel {
+    private fun vm(conversationId: String? = null, capture: CaptureBatch? = null, awaitDraft: Boolean = true,
+                   newMode: ConversationMode? = null): SolveViewModel {
         val args = buildMap<String, Any?> {
             if (conversationId != null) put(Routes.ARG_CONVERSATION_ID, conversationId)
             if (capture != null) put(Routes.ARG_CAPTURE, Routes.encodeCapture(capture))
+            put(Routes.ARG_DRAFT_MODE, newMode?.name)
         }
         val handle = SavedStateHandle(args)
         lastHandle = handle
@@ -160,6 +225,8 @@ class SolveViewModelTest {
             // stateIn(WhileSubscribed) 需要订阅者才会合成状态：模拟页面一直在看。
             collectors.launch { model.uiState.collect { } }
             dispatcher.scheduler.runCurrent()
+            // Normal interactions start once the page enables sending; recovery races opt out.
+            if (awaitDraft) model.awaitState { it.draftLoaded }
         }
     }
 
@@ -559,10 +626,9 @@ class SolveViewModelTest {
     @Test fun `gallery uses fixed saved chat mode before handing image to crop screen`() = runBlocking {
         val existing = conversations.createConversation("图片对话", SolveMode.DETAILED,
             com.moge.app.domain.ConversationMode.CHAT)
-        val model = vm(existing.id)
-        model.awaitState { it.conversationMode == com.moge.app.domain.ConversationMode.CHAT }
+        val model = vm(existing.id, awaitDraft = false)
         var captureMode: com.moge.app.domain.ConversationMode? = null
-        model.resolveCaptureMode { captureMode = it }
+        model.resolveConversationMode { captureMode = it }
         model.awaitState { captureMode != null }
         assertEquals(com.moge.app.domain.ConversationMode.CHAT, captureMode)
         val image = ClipboardImageFixture(ApplicationProvider.getApplicationContext<Context>())
@@ -822,8 +888,8 @@ class SolveViewModelTest {
             release.await()
             original.messages(id)
         }
-        val model = vm(id)
-        entered.await()
+        val model = vm(id, awaitDraft = false)
+        model.awaitState { entered.isCompleted }
         model.onInputChange("恢复之前输入的新草稿")
         release.complete(Unit)
         withTimeout(5_000) {

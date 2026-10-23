@@ -53,8 +53,8 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 39
-        versionName = "0.5.9"
+        versionCode = 40
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

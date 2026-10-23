@@ -187,6 +187,8 @@ class GenerationManager @Inject constructor(
         val forceWebSearch: Boolean = false,
         val documentPaths: List<String> = emptyList(),
         val parentMessageId: String? = ConversationBranches.AUTO_PARENT,
+        /** Mode captured by the page at send time; retries use the saved conversation's mode. */
+        val conversationMode: ConversationMode? = null,
     )
 
     /** 对外广播的生成事件。全部是纯数据，页面据此更新自己的 UI。 */
