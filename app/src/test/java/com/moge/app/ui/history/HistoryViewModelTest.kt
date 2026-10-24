@@ -24,6 +24,8 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [28], application = android.app.Application::class)
 class HistoryViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private val repository = mockk<ConversationRepository>()
@@ -42,7 +44,7 @@ class HistoryViewModelTest {
         every { repository.observeHistory(any(), any(), any()) } returns entries
     }
     @After fun teardown() { Dispatchers.resetMain() }
-    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks, settings)
+    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = HistoryViewModel(handle, repository, drafts, manager, notebooks, settings, localizedText = com.moge.app.core.localizedTestText())
 
     @Test fun historyRetentionHintFollowsSettingsChanges() {
         val model = vm()

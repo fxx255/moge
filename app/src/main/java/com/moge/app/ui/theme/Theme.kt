@@ -10,6 +10,9 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.dp
 import com.moge.app.data.prefs.Appearance
+import com.moge.app.data.prefs.AppFont
+import com.moge.app.data.prefs.AppLanguage
+import com.moge.app.ui.localization.AppLanguageProvider
 
 val LocalPaperColors = staticCompositionLocalOf { PaperExtras }
 
@@ -32,20 +35,26 @@ fun usesChalk(appearance: Appearance, systemDark: Boolean): Boolean = when (appe
 @Composable
 fun MogeTheme(
     appearance: Appearance = Appearance.SYSTEM,
+    font: AppFont = AppFont.SYSTEM,
+    language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     content: @Composable () -> Unit,
 ) {
     val chalk = usesChalk(appearance, isSystemInDarkTheme())
     val motionEnabled = rememberPaperMotionEnabled()
-    CompositionLocalProvider(
-        LocalPaperColors provides if (chalk) ChalkExtras else PaperExtras,
-        LocalPaperMotionEnabled provides motionEnabled,
-    ) {
-        MaterialTheme(
-            colorScheme = if (chalk) ChalkColorScheme else PaperColorScheme,
-            typography = MogeTypography,
-            shapes = MogeShapes,
-            content = content,
-        )
+    val typeface = rememberAppTypeface(font)
+    AppLanguageProvider(language) {
+        CompositionLocalProvider(
+            LocalAppTypeface provides typeface,
+            LocalPaperColors provides if (chalk) ChalkExtras else PaperExtras,
+            LocalPaperMotionEnabled provides motionEnabled,
+        ) {
+            MaterialTheme(
+                colorScheme = if (chalk) ChalkColorScheme else PaperColorScheme,
+                typography = typographyWithFont(if (font == AppFont.SYSTEM) null else appFontFamily(typeface), language.tag),
+                shapes = MogeShapes,
+                content = content,
+            )
+        }
     }
 }
 

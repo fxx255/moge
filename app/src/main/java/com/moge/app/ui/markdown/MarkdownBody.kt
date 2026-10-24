@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.moge.app.ui.theme.LocalAppTypeface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -115,15 +116,17 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
+    val bodyTypeface = LocalAppTypeface.current
+    val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
     val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
+        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
-                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor).also { view ->
+                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         // LazyColumn can measure a View before its first attached update.
                         renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
                     }
@@ -506,6 +509,8 @@ internal fun MarkdownChunk(
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val density = LocalDensity.current
+    val bodyTypeface = LocalAppTypeface.current
+    val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
     val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     val widthModifier = if (fixedWidthPx != null) {
         Modifier.width(with(density) { fixedWidthPx.coerceAtLeast(1).toDp() })
@@ -517,13 +522,13 @@ internal fun MarkdownChunk(
     // detached/premeasured items could keep that single-line slot until another scroll.
     BoxWithConstraints(widthModifier) {
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
+        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds(),
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor,
                         selectable = selectable, fontSizePx = fontSizePx,
-                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor).also { view ->
+                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         view.textAlignment = textAlignment
                         if (bold) view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
                         renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)

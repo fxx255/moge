@@ -1,5 +1,9 @@
 package com.moge.app.ui.document
 
+
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -60,42 +64,43 @@ internal fun DocumentPreviewScreen(
     onLocator: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     val sections = state.index?.sections.orEmpty()
     val images = state.index?.images.orEmpty()
     val activeImage = images.indexOf(state.locator)
     val extension = state.attachment?.path?.let { File(it).extension.lowercase() }.orEmpty()
-    val unit = when (extension) { "pdf" -> "页"; "pptx" -> "张"; else -> "项" }
+    val unit = when (extension) { "pdf" -> strings.text(R.string.ui_page_73422); "pptx" -> strings.text(R.string.ui_image_9273c); else -> strings.text(R.string.ui_item_64728) }
     var jump by rememberSaveable(state.attachment?.id) { mutableStateOf(false) }
     val title = when {
-        activeImage >= 0 -> "图片 ${activeImage + 1}"
+        activeImage >= 0 -> strings.text(R.string.ui_image_1_s_6098b, activeImage + 1)
         else -> state.index?.tables?.firstOrNull { it.id == state.locator }?.title
             ?: sections.getOrNull(state.selected)?.title.orEmpty()
     }
-    PaperScaffold(title = "文件预览", onBack = onClose, modifier = Modifier.testTag("document-preview"), actions = {
+    PaperScaffold(title = strings.text(R.string.ui_document_preview_7621c), onBack = onClose, modifier = Modifier.testTag("document-preview"), actions = {
         OutlinedButton(onClick = onOpenOriginal, enabled = state.attachment != null,
             shape = MaterialTheme.shapes.large, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            modifier = Modifier.semantics { contentDescription = "打开原件" }) {
+            modifier = Modifier.semantics { contentDescription = strings.text(R.string.ui_open_original_c0986) }) {
             Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text("原件")
+            Text(strings.text(R.string.ui_original_be08d))
         }
     }) {
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             PreviewFileCard(state)
             if (extension in setOf("docx", "pptx", "xlsx")) {
-                Text("此处展示文件内容，完整排版可打开原件查看。",
+                Text(strings.text(R.string.ui_open_the_original_file_to_see_its_full_layout_123e9),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (images.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (activeImage >= 0 && sections.isNotEmpty()) {
-                        AssistChip(onClick = { onSection(state.selected) }, label = { Text("返回正文") })
+                        AssistChip(onClick = { onSection(state.selected) }, label = { Text(strings.text(R.string.ui_back_to_text_e8aa4)) })
                     }
                     images.forEachIndexed { index, locator ->
                         FilterChip(selected = locator == state.locator, onClick = { onLocator(locator) },
-                            label = { Text("图片 ${index + 1}") },
+                            label = { Text(strings.text(R.string.ui_image_1_s_6098b, index + 1)) },
                             leadingIcon = { Icon(Icons.Outlined.Image, null, Modifier.size(16.dp)) })
                     }
                 }
@@ -106,15 +111,15 @@ internal fun DocumentPreviewScreen(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { onSection(state.selected - 1) }, enabled = state.selected > 0) {
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一$unit")
+                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, strings.text(R.string.ui_previous_1_s_38040, unit))
                         }
                         TextButton(onClick = { jump = true }, modifier = Modifier.weight(1f)) {
-                            Text("第 ${state.selected + 1} / ${sections.size} $unit", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(strings.text(R.string.ui_1_s_2_s_3_s_89d8c, state.selected + 1, sections.size, unit), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.width(6.dp))
                             Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(16.dp))
                         }
                         IconButton(onClick = { onSection(state.selected + 1) }, enabled = state.selected < sections.lastIndex) {
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一$unit")
+                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, strings.text(R.string.ui_next_1_s_ff391, unit))
                         }
                     }
                 }
@@ -131,8 +136,9 @@ internal fun DocumentPreviewScreen(
 
 @Composable
 private fun PreviewFileCard(state: DocumentPreviewUiState) {
+    val strings = rememberAppStrings()
     val document = state.attachment
-    val (icon, kind) = documentIcon(document?.path.orEmpty())
+    val (icon, kind) = documentIcon(document?.path.orEmpty(), strings)
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -142,7 +148,7 @@ private fun PreviewFileCard(state: DocumentPreviewUiState) {
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(document?.name ?: if (state.busy) "正在读取文件…" else "文件",
+                Text(document?.name ?: if (state.busy) strings.text(R.string.ui_loading_document_d4405) else strings.text(R.string.ui_document_49dea),
                     style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("preview-file-name"))
                 document?.let {
@@ -162,17 +168,18 @@ private fun PreviewReadingArea(
     onOpenOriginal: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     Surface(modifier.testTag("preview-reading-area"), color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.extraLarge, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         when {
             state.busy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
-                    Text("正在读取内容…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(strings.text(R.string.ui_loading_content_850b7), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            state.error != null -> PreviewMessage("暂时无法预览", state.error, error = true,
-                button = { FilledTonalButton(onClick = onRetry) { Text("重新加载") } })
+            state.error != null -> PreviewMessage(strings.text(R.string.ui_preview_unavailable_431bb), state.error, error = true,
+                button = { FilledTonalButton(onClick = onRetry) { Text(strings.text(R.string.ui_reload_5982c)) } })
             state.image != null || state.text.isNotBlank() -> key(state.locator) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     if (title.isNotBlank()) {
@@ -181,7 +188,7 @@ private fun PreviewReadingArea(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                     state.image?.let { bitmap ->
-                        Image(bitmap.asImageBitmap(), "文档页面", Modifier.fillMaxWidth().padding(10.dp))
+                        Image(bitmap.asImageBitmap(), strings.text(R.string.ui_document_page_b76ed), Modifier.fillMaxWidth().padding(10.dp))
                     }
                     if (state.text.isNotBlank()) {
                         SelectionContainer {
@@ -194,9 +201,9 @@ private fun PreviewReadingArea(
                     }
                 }
             }
-            state.index?.sections.isNullOrEmpty() -> PreviewMessage("此格式暂不支持预览", "可以打开原件查看完整内容。",
-                button = { FilledTonalButton(onClick = onOpenOriginal, enabled = state.attachment != null) { Text("打开原件") } })
-            else -> PreviewMessage("这里没有可显示的内容", "可查看文件中的图片，或打开原件。")
+            state.index?.sections.isNullOrEmpty() -> PreviewMessage(strings.text(R.string.ui_preview_is_unavailable_for_this_format_51952), strings.text(R.string.ui_open_the_original_file_to_view_all_content_c7f38),
+                button = { FilledTonalButton(onClick = onOpenOriginal, enabled = state.attachment != null) { Text(strings.text(R.string.ui_open_original_c0986)) } })
+            else -> PreviewMessage(strings.text(R.string.ui_no_content_to_display_ee9f1), strings.text(R.string.ui_view_embedded_images_or_open_the_original_file_1349e))
         }
     }
 }
@@ -214,6 +221,7 @@ private fun PreviewMessage(title: String, detail: String, error: Boolean = false
 
 @Composable
 private fun PreviewJumpDialog(current: Int, count: Int, unit: String, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    val strings = rememberAppStrings()
     var input by rememberSaveable { mutableStateOf((current + 1).toString()) }
     val position = input.toIntOrNull()?.minus(1)?.takeIf { it in 0 until count }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -221,16 +229,16 @@ private fun PreviewJumpDialog(current: Int, count: Int, unit: String, onDismiss:
             color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("跳转位置", style = MaterialTheme.typography.headlineSmall)
+                Text(strings.text(R.string.ui_go_to_location_ff53c), style = MaterialTheme.typography.headlineSmall)
                 OutlinedTextField(input, { input = it.filter(Char::isDigit).take(6) }, singleLine = true,
-                    label = { Text("位置（1—$count $unit）") }, isError = input.isNotEmpty() && position == null,
+                    label = { Text(strings.text(R.string.ui_location_1_1_s_2_s_2c2eb, count, unit)) }, isError = input.isNotEmpty() && position == null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { position?.let(onSelect) }),
-                    supportingText = { Text(if (input.isNotEmpty() && position == null) "请输入范围内的数字" else "共 $count $unit") },
+                    supportingText = { Text(if (input.isNotEmpty() && position == null) strings.text(R.string.ui_enter_a_number_in_range_533ad) else strings.text(R.string.ui_1_s_2_s_in_total_48ddf, count, unit)) },
                     modifier = Modifier.fillMaxWidth().testTag("preview-jump-input"))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("取消") }
-                    TextButton(onClick = { position?.let(onSelect) }, enabled = position != null) { Text("前往") }
+                    TextButton(onClick = onDismiss) { Text(strings.text(R.string.ui_cancel_4d0b4)) }
+                    TextButton(onClick = { position?.let(onSelect) }, enabled = position != null) { Text(strings.text(R.string.ui_go_23926)) }
                 }
             }
         }

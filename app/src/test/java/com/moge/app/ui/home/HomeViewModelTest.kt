@@ -65,7 +65,7 @@ class HomeViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     private fun vm(handle: SavedStateHandle = SavedStateHandle()) =
-        HomeViewModel(handle, credentials, settings, store, Dispatchers.Unconfined, preparation)
+        HomeViewModel(handle, credentials, settings, store, Dispatchers.Unconfined, preparation, localizedText = com.moge.app.core.localizedTestText())
 
     @Test fun `camera opens crop immediately and queues only accepted photos with the capture mode`() {
         val handle = SavedStateHandle(mapOf(com.moge.app.ui.Routes.ARG_CAPTURE_MODE to "CHAT"))

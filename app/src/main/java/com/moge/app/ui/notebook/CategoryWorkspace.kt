@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.ui.localization.appString
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +38,7 @@ internal fun CategoryWorkspace(modifier: Modifier = Modifier, content: @Composab
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun CategoryWorkspaceHeader(title: String, onDismiss: () -> Unit, enabled: Boolean = true,
-    actionLabel: String = "完成", action: @Composable RowScope.() -> Unit = {}) {
+    actionLabel: String = appString(R.string.ui_done_33246), action: @Composable RowScope.() -> Unit = {}) {
     FlowRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween) {
         Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {

@@ -1,5 +1,9 @@
 package com.moge.app.ui.photo
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+import com.moge.app.ui.localization.appString
+
 import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.data.image.applyPhotoCrop
 import androidx.compose.foundation.layout.Arrangement
@@ -51,11 +55,12 @@ fun PhotoCropDialog(
     onCropped: () -> Unit,
     onDismiss: () -> Unit,
     /** 拍题流程里叫「重拍」；其余场景是「取消」。 */
-    dismissLabel: String = "取消",
+    dismissLabel: String = appString(R.string.ui_cancel_4d0b4),
     onCropStarted: suspend () -> Unit = {},
     onCropClosed: () -> Unit = {},
     saveCrop: (suspend (PhotoCropEdit) -> Unit)? = null,
 ) {
+    val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
     val editor = remember(path) { CropViewportState(scope) }
     val motionEnabled = com.moge.app.ui.theme.MogeTheme.motionEnabled
@@ -71,7 +76,8 @@ fun PhotoCropDialog(
     val cropRect = editor.cropRect
     LaunchedEffect(path) { onCropStarted() }
     DisposableEffect(path) { onDispose { onCropClosed() } }
-    LaunchedEffect(path, preview) {
+    // Only a different photo resets the selection; button rotations transform the existing framing.
+    LaunchedEffect(path) {
         editor.reset(preview?.let { IntSize(it.width, it.height) } ?: IntSize.Zero)
         error = null
     }
@@ -92,26 +98,20 @@ fun PhotoCropDialog(
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("裁剪照片", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(strings.text(R.string.ui_crop_photo_33746), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     TextButton(enabled = preview != null && !saving, onClick = {
-                        editor.interrupt()
+                        editor.rotateCounterclockwise()
                         quarterTurns = (quarterTurns + 3) % 4
                         error = null
                     }) {
                         Icon(Icons.Filled.RotateLeft, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("逆时针 90°")
+                        Text(strings.text(R.string.ui_rotate_left_90_edda9))
                     }
                 }
-                Text(
-                    "双指缩放/平移照片；拖动框内移动选框，拖动边角自由改变宽高",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
                 if (preview != null) {
                     PhotoCropViewport(preview, editor, saving, motionEnabled,
                         modifier = Modifier
@@ -121,7 +121,7 @@ fun PhotoCropDialog(
                             .fillMaxWidth()
                             .aspectRatio(1f))
                 } else {
-                    Text("照片加载失败", color = MaterialTheme.colorScheme.error)
+                    Text(strings.text(R.string.ui_could_not_load_photo_6c2b1), color = MaterialTheme.colorScheme.error)
                 }
 
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -155,15 +155,15 @@ fun PhotoCropDialog(
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {
-                                    error = failure.message ?: "裁剪保存失败，请重试"
+                                    error = failure.message ?: strings.text(R.string.ui_could_not_save_crop_try_again_3af6b)
                                 } catch (_: OutOfMemoryError) {
-                                    error = "内存不足以保存原始分辨率，请选取较小区域后重试"
+                                    error = strings.text(R.string.ui_not_enough_memory_at_full_resolution_select_a_smaller_area_76e77)
                                 } finally {
                                     saving = false
                                 }
                             }
                         },
-                    ) { Text(if (saving) "保存中…" else "确定") }
+                    ) { Text(if (saving) strings.text(R.string.ui_saving_6644f) else strings.text(R.string.ui_ok_f526c)) }
                 }
             }
         }
@@ -171,13 +171,13 @@ fun PhotoCropDialog(
 }
 
 /**
- * 裁剪视口（正方形）的最大边长：按窗口高度减去标题、提示和按钮来算，
- * 否则横屏下边长跟着屏宽走，弹窗比屏幕还高。极端小屏兜底 200dp。
+ * 裁剪视口（正方形）的最大边长：按窗口高度减去标题和按钮来算，
+ * 否则横屏下边长跟着屏宽走，弹窗比屏幕还高。极端小屏仍可滚动。
  */
 @Composable
 private fun cropViewportMaxSide(): Dp {
     val configuration = LocalConfiguration.current
-    // 标题 + 提示 + 固定按钮行 + 弹窗边距，约 190dp；横屏矮屏（如 540px）兜底 160dp。
-    val usableHeight = configuration.screenHeightDp.dp - 190.dp
+    // 标题、固定按钮行、间距与系统窗口余量；选框手柄空间包含在视口边长内。
+    val usableHeight = configuration.screenHeightDp.dp - 140.dp
     return minOf(configuration.screenWidthDp.dp, usableHeight).coerceAtLeast(160.dp)
 }

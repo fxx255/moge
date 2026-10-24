@@ -1,5 +1,8 @@
 package com.moge.app.ui.markdown
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.graphics.Bitmap
 import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.BorderStroke
@@ -72,6 +75,7 @@ internal fun InlineFigure(
     onClick: () -> Unit,
     number: Int? = null,
 ) {
+    val strings = rememberAppStrings()
     val dark = MogeTheme.paper.isChalk
     val resolver = LocalFigurePathResolver.current
     val photoRevision by PhotoEdits.revision.collectAsStateWithLifecycle()
@@ -89,7 +93,7 @@ internal fun InlineFigure(
             decodeAttempt++
         }
     }
-    val label = number?.let { "图 $it" } ?: "生成的图表"
+    val label = number?.let { strings.text(R.string.ui_figure_1_s_a25b7, it) } ?: strings.text(R.string.ui_generated_chart_369b8)
     Column(
         modifier = Modifier.fillMaxWidth().zIndex(FIGURE_Z_INDEX),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -98,7 +102,7 @@ internal fun InlineFigure(
         val figure = loaded
         if (figure == null) {
             FigurePlaceholder(
-                text = if (decodeAttempt < DECODE_RETRY_MAX) "图表加载中…" else "图表暂时无法显示",
+                text = if (decodeAttempt < DECODE_RETRY_MAX) strings.text(R.string.ui_loading_chart_64b19) else strings.text(R.string.ui_chart_unavailable_a3291),
                 label = label,
                 onClick = onClick,
             )
@@ -119,13 +123,14 @@ private class LoadedFigure(val path: String, val bitmap: Bitmap)
 
 @Composable
 private fun FigurePlaceholder(text: String, label: String, onClick: () -> Unit) {
+    val strings = rememberAppStrings()
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(110.dp)
             .clip(MaterialTheme.shapes.small)
             .background(MogeTheme.paper.scratch)
-            .clickable(onClickLabel = "查看$label") { onClick() },
+            .clickable(onClickLabel = strings.text(R.string.ui_view_1_s_98c1c, label)) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -134,6 +139,7 @@ private fun FigurePlaceholder(text: String, label: String, onClick: () -> Unit) 
 
 @Composable
 private fun FigureImage(figure: LoadedFigure, label: String, onClick: () -> Unit) {
+    val strings = rememberAppStrings()
     val image = remember(figure) { figure.bitmap.asImageBitmap() }
     val frame = Modifier
         .clip(MaterialTheme.shapes.small)
@@ -153,7 +159,7 @@ private fun FigureImage(figure: LoadedFigure, label: String, onClick: () -> Unit
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier
                         .width(maxOf(viewport, DIAGRAM_MIN_INLINE_WIDTH))
-                        .clickable(onClickLabel = "放大$label") { onClick() },
+                        .clickable(onClickLabel = strings.text(R.string.ui_enlarge_1_s_64a28, label)) { onClick() },
                 )
             }
         }
@@ -165,18 +171,19 @@ private fun FigureImage(figure: LoadedFigure, label: String, onClick: () -> Unit
             modifier = Modifier
                 .fillMaxWidth()
                 .then(frame)
-                .clickable(onClickLabel = "放大$label") { onClick() },
+                .clickable(onClickLabel = strings.text(R.string.ui_enlarge_1_s_64a28, label)) { onClick() },
         )
     }
 }
 
 @Composable
 internal fun FailedFigureHint(index: Int) {
+    val strings = rememberAppStrings()
     Text(
-        text = "图 ${index + 1} 未能生成，可以点「重新生成」再试一次。",
+        text = strings.text(R.string.ui_figure_1_s_could_not_be_generated_tap_regenerate_to_try_agai_513ad, index + 1),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.semantics { contentDescription = "图 ${index + 1} 未能生成" },
+        modifier = Modifier.semantics { contentDescription = strings.text(R.string.ui_figure_1_s_could_not_be_generated_67600, index + 1) },
     )
 }
 

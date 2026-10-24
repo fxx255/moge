@@ -44,4 +44,11 @@ class ConversationViewportTest {
         store.save("a", ConversationViewport("", 0, 0))
         assertEquals(ConversationViewport("answer", 10, 201), store.read("a"))
     }
+    @Test fun `a follow up in the middle retains its signed offset after saved state recreation`() {
+        val state = SavedStateHandle()
+        val store = ConversationViewports(state)
+        val center = ConversationViewport("follow-up", 2, -240)
+        store.save("conversation", center)
+        assertEquals(center, ConversationViewports(state).read("conversation"))
+    }
 }

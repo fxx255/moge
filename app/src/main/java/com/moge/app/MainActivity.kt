@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import com.moge.app.data.figure.StoredFigureResolver
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.SettingsRepository
+import com.moge.app.data.prefs.UserSettings
 import com.moge.app.ui.MogeNavHost
 import com.moge.app.data.document.DocumentShareImporter
 import com.moge.app.ui.Routes
@@ -50,7 +51,8 @@ class MainActivity : ComponentActivity() {
         sharedRoutes.value = savedInstanceState?.getStringArrayList("sharedDocumentRoutes").orEmpty()
         if (savedInstanceState?.getBoolean("sharedDocumentHandled") != true) handleSharedDocument(intent)
         setContent {
-            val appearance by settings.appearance.collectAsStateWithLifecycle(initialValue = Appearance.SYSTEM)
+            val prefs by settings.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
+            val appearance = prefs.appearance
             val chalk = usesChalk(appearance, isSystemInDarkTheme())
             // 状态栏图标颜色跟随「外观」而不是系统深浅色：方格本用深色图标，黑板用浅色图标
             DisposableEffect(chalk) {
@@ -62,7 +64,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            MogeTheme(appearance = appearance) {
+            MogeTheme(appearance = appearance, font = prefs.font, language = prefs.interfaceLanguage) {
                 CompositionLocalProvider(LocalFigurePathResolver provides figureResolver) {
                     val routes by sharedRoutes.collectAsStateWithLifecycle()
                     MogeNavHost(routes.firstOrNull()) { sharedRoutes.value = sharedRoutes.value.drop(1) }

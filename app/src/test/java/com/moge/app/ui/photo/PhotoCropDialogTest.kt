@@ -10,7 +10,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
+import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -20,6 +25,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CompletableDeferred
 
 @RunWith(RobolectricTestRunner::class)
@@ -124,5 +130,49 @@ class PhotoCropDialogTest {
         assertEquals(1, accepted)
         org.junit.Assert.assertArrayEquals(original, file.readBytes())
         assertEquals(1, retakes)
+    }
+
+    @Test fun `rotate button preserves the selected photo content and a different photo starts fresh`() {
+        val path = mutableStateOf(photo().absolutePath)
+        val edits = CopyOnWriteArrayList<PhotoCropEdit>()
+        var accepted = 0
+        var started = 0
+        compose.setContent { MogeTheme {
+            PhotoCropDialog(path.value, onCropped = { accepted++ }, onDismiss = {},
+                onCropStarted = { started++ }, saveCrop = { edits.add(it) })
+        } }
+        val area = compose.onNodeWithTag("photo-crop-area")
+        val outer = area.fetchSemanticsNode().boundsInRoot
+        val inner = compose.onNodeWithTag("photo-crop-viewport").fetchSemanticsNode().boundsInRoot
+        val crop = initialCropFraming(IntSize(120, 80), IntSize(inner.width.toInt(), inner.height.toInt())).cropRect
+        area.performTouchInput {
+            down(crop.bottomRight + inner.topLeft - outer.topLeft)
+            moveBy(Offset(-crop.width * .4f, -crop.height * .35f), delayMillis = 64)
+            up()
+        }
+        fun confirm() {
+            val count = accepted
+            compose.onNodeWithText("确定").performSemanticsAction(SemanticsActions.OnClick) { it() }
+            compose.waitUntil(5_000) { accepted > count }
+        }
+        confirm()
+        var previous = edits.last()
+        org.junit.Assert.assertFalse("The test must start from a partial crop", previous.isIdentity)
+        repeat(4) { turn ->
+            compose.onNodeWithText("逆时针 90°").performSemanticsAction(SemanticsActions.OnClick) { it() }
+            confirm()
+            val rotated = edits.last()
+            assertEquals((3 * (turn + 1)) % 4, rotated.quarterTurns)
+            assertEquals(previous.top, rotated.left, .0001f)
+            assertEquals(1f - previous.left - previous.width, rotated.top, .0001f)
+            assertEquals(previous.height, rotated.width, .0001f)
+            assertEquals(previous.width, rotated.height, .0001f)
+            previous = rotated
+        }
+        assertEquals("Rotating must not reopen the crop session", 1, started)
+        compose.runOnIdle { path.value = photo().absolutePath }
+        confirm()
+        org.junit.Assert.assertTrue(edits.last().isIdentity)
+        assertEquals(2, started)
     }
 }

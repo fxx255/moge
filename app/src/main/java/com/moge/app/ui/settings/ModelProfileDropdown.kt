@@ -1,5 +1,8 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -36,6 +39,7 @@ internal fun ModelProfileDropdown(
     tag: String,
     onSelect: (String?) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var expanded by remember { mutableStateOf(false) }
     val available = enabled && choices.isNotEmpty()
     LaunchedEffect(available) { if (!available) expanded = false }
@@ -68,7 +72,7 @@ internal fun ModelProfileDropdown(
             ),
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = available)
                 .fillMaxWidth().animateContentSize(tween(duration)).testTag(tag)
-                .semantics { stateDescription = if (expanded && available) "已展开" else "已收起" },
+                .semantics { stateDescription = if (expanded && available) strings.text(R.string.ui_expanded_fa83a) else strings.text(R.string.ui_collapsed_5dd9d) },
         )
         ExposedDropdownMenu(
             expanded = expanded && available,
@@ -94,7 +98,7 @@ internal fun ModelProfileDropdown(
                         }
                     },
                     onClick = { expanded = false; onSelect(choice.id) },
-                    trailingIcon = { if (checked) Icon(Icons.Outlined.Check, "已选中", tint = MaterialTheme.colorScheme.primary) },
+                    trailingIcon = { if (checked) Icon(Icons.Outlined.Check, strings.text(R.string.ui_selected_0a302), tint = MaterialTheme.colorScheme.primary) },
                     modifier = Modifier.testTag("$tag-option-${choice.id ?: "none"}")
                         .background(if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
                             else MaterialTheme.colorScheme.surface),

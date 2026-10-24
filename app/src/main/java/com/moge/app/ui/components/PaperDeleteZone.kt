@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
@@ -29,6 +32,7 @@ internal fun curvedDeleteContains(bounds: Rect, point: Offset): Boolean {
 
 @Composable
 internal fun PaperDeleteZone(armed: Boolean, label: String, modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings()
     val red = lerp(MaterialTheme.colorScheme.error, Color(0xFFC62828), 0.7f)
     val error by animateColorAsState(if (armed) red else red.copy(alpha = 0.85f),
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "delete-zone-color")
@@ -43,7 +47,7 @@ internal fun PaperDeleteZone(armed: Boolean, label: String, modifier: Modifier =
     }) {
         Column(Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.1f),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.DeleteOutline, "删除区域", Modifier.size(32.dp), tint = ink)
+            Icon(Icons.Outlined.DeleteOutline, strings.text(R.string.ui_delete_area_0be1f), Modifier.size(32.dp), tint = ink)
             Surface(color = error.copy(alpha = 0.9f), contentColor = ink, shape = MaterialTheme.shapes.small) {
                 Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
             }

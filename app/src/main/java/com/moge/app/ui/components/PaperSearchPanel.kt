@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +53,7 @@ internal fun PaperSearchPanel(
     expandedContent: @Composable () -> Unit = {},
     filters: @Composable RowScope.() -> Unit,
 ) {
+    val strings = rememberAppStrings()
     Surface(
         // Keep the top flush with the list viewport: a transparent top margin
         // exposes a thin strip of cards between the page header and this sheet.
@@ -67,7 +71,7 @@ internal fun PaperSearchPanel(
                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                 trailingIcon = if (query.isEmpty()) null else ({
                     IconButton(onClick = { onQuery("") }, enabled = enabled) {
-                        Icon(Icons.Outlined.Close, "清除搜索")
+                        Icon(Icons.Outlined.Close, strings.text(R.string.ui_clear_search_318ea))
                     }
                 }),
                 shape = RoundedCornerShape(11.dp),

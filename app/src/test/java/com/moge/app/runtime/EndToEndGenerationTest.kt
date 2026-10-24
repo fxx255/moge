@@ -104,7 +104,7 @@ class EndToEndGenerationTest {
         fun newPage(mode: ConversationMode?): SolveViewModel = SolveViewModel(
             SavedStateHandle(mapOf(Routes.ARG_DRAFT_MODE to mode?.name)), manager, repository,
             ConversationRepository(db.conversationDao(), Dispatchers.Unconfined),
-            drafts, settings, CaptureStore(context), mockk(relaxed = true), mockk(relaxed = true)).also {
+            drafts, settings, CaptureStore(context), mockk(relaxed = true), mockk(relaxed = true), localizedText = com.moge.app.core.localizedTestText()).also {
             models.put(UUID.randomUUID().toString(), it)
             collectors.launch { it.uiState.collect { } }
         }

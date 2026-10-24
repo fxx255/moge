@@ -75,13 +75,21 @@ class UserQuestionMathTest {
         }
     }
 
-    @Test fun copying_a_standalone_follow_up_does_not_include_display_only_wrappers() {
+    @Test fun standalone_follow_up_has_no_extra_copy_button_and_keeps_editing_original_input() {
         val raw = " x^2 "
-        compose.setContent { MogeTheme { FollowUpNote(question(raw, first = false)) { _, _ -> } } }
-        compose.onNodeWithContentDescription("复制题目原文").performClick()
+        val item = question(raw, first = false)
+        var editing: String? = null
+        compose.setContent { MogeTheme {
+            FollowUpNote(item, onEdit = { editing = it }) { _, _ -> }
+        } }
+        compose.onNodeWithContentDescription("复制题目原文").assertDoesNotExist()
         compose.runOnIdle {
-            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            assertEquals(raw, clipboard.primaryClip!!.getItemAt(0).text.toString())
+            val view = nativeMathViews(root).single()
+            view.performClick()
+            assertEquals(item.id, editing)
+            assertEquals(raw, item.text)
+            assertTrue(view.isTextSelectable)
+            assertTrue(view.isLongClickable)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.moge.app.ui.markdown
 
+import com.moge.app.ui.theme.LocalAppTypeface
 import android.graphics.Paint
 import android.text.TextPaint
 import android.view.View
@@ -52,7 +53,8 @@ internal fun MarkdownTableBlock(source: String) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val textSize = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
-    val paint = remember(textSize) { TextPaint(Paint.ANTI_ALIAS_FLAG).apply { this.textSize = textSize } }
+    val bodyTypeface = LocalAppTypeface.current
+    val paint = remember(textSize, bodyTypeface) { TextPaint(Paint.ANTI_ALIAS_FLAG).apply { this.textSize = textSize; typeface = bodyTypeface } }
     val measureFormula = remember(context, textSize) {
         LatexEngine.init(context)
         val cache = mutableMapOf<String, Int>()
@@ -65,7 +67,7 @@ internal fun MarkdownTableBlock(source: String) {
     val colors = MaterialTheme.colorScheme
     val border = colors.outlineVariant
     BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds().zIndex(FIGURE_Z_INDEX).testTag("markdown-table")) {
-        val widths = remember(table, constraints.maxWidth, textSize, inset) {
+        val widths = remember(table, constraints.maxWidth, textSize, inset, bodyTypeface) {
             tableColumnWidthsPx(table, constraints.maxWidth, textSize, inset, paint::measureText, measureFormula)
         }
         if (widths.isEmpty()) return@BoxWithConstraints

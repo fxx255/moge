@@ -1,5 +1,8 @@
 package com.moge.app.ui.photo
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,6 +35,7 @@ import com.moge.app.ui.theme.MogeTheme
  */
 @Composable
 fun PhotoThumb(path: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, preferProcessed: Boolean = false) {
+    val strings = rememberAppStrings()
     var displaySize by remember { mutableStateOf(IntSize.Zero) }
     val thumbnail = if (displaySize == IntSize.Zero) Thumbnail.Loading
         else rememberThumbnail(path, THUMB_MAX_PX, cropSize = displaySize, preferProcessed = preferProcessed)
@@ -42,7 +46,7 @@ fun PhotoThumb(path: String, label: String, onClick: () -> Unit, modifier: Modif
             .clip(shape)
             .background(MogeTheme.paper.scratch)
             .border(1.dp, MogeTheme.paper.cardStroke.copy(alpha = 0.3f), shape)
-            .clickable(onClickLabel = "查看$label") { onClick() },
+            .clickable(onClickLabel = strings.text(R.string.ui_view_1_s_98c1c, label)) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         when (thumbnail) {
@@ -52,7 +56,7 @@ fun PhotoThumb(path: String, label: String, onClick: () -> Unit, modifier: Modif
                     filterQuality = FilterQuality.Medium, modifier = Modifier.fillMaxSize())
             }
             Thumbnail.Loading -> Text("…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Thumbnail.Failed -> Text("照片读不出来", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Thumbnail.Failed -> Text(strings.text(R.string.ui_could_not_read_photo_1c6d4), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

@@ -1,5 +1,8 @@
 package com.moge.app.ui.viewer
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -69,6 +72,7 @@ internal fun ZoomableImage(
     onSwipeDownToClose: () -> Unit,
     preferProcessed: Boolean = true,
 ) {
+    val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
     val scale = remember { Animatable(1f) }
     val offsetX = remember { Animatable(0f) }
@@ -216,7 +220,7 @@ internal fun ZoomableImage(
     ) {
         when (val current = image) {
             ViewerImage.Loading -> CircularProgressIndicator(color = Color.White)
-            ViewerImage.Missing -> Text("图片文件不可用", color = Color.White)
+            ViewerImage.Missing -> Text(strings.text(R.string.ui_image_file_unavailable_5785b), color = Color.White)
             is ViewerImage.Ready -> Image(
                 bitmap = current.bitmap,
                 contentDescription = pageLabel,

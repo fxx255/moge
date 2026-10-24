@@ -220,7 +220,7 @@ class SolveViewModelTest {
         }
         val handle = SavedStateHandle(args)
         lastHandle = handle
-        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true), preparation).also { model ->
+        return SolveViewModel(handle, manager, requests, conversations, drafts, settings, captureStore, mockk(relaxed = true), preparation, localizedText = com.moge.app.core.localizedTestText()).also { model ->
             models.put(UUID.randomUUID().toString(), model)
             // stateIn(WhileSubscribed) 需要订阅者才会合成状态：模拟页面一直在看。
             collectors.launch { model.uiState.collect { } }

@@ -1,5 +1,8 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.R
+import com.moge.app.core.LocalizedText
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moge.app.core.IoDispatcher
@@ -13,6 +16,8 @@ import com.moge.app.data.figure.PlotImageStore
 import com.moge.app.data.llm.ModelClient
 import com.moge.app.data.llm.ModelCapability
 import com.moge.app.data.prefs.Appearance
+import com.moge.app.data.prefs.AppLanguage
+import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
@@ -70,6 +75,7 @@ class SettingsViewModel @Inject constructor(
     private val notebook: NotebookRepository,
     private val backgroundDiagnostics: BackgroundGenerationDiagnostics,
     @param:IoDispatcher private val io: CoroutineDispatcher,
+    private val localizedText: LocalizedText,
 ) : ViewModel() {
 
     val userSettings: StateFlow<UserSettings> = settings.settings
@@ -116,6 +122,18 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setAppearance(value) }
     }
 
+    fun setInterfaceLanguage(value: AppLanguage) {
+        viewModelScope.launch { settings.setInterfaceLanguage(value) }
+    }
+
+    fun setAnswerLanguage(value: AppLanguage) {
+        viewModelScope.launch { settings.setAnswerLanguage(value) }
+    }
+
+    fun setFont(value: AppFont) {
+        viewModelScope.launch { settings.setFont(value) }
+    }
+
     fun setDefaultSolveMode(value: SolveMode) {
         viewModelScope.launch { settings.setDefaultSolveMode(value) }
     }
@@ -153,7 +171,7 @@ class SettingsViewModel @Inject constructor(
     fun selectProfile(id: String) {
         viewModelScope.launch {
             val selected = withContext(io) { credentials.selectProfile(id) } ?: return@launch
-            reloadProfiles(message = "已切换到「${selected.name}」")
+            reloadProfiles(message = localizedText.text(R.string.ui_switched_to_1_s_2a229, selected.name))
         }
     }
 
@@ -165,21 +183,21 @@ class SettingsViewModel @Inject constructor(
                 // 识题模型指向被删的配置时一并清掉，免得留下悬空 id
                 if (credentials.questionVisionProfileId() == null) credentials.setQuestionVisionProfileId(null)
             }
-            reloadProfiles(message = if (name.isEmpty()) "模型配置已删除" else "已删除「$name」")
+            reloadProfiles(message = if (name.isEmpty()) localizedText.text(R.string.ui_model_configuration_deleted_94394) else localizedText.text(R.string.ui_deleted_1_s_ec1b0, name))
         }
     }
 
     fun setVisionProfile(id: String?) {
         viewModelScope.launch {
             withContext(io) { credentials.setQuestionVisionProfileId(id) }
-            reloadProfiles(message = if (id == null) "已取消识题模型" else "已设置识题模型")
+            reloadProfiles(message = if (id == null) localizedText.text(R.string.ui_recognition_model_cleared_bc5e6) else localizedText.text(R.string.ui_recognition_model_set_aac7f))
         }
     }
 
     fun testActiveProfile() {
         if (_models.value.testing) return
         viewModelScope.launch {
-            _models.update { it.copy(testing = true, message = "正在测试当前模型…") }
+            _models.update { it.copy(testing = true, message = localizedText.text(R.string.ui_testing_current_model_4e042)) }
             val result = runReported { modelClient.testConnection() }
             _models.update { it.copy(testing = false, message = result) }
         }
@@ -212,7 +230,7 @@ class SettingsViewModel @Inject constructor(
      * 失败时保留上一次的列表，模型名仍可手填。
      */
     fun fetchModels(baseUrl: String, apiKey: String, profileId: String?, protocol: AiSearchProtocol? = null) {
-        baseUrlError(baseUrl)?.let { error ->
+        baseUrlError(baseUrl, localizedText)?.let { error ->
             _editor.update { it.copy(fetchMessage = error) }
             return
         }
@@ -222,12 +240,12 @@ class SettingsViewModel @Inject constructor(
             try {
                 val catalog = modelClient.fetchModelCatalog(baseUrl, apiKey, profileId, protocol)
                 _editor.update { it.copy(models = catalog.ids, capabilities = catalog.capabilities,
-                    fetchMessage = "已获取 ${catalog.ids.size} 个模型") }
+                    fetchMessage = localizedText.text(R.string.ui_loaded_1_s_models_2b7c7, catalog.ids.size)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _editor.update {
-                    it.copy(fetchMessage = "${e.message ?: "获取模型列表失败"}；模型名可以手动填写")
+                    it.copy(fetchMessage = localizedText.text(R.string.ui_1_s_you_can_enter_the_model_name_manually_aa0ab, e.message ?: localizedText.text(R.string.ui_could_not_fetch_model_list_ec876)))
                 }
             } finally {
                 _editor.update { it.copy(modelsBusy = false) }
@@ -239,8 +257,8 @@ class SettingsViewModel @Inject constructor(
     fun testWebSearch(draft: ModelProfileDraft, profileId: String?) {
         webSearchJob?.cancel()
         webSearchJob = viewModelScope.launch {
-            _editor.update { it.copy(webSearchBusy = true, webSearchResult = "正在检测联网搜索…") }
-            val result = runReported(prefix = "检测失败：") {
+            _editor.update { it.copy(webSearchBusy = true, webSearchResult = localizedText.text(R.string.ui_testing_web_search_b9318)) }
+            val result = runReported(prefix = localizedText.text(R.string.ui_test_failed_c5b96)) {
                 modelClient.testWebSearch(
                     baseUrl = draft.baseUrl,
                     apiKey = draft.apiKey,
@@ -260,7 +278,7 @@ class SettingsViewModel @Inject constructor(
     fun saveProfile(id: String?, draft: ModelProfileDraft, onSaved: () -> Unit) {
         if (_editor.value.saving) return
         val hasStoredKey = id != null && _models.value.profiles.any { it.id == id && it.hasApiKey }
-        validateDraft(draft, hasStoredKey)?.let { error ->
+        validateDraft(draft, hasStoredKey, localizedText)?.let { error ->
             _editor.update { it.copy(error = error) }
             return
         }
@@ -282,12 +300,12 @@ class SettingsViewModel @Inject constructor(
                     )
                 }
             } catch (e: IllegalArgumentException) {
-                _editor.update { it.copy(saving = false, error = e.message ?: "保存失败") }
+                _editor.update { it.copy(saving = false, error = e.message ?: localizedText.text(R.string.ui_save_failed_40525)) }
                 return@launch
             }
             _editor.update { it.copy(saving = false) }
             onSaved()
-            reloadProfiles(message = "已保存「${saved.name}」，正在测试连接…")
+            reloadProfiles(message = localizedText.text(R.string.ui_saved_1_s_testing_connection_57fa1, saved.name))
             _models.update { it.copy(testing = true) }
             val result = runReported { modelClient.testConnection(saved.id) }
             _models.update { it.copy(testing = false, message = result) }
@@ -299,7 +317,7 @@ class SettingsViewModel @Inject constructor(
     fun clearFigureCache() {
         runDataTask {
             val freed = withContext(io) { plots.clearPngs() + diagrams.clearPngs() }
-            _cacheMessage.value = "已清理 ${formatBytes(freed)}，图表下次显示时重新绘制"
+            _cacheMessage.value = localizedText.text(R.string.ui_freed_1_s_charts_will_be_redrawn_when_opened_47dce, formatBytes(freed))
         }
     }
 
@@ -308,9 +326,9 @@ class SettingsViewModel @Inject constructor(
         runDataTask {
             val freed = janitor.sweep()
             _cacheMessage.value = if (freed == null) {
-                "无法确认哪些文件仍在使用，本次没有删除任何文件"
+                localizedText.text(R.string.ui_could_not_verify_file_usage_no_files_were_deleted_a2af5)
             } else {
-                "已释放 ${formatBytes(freed)}"
+                localizedText.text(R.string.ui_freed_1_s_57fc2, formatBytes(freed))
             }
         }
     }
@@ -319,7 +337,7 @@ class SettingsViewModel @Inject constructor(
     fun clearNotebook() {
         runDataTask {
             notebook.clear()
-            _cacheMessage.value = "已清空题册收藏，历史对话与分类已保留"
+            _cacheMessage.value = localizedText.text(R.string.ui_notebook_cleared_conversation_history_and_categories_are_kep_ab04a)
         }
     }
 
@@ -333,7 +351,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         block()
                     } catch (e: Exception) {
-                        _cacheMessage.value = e.message ?: "操作失败"
+                        _cacheMessage.value = e.message ?: localizedText.text(R.string.ui_operation_failed_09e42)
                     }
                 }
             } finally {
@@ -373,6 +391,6 @@ class SettingsViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            prefix + (e.message ?: "测试失败")
+            prefix + (e.message ?: localizedText.text(R.string.ui_test_failed_4184c))
         }
 }

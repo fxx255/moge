@@ -60,6 +60,7 @@ class HttpPayloadTest {
     private fun client(
         baseUrl: String = "https://api.deepseek.com/v1",
         searchProtocol: AiSearchProtocol = AiSearchProtocol.OFF,
+        userSettings: UserSettings = UserSettings(webSearchEnabled = true, nickname = "小明"),
         responses: List<Pair<Int, String>> = listOf(
             200 to """data: {"choices":[{"delta":{"content":"{\"reply\":\"ok\"}"}}]}
 
@@ -69,7 +70,7 @@ data: [DONE]
         ),
     ): ModelClient {
         val prefs = mockk<SettingsRepository>()
-        coEvery { prefs.current() } returns UserSettings(webSearchEnabled = true, nickname = "小明")
+        coEvery { prefs.current() } returns userSettings
         val credentials = mockk<AiCredentialStore>()
         every { credentials.activeProfile() } returns AiModelProfile(
             "p", "p", baseUrl, "test-model", true, searchProtocol, AiReasoningEffort.MEDIUM, true,
@@ -136,6 +137,27 @@ data: [DONE]
     }
 
     @Test
+    fun `answer language reaches both HTTP protocols independently of interface language and retry settings`() = runBlocking {
+        val english = com.moge.app.data.prefs.AppLanguage.ENGLISH
+        val japanese = com.moge.app.data.prefs.AppLanguage.JAPANESE
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear()
+            client(userSettings = UserSettings(interfaceLanguage = japanese, answerLanguage = english),
+                responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
+                .chatStreaming(listOf(ChatMessage("user", "解释矩阵")), policy = RequestPolicy(apiProtocol = protocol.name)) {}
+            assertTrue(systemContent(requests.single(), protocol).contains(english.answerInstruction))
+            assertFalse(systemContent(requests.single(), protocol).contains(japanese.answerInstruction))
+            requests.clear()
+            val saved = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "", AiReasoningEffort.MEDIUM,
+                SolveMode.DETAILED, answerLanguage = japanese)
+            client(userSettings = UserSettings(answerLanguage = english),
+                responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
+                .chatStreaming(listOf(ChatMessage("user", "继续")), policy = RequestPolicy(apiProtocol = protocol.name, prompt = saved)) {}
+            assertEquals(saved.stableSystem, systemContent(requests.single(), protocol))
+        }
+    }
+
+    @Test
     fun `standard answers use adaptive instructions instead of the saved four part template`() = runBlocking {
         val oldInstruction = "本题使用「详细讲解」模式：按「分析 → 分步解答 → 最终答案 → 易错点」组织正文。" +
             "每一步写清依据与必要公式，最终答案单独成段并加粗。"
@@ -164,7 +186,7 @@ data: [DONE]
             SolveMode.DETAILED)
         val invalid = listOf(chat, PromptSegments("请简洁回答，只输出 JSON。", ""),
             detailed.copy(stableSystem = detailed.stableSystem.substringBefore("9. 需要画图时")))
-        val baseline = javaClass.getResource("/prompts/solve-v0.6.1.txt")!!.readText().replace("\r\n", "\n")
+        val baseline = javaClass.getResource("/prompts/solve-language-options.txt")!!.readText().replace("\r\n", "\n")
         for (protocol in AiApiProtocol.entries) {
             for (mode in SolveMode.entries) {
                 val otherMode = SolveMode.entries.first { it != mode }
@@ -246,7 +268,7 @@ data: [DONE]
             assertEquals("json_object", format["type"]!!.jsonPrimitive.content)
             val system = if (protocol == AiSearchProtocol.RESPONSES) payload["instructions"]!!.jsonPrimitive.content
                 else payload["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
-            val baseline = javaClass.getResource("/prompts/solve-v0.6.1.txt")!!.readText().replace("\r\n", "\n")
+            val baseline = javaClass.getResource("/prompts/solve-language-options.txt")!!.readText().replace("\r\n", "\n")
             val reviewedPrompt = PromptAssembler.assemble(baseline, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
             assertEquals("Both protocols must carry the reviewed plotting contract", reviewedPrompt.stableSystem, system)
             assertEquals("绘图协议示例", parsed.conversationTitle)

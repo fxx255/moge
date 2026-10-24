@@ -44,7 +44,7 @@ internal fun minimumCropZoom(previewSize: IntSize, viewport: IntSize): Float {
     return (fitScale / coverScale).coerceAtMost(1f)
 }
 
-private fun coverScale(previewSize: IntSize, viewport: IntSize): Float = max(
+internal fun coverScale(previewSize: IntSize, viewport: IntSize): Float = max(
     viewport.width.toFloat() / previewSize.width,
     viewport.height.toFloat() / previewSize.height,
 )
@@ -182,10 +182,7 @@ internal fun cropSelectionEdit(
     require(imageOffset.x.isFinite() && imageOffset.y.isFinite())
     require(cropRect.left.isFinite() && cropRect.top.isFinite() &&
         cropRect.right.isFinite() && cropRect.bottom.isFinite() && cropRect.width > 0f && cropRect.height > 0f)
-    val baseScale = max(
-        viewport.width.toFloat() / previewSize.width,
-        viewport.height.toFloat() / previewSize.height,
-    )
+    val baseScale = coverScale(previewSize, viewport)
     val displayedWidth = previewSize.width * baseScale * zoom
     val displayedHeight = previewSize.height * baseScale * zoom
     require(displayedWidth.isFinite() && displayedWidth > 0f && displayedHeight.isFinite() && displayedHeight > 0f)

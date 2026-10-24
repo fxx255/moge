@@ -1,5 +1,8 @@
 package com.moge.app.ui.export
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
@@ -65,6 +68,7 @@ internal fun decodeExportPreviewTile(path: String, width: Int, tile: ExportPrevi
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 internal fun ExportLongImagePreview(path: String, description: String, modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings()
     var infoLoaded by remember(path) { mutableStateOf(false) }
     val info by produceState<ExportImageInfo?>(null, path) {
         value = withContext(Dispatchers.IO) { exportImageInfo(path) }
@@ -73,7 +77,7 @@ internal fun ExportLongImagePreview(path: String, description: String, modifier:
     val dimensions = info
     if (dimensions == null) {
         Box(modifier, contentAlignment = Alignment.Center) {
-            Text(if (infoLoaded) "图片无法读取，请重新生成。" else "正在读取图片…")
+            Text(if (infoLoaded) strings.text(R.string.ui_could_not_read_image_regenerate_it_7aae5) else strings.text(R.string.ui_loading_image_74b7a))
         }
         return
     }
@@ -83,7 +87,7 @@ internal fun ExportLongImagePreview(path: String, description: String, modifier:
         val tiles = remember(dimensions.height) { exportPreviewTiles(dimensions.height) }
         BoxWithConstraints(modifier.testTag("export-preview").semantics {
             contentDescription = description
-            customActions = listOf(CustomAccessibilityAction(if (zoom == 1f) "放大预览" else "恢复预览") {
+            customActions = listOf(CustomAccessibilityAction(if (zoom == 1f) strings.text(R.string.ui_zoom_preview_d06b6) else strings.text(R.string.ui_reset_preview_2f654)) {
                 zoom = if (zoom == 1f) 2f else 1f; true
             })
         }) {
@@ -110,7 +114,7 @@ internal fun ExportLongImagePreview(path: String, description: String, modifier:
                                     modifier = Modifier.fillMaxWidth().height(height),
                                     contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.High)
                             }
-                            if (loaded && image == null) Text("此处图片读取失败，请重新生成。",
+                            if (loaded && image == null) Text(strings.text(R.string.ui_this_image_could_not_be_loaded_regenerate_it_bb820),
                                 color = MaterialTheme.colorScheme.error)
                         }
                     }

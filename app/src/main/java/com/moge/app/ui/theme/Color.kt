@@ -117,6 +117,9 @@ data class PaperColors(
     val stamp: Color,
     val cardStroke: Color,
     val stickyNote: Color,
+    val tornNote: Color,
+    val headerPaper: Color,
+    val headerUnderlay: Color,
     val onStickyNote: Color,
     val scratch: Color,
 )
@@ -130,6 +133,9 @@ internal val PaperExtras = PaperColors(
     stamp = RedPen,
     cardStroke = Color(0xFF2B2F36).copy(alpha = 0.85f),
     stickyNote = Color(0xFFFFF3A8),
+    tornNote = Color(0xFFFAF5DF),
+    headerPaper = Color(0xFFF3F0E7),
+    headerUnderlay = Color(0xFFE6E2D5),
     onStickyNote = Color(0xFF2A2300),
     scratch = Color(0xFFF1EFE8),
 )
@@ -143,6 +149,9 @@ internal val ChalkExtras = PaperColors(
     stamp = ChalkRed,
     cardStroke = ChalkWhite.copy(alpha = 0.38f),
     stickyNote = Color(0xFF4A4320),
+    tornNote = Color(0xFF3C3C2B),
+    headerPaper = Color(0xFF25352D),
+    headerUnderlay = Color(0xFF324134),
     onStickyNote = Color(0xFFFFF0B3),
     scratch = Color(0xFF22302A),
 )

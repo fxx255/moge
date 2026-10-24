@@ -1,8 +1,10 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,9 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -34,7 +35,7 @@ import com.moge.app.ui.components.headerInputShield
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.launch
 
-/** An inline sticky note. Saving and outside dismissal share the scaffold's busy state. */
+/** The header pulls down into a full-width writing strip; saving shares the scaffold's busy state. */
 @Composable
 internal fun ConversationTitleEditor(
     title: String,
@@ -43,6 +44,7 @@ internal fun ConversationTitleEditor(
     onSavingChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberAppStrings()
     var value by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(title, TextRange(0, title.length)))
     }
@@ -82,36 +84,29 @@ internal fun ConversationTitleEditor(
         keyboard?.show()
     }
     Surface(modifier.excludePageSwipe().headerInputShield().testTag("conversation-title-sheet"),
-        shape = CutCornerShape(topEnd = 14.dp), color = paper.stickyNote,
-        contentColor = paper.onStickyNote, shadowElevation = 6.dp) {
+        color = paper.headerPaper, contentColor = colors.onBackground) {
         Column(Modifier
             .drawBehind {
-                drawRect(Brush.verticalGradient(listOf(paper.onStickyNote.copy(alpha = 0.045f),
-                    paper.onStickyNote.copy(alpha = 0f))))
-                drawRect(paper.onStickyNote.copy(alpha = 0.035f), size = Size(size.width, 16.dp.toPx()))
-                val fold = 14.dp.toPx()
-                drawPath(Path().apply {
-                    moveTo(size.width - fold, 0f)
-                    lineTo(size.width - fold, fold)
-                    lineTo(size.width, fold)
-                    close()
-                }, paper.onStickyNote.copy(alpha = 0.12f))
+                val crease = colors.outlineVariant.copy(alpha = 0.6f)
+                drawLine(crease, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
+                drawRect(Brush.verticalGradient(listOf(colors.onBackground.copy(alpha = 0.035f),
+                    colors.onBackground.copy(alpha = 0f)), endY = 10.dp.toPx()))
             }.padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 4.dp)) {
             BasicTextField(value, onValueChange = { if (!saving) { value = it; failed = false } },
                 readOnly = saving,
-                textStyle = MaterialTheme.typography.titleLarge.copy(color = paper.onStickyNote),
+                textStyle = MaterialTheme.typography.titleLarge.copy(color = colors.onBackground),
                 cursorBrush = SolidColor(colors.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
                 modifier = Modifier.weight(1f, fill = false).fillMaxWidth()
                     .padding(end = 8.dp).heightIn(min = 48.dp)
                     .focusRequester(focus).testTag("conversation-title-editor")
-                    .semantics { contentDescription = "对话主题，1至${ConversationName.MAX_CODE_POINTS}个字" })
-            val error = validation.exceptionOrNull()?.message ?: if (failed) "主题未保存，请重试" else null
+                    .semantics { contentDescription = strings.text(R.string.ui_conversation_title_1_1_s_characters_a8bc3, ConversationName.MAX_CODE_POINTS) })
+            val error = validation.exceptionOrNull()?.message ?: if (failed) strings.text(R.string.ui_title_not_saved_try_again_2317c) else null
             if (error != null) Text(error, style = MaterialTheme.typography.labelMedium, color = colors.error)
             IconButton(onClick = ::save, enabled = !saving && validation.isSuccess,
                 modifier = Modifier.align(Alignment.End)) {
-                Icon(Icons.Outlined.Check, "保存主题", tint = paper.onStickyNote.copy(
+                Icon(Icons.Outlined.Check, strings.text(R.string.ui_save_title_d582c), tint = colors.onBackground.copy(
                     alpha = if (!saving && validation.isSuccess) 1f else 0.38f))
             }
         }

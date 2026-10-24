@@ -7,7 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 // 标题走系统衬线体（多数机型落到 Noto Serif CJK），做出作业本的书写感；
-// 正文用系统无衬线；题号、用时等数字用等宽体。字体不打包，避免 APK 膨胀。
+// 系统默认保留衬线标题；自选字体统一界面和回答正文。数字和代码保留等宽体。
 private val Serif = FontFamily.Serif
 private val Sans = FontFamily.Default
 
@@ -30,3 +30,17 @@ internal val MogeTypography = Typography(
     labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
     labelSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp),
 )
+
+internal fun typographyWithFont(family: FontFamily?, languageTag: String): Typography = with(MogeTypography) {
+    val locales = androidx.compose.ui.text.intl.LocaleList(languageTag)
+    fun TextStyle.localized() = copy(fontFamily = family ?: fontFamily, localeList = locales)
+    copy(
+        displayLarge = displayLarge.localized(), displayMedium = displayMedium.localized(),
+        displaySmall = displaySmall.localized(), headlineLarge = headlineLarge.localized(),
+        headlineMedium = headlineMedium.localized(), headlineSmall = headlineSmall.localized(),
+        titleLarge = titleLarge.localized(), titleMedium = titleMedium.localized(),
+        titleSmall = titleSmall.localized(), bodyLarge = bodyLarge.localized(),
+        bodyMedium = bodyMedium.localized(), bodySmall = bodySmall.localized(),
+        labelLarge = labelLarge.localized(), labelMedium = labelMedium.localized(), labelSmall = labelSmall.localized(),
+    )
+}

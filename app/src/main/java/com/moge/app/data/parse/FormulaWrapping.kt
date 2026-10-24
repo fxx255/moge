@@ -2,7 +2,7 @@ package com.moge.app.data.parse
 
 /**
  * 把过长的公式在顶层“安全断点”处拆成多个块级公式，避免右侧溢出被裁剪。
- * 优先在完整外框、可见括号内分行；其余断点只取顶层位置，保证每段仍是可独立渲染的 LaTeX；
+ * 优先在顶层运算符处分行，括号内不自动生成纵向表格，保证算式不会被误读为矩阵；
  * 整体就是一个 array/aligned 行式环境时，按行解包而不是硬切环境。
  */
 internal fun wrapLongFormulas(
@@ -195,7 +195,7 @@ private fun splitFormulaBlocks(latex: String, maxWidthPx: Int, measure: (String)
     // Blank source lines are ordinary TeX whitespace, but Markwon treats them
     // as the end of a math block and strands the name above its equation.
     val continuous = latex.replace(Regex("\n[ \t]*\n+"), "\n")
-    return formulaBlockLines(splitFormula(continuous, maxWidthPx, measure))
+    return formulaBlockLines(splitFormula(trimFormulaRow(continuous), maxWidthPx, measure))
 }
 
 private fun formulaBlockLines(rows: List<String>): List<String> =
@@ -256,7 +256,7 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
     return out.ifEmpty { listOf(line) }
 }
 
-/** 优先级依次为：对齐换行 → 逗号分号 → 关系符 → 加减号。 */
+/** 优先在独立公式、顶层关系符和加减号处换行，最后才处理过长的括号组。 */
 internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
     val value = trimSegment(latex)
     if (value.isEmpty()) return emptyList()
@@ -264,7 +264,6 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
     wrapFormulaGroup(value, FormulaGroupKind.Frame, maxWidthPx, measure)?.let { return it }
     splitSetBuilderFormula(value, maxWidthPx, measure)?.let { return it }
     splitTrailingFormulaCondition(value, maxWidthPx, measure)?.let { return it }
-    wrapFormulaGroup(value, FormulaGroupKind.Delimiter, maxWidthPx, measure)?.let { return it }
     // 拆成独立显示块时消费掉行分隔符，不能把 \\ 留在上一段末尾或下一段开头。
     val rowBreaks = splitPoints(value, 0)
     if (rowBreaks.isNotEmpty()) {
@@ -272,7 +271,7 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
         val rows = rowBreaks.map { cut ->
             value.substring(start, cut).also { start = cut + 2 }
         } + value.substring(start)
-        return rows.filter { it.isNotBlank() }.flatMap { splitFormula(trimSegment(it), maxWidthPx, measure) }
+        return rows.filter { it.isNotBlank() }.flatMap { splitFormula(trimFormulaRow(it), maxWidthPx, measure) }
     }
     // 整体是一个 array/aligned 这类「行式」环境且放不下：
     // 先按行解包成独立的块级公式（去掉环境包裹与对齐符 &），
@@ -282,14 +281,23 @@ internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> I
             if (measure(row) <= maxWidthPx) listOf(row) else splitFormula(row, maxWidthPx, measure)
         }
     }
-    var pieces = listOf(value)
-    for (priority in 1..3) {
+    // An equation separator outranks wrapping inside function arguments. Otherwise
+    // a nearly fitting M(x,y), N(x,y) pair can split N's tuple across display rows.
+    val equations = greedySplit(value, 1, maxWidthPx, measure)
+    if (equations.size > 1) {
+        return equations.flatMap { splitFormula(it, maxWidthPx, measure) }
+    }
+    var pieces = equations
+    for (priority in 2..3) {
         if (pieces.all { measure(it) <= maxWidthPx }) break
         pieces = pieces.flatMap { piece ->
             if (measure(piece) <= maxWidthPx) listOf(piece) else greedySplit(piece, priority, maxWidthPx, measure)
         }
     }
-    return pieces
+    return pieces.flatMap { piece ->
+        if (measure(piece) <= maxWidthPx) listOf(piece)
+        else wrapFormulaGroup(piece, FormulaGroupKind.Delimiter, maxWidthPx, measure) ?: listOf(piece)
+    }
 }
 
 /**
@@ -364,7 +372,7 @@ internal fun unwrapEnvironmentRows(latex: String): List<String>? {
     if (rows.size < 2) return null
     if (rows.any { it.count { c -> c == '&' } > 1 }) return null
     val cleaned = rows.map { trimSegment(it.replace("&", " ")).replace(Regex(" {2,}"), " ") }.filter { it.isNotEmpty() }
-    return cleaned.map(::trimSegment).filter { it.isNotEmpty() }.ifEmpty { null }
+    return cleaned.map(::trimFormulaRow).filter { it.isNotEmpty() }.ifEmpty { null }
 }
 
 /** 匹配「整段就是一个数学环境」：\begin{x}…\end{x}，允许跨行。 */
@@ -454,7 +462,7 @@ private fun greedySplit(latex: String, priority: Int, maxWidthPx: Int, measure: 
         // Commas finish the preceding expression. Include them in its width
         // budget before trying relation/sign breaks inside a long expression.
         // Relation and sign operators still begin the continuation row.
-        val end = if (priority == 1) cut + 1 else cut
+        val end = if (priority == 1 && latex[cut] in ",;，；") cut + 1 else cut
         if (end > start) segments += latex.substring(start, end)
         start = end
     }
@@ -464,14 +472,23 @@ private fun greedySplit(latex: String, priority: Int, maxWidthPx: Int, measure: 
         if (segment.isBlank()) continue
         val last = merged.lastOrNull()
         if (last == null || measure(last.toString() + segment) > maxWidthPx) {
-            merged += StringBuilder(segment)
+            merged += StringBuilder(trimFormulaRow(segment))
         } else {
             last.append(segment)
         }
     }
-    val result = merged.map { trimSegment(it.toString()) }.filter { it.isNotEmpty() }
+    val result = merged.map { trimFormulaRow(it.toString()) }.filter { it.isNotEmpty() }
     return result.ifEmpty { listOf(latex) }
 }
+
+/** Separator glue belongs between equations, not at the edge of a centered display row. */
+internal fun trimFormulaRow(segment: String): String = trimSegment(segment)
+    .replace(LEADING_FORMULA_SPACE, "")
+    .replace(TRAILING_FORMULA_SPACE, "")
+
+private const val FORMULA_SPACE = """(?:\s|\\(?:qquad\b|quad\b|enspace\b|thinspace\b|[,;:! ]))"""
+private val LEADING_FORMULA_SPACE = Regex("^$FORMULA_SPACE+")
+private val TRAILING_FORMULA_SPACE = Regex("$FORMULA_SPACE+$")
 
 /**
  * 裁掉首尾空白，但**绝不在尾部留下孤立反斜杠**。
@@ -549,6 +566,14 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
                     continue
                 }
             }
+            if (priority == 1 && depth == 0 && envDepth == 0 && delimiterDepth == 0) {
+                val space = EQUATION_SPACE.matchAt(latex, i)
+                if (space != null) {
+                    points += i
+                    i = space.range.last + 1
+                    continue
+                }
+            }
             // 符号命令（\, \; \! \- \{ \} 等）必须与反斜杠作为一个整体跳过：
             // 否则 \, 里的逗号会被当成优先级 1 断点，切出以孤立 \ 结尾的非法片段；
             // \{ \} 里的花括号还会污染深度计数。
@@ -577,6 +602,8 @@ private fun splitPoints(latex: String, priority: Int): List<Int> {
     }
     return points
 }
+
+private val EQUATION_SPACE = Regex("""\\(?:qquad|quad|enspace)\b""")
 
 private val RELATION_COMMANDS = listOf(
     "\\Rightarrow", "\\Leftarrow", "\\rightarrow", "\\leftarrow",

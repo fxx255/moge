@@ -1,5 +1,8 @@
 package com.moge.app.ui.capture
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +57,7 @@ fun ConfirmSheet(
     onDismiss: () -> Unit,
     onCropPhoto: ((Int) -> Unit)? = null,
 ) {
+    val strings = rememberAppStrings()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -64,7 +68,7 @@ fun ConfirmSheet(
                 Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text("已选 ${photos.size} 张照片", style = MaterialTheme.typography.titleMedium)
+                Text(strings.text(R.string.ui_1_s_photos_selected_a9430, photos.size), style = MaterialTheme.typography.titleMedium)
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -72,7 +76,7 @@ fun ConfirmSheet(
                     photos.forEachIndexed { index, path ->
                         key(path) {
                             PhotoArrival(path, surface = "confirm", Modifier.size(width = 96.dp, height = 120.dp)) {
-                                PhotoThumb(path, "第 ${index + 1} 张照片", onClick = { onOpenPhoto(index) }, modifier = Modifier.matchParentSize())
+                                PhotoThumb(path, strings.text(R.string.ui_photo_1_s_6ec17, index + 1), onClick = { onOpenPhoto(index) }, modifier = Modifier.matchParentSize())
                                 FilledTonalIconButton(
                                     onClick = { onRemove(path) },
                                     modifier = Modifier.align(Alignment.TopEnd).size(48.dp),
@@ -80,7 +84,7 @@ fun ConfirmSheet(
                                         containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                                     ),
                                 ) {
-                                    Icon(Icons.Outlined.Close, contentDescription = "删掉第 ${index + 1} 张照片", Modifier.size(18.dp))
+                                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1), Modifier.size(18.dp))
                                 }
                                 onCropPhoto?.let { crop ->
                                     FilledTonalIconButton(
@@ -90,7 +94,7 @@ fun ConfirmSheet(
                                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                                         ),
                                     ) {
-                                        Icon(Icons.Outlined.Crop, contentDescription = "裁剪第 ${index + 1} 张照片")
+                                        Icon(Icons.Outlined.Crop, contentDescription = strings.text(R.string.ui_crop_photo_1_s_664dc, index + 1))
                                     }
                                 }
                             }
@@ -106,7 +110,7 @@ fun ConfirmSheet(
                             Box(contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(Icons.Outlined.AddAPhoto, contentDescription = null)
-                                    Text("继续添加", style = MaterialTheme.typography.labelMedium)
+                                    Text(strings.text(R.string.ui_add_more_edb04), style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
@@ -119,7 +123,7 @@ fun ConfirmSheet(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 shape = CircleShape,
             ) {
-                Text("使用照片", style = MaterialTheme.typography.titleMedium)
+                Text(strings.text(R.string.ui_use_photos_2ef32), style = MaterialTheme.typography.titleMedium)
             }
         }
     }

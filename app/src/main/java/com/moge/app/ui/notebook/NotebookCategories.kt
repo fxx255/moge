@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,6 +22,7 @@ internal fun CategoryManager(
     onCreate: (String) -> Unit, onRename: (String, String) -> Unit,
     onReorder: (String, Int) -> Unit, onDelete: (String) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val categoryList = rememberLazyListState()
     LaunchedEffect(categories.map { it.id }) {
@@ -31,29 +35,30 @@ internal fun CategoryManager(
             modifier = Modifier.fillMaxSize().imePadding(), listState = categoryList)
     }
     categories.firstOrNull { it.id == deleteId }?.let { category ->
-        AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("删除分类“${category.name}”？") },
-            text = { Text("该分类的题目与历史对话会移至未分类，内容不会删除。") },
-            confirmButton = { TextButton(onClick = { deleteId = null; onDelete(category.id) }, enabled = !busy) { Text("删除分类") } },
-            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("取消") } })
+        AlertDialog(onDismissRequest = { deleteId = null }, title = { Text(strings.text(R.string.ui_delete_category_1_s_4cda9, category.name)) },
+            text = { Text(strings.text(R.string.ui_questions_and_conversations_move_to_uncategorized_their_cont_b026e)) },
+            confirmButton = { TextButton(onClick = { deleteId = null; onDelete(category.id) }, enabled = !busy) { Text(strings.text(R.string.ui_delete_category_6add2)) } },
+            dismissButton = { TextButton(onClick = { deleteId = null }) { Text(strings.text(R.string.ui_cancel_4d0b4)) } })
     }
 }
 
 @Composable
 internal fun CategoryPicker(categories: List<NotebookCategoryEntity>, onDismiss: () -> Unit,
     onManage: () -> Unit = {}, onPick: (String?) -> Unit) {
+    val strings = rememberAppStrings()
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CategoryWorkspace {
-                CategoryWorkspaceHeader("移动到分类", onDismiss, actionLabel = "取消")
+                CategoryWorkspaceHeader(strings.text(R.string.ui_move_to_category_48df9), onDismiss, actionLabel = strings.text(R.string.ui_cancel_4d0b4))
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { CategoryDestination("未分类") { onPick(null) } }
+                    item { CategoryDestination(strings.text(R.string.ui_uncategorized_b28f1)) { onPick(null) } }
                     items(categories.size, key = { categories[it].id }) { index ->
                         val category = categories[index]
                         CategoryDestination(category.name) { onPick(category.id) }
                     }
-                    item { TextButton(onManage, Modifier.fillMaxWidth()) { Text("管理分类") } }
+                    item { TextButton(onManage, Modifier.fillMaxWidth()) { Text(strings.text(R.string.ui_manage_categories_fed61)) } }
                 }
             }
         }

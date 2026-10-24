@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState
@@ -267,6 +270,7 @@ internal fun Modifier.paperDragSource(
 
 @Composable
 internal fun PaperDragOverlay(state: PaperDragState, modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings()
     val motion = MogeTheme.motionEnabled
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -288,7 +292,7 @@ internal fun PaperDragOverlay(state: PaperDragState, modifier: Modifier = Modifi
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { it / 3 }) {
             DisposableEffect(state) { onDispose { state.removeTarget(PaperDropTarget.Delete) } }
             val armed = state.hovered == PaperDropTarget.Delete
-            PaperDeleteZone(armed, if (armed) "松手删除 ${state.visual?.ids?.size ?: 1} 项" else "向下拖到红色区域删除",
+            PaperDeleteZone(armed, if (armed) strings.text(R.string.ui_release_to_delete_1_s_items_1ea9c, state.visual?.ids?.size ?: 1) else strings.text(R.string.ui_drag_down_to_the_red_area_to_delete_6e523),
                 Modifier.fillMaxWidth().height(deleteHeight).testTag("drop-delete")
                     .onGloballyPositioned { state.curvedDeleteZone = true; state.targetBounds(PaperDropTarget.Delete, it) })
         }

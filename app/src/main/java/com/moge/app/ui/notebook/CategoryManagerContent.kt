@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -68,6 +71,7 @@ internal fun CategoryManagerContent(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
 ) {
+    val strings = rememberAppStrings()
     val drag = remember { CategoryDragState() }
     var creating by rememberSaveable { mutableStateOf(false) }
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -183,7 +187,7 @@ internal fun CategoryManagerContent(
     }
     val enabled = !busy && !drag.locked && renameId == null && !creating
     BoxWithConstraints(modifier.testTag("category-manager").semantics {
-        stateDescription = if (drag.held) "正在拖动分类" else if (drag.pending || busy) "正在保存分类顺序" else "可以拖动排序"
+        stateDescription = if (drag.held) strings.text(R.string.ui_dragging_category_0233f) else if (drag.pending || busy) strings.text(R.string.ui_saving_category_order_70e68) else strings.text(R.string.ui_drag_to_reorder_1b6f2)
     }.clipToBounds()
         .onGloballyPositioned { rootCoordinates = it; drag.rootBounds = it.boundsInRoot() }
         .pointerInput(drag) {
@@ -219,11 +223,11 @@ internal fun CategoryManagerContent(
         }) {
         val deleteHeight = maxHeight * CATEGORY_DELETE_HEIGHT_FRACTION
         CategoryWorkspace(Modifier.align(Alignment.Center)) {
-            CategoryWorkspaceHeader("管理分类", onDismiss, enabled = !creating && renameId == null) {
+            CategoryWorkspaceHeader(strings.text(R.string.ui_manage_categories_fed61), onDismiss, enabled = !creating && renameId == null) {
                 TextButton(onClick = {
                     nameDraft = TextFieldValue()
                     creating = true
-                }, enabled = enabled) { Text("新建分类") }
+                }, enabled = enabled) { Text(strings.text(R.string.ui_new_category_04c08)) }
             }
             LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth()
                 .testTag("category-list").onGloballyPositioned { drag.listBounds = it.boundsInRoot() }
@@ -235,30 +239,30 @@ internal fun CategoryManagerContent(
                     bottom = if (creating) 12.dp else deleteHeight + 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp), userScrollEnabled = !drag.held) {
                 if (displayed.isEmpty() && !creating) item {
-                    Text("暂无分类", modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium)
+                    Text(strings.text(R.string.ui_no_categories_yet_3b7ad), modifier = Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium)
                 }
                 items(displayed, key = { it.id }) { category ->
                     DisposableEffect(category.id) { onDispose { drag.unregister(category.id) } }
                     val actions = if (enabled) buildList {
                         if (categories.indexOfFirst { it.id == category.id } > 0) {
-                            add(CustomAccessibilityAction("上移 ${category.name}") {
+                            add(CustomAccessibilityAction(strings.text(R.string.ui_move_1_s_up_3428a, category.name)) {
                                 drag.reorderByAction(category.id, -1, latestCategories.map { it.id }, latestBusy)?.let {
                                     reorder(it.id, it.offset)
                                 } != null
                             })
                         }
                         if (categories.indexOfFirst { it.id == category.id } < categories.lastIndex) {
-                            add(CustomAccessibilityAction("下移 ${category.name}") {
+                            add(CustomAccessibilityAction(strings.text(R.string.ui_move_1_s_down_9fe05, category.name)) {
                                 drag.reorderByAction(category.id, 1, latestCategories.map { it.id }, latestBusy)?.let {
                                     reorder(it.id, it.offset)
                                 } != null
                             })
                         }
-                        add(CustomAccessibilityAction("改名 ${category.name}") {
+                        add(CustomAccessibilityAction(strings.text(R.string.ui_rename_1_s_829f6, category.name)) {
                             if (latestBusy || drag.locked || latestCategories.none { it.id == category.id }) false
                             else { startRename(category); true }
                         })
-                        add(CustomAccessibilityAction("删除分类 ${category.name}") {
+                        add(CustomAccessibilityAction(strings.text(R.string.ui_delete_category_1_s_6cbb9, category.name)) {
                             if (latestBusy || drag.locked || latestCategories.none { it.id == category.id }) false
                             else { delete(category.id); true }
                         })
@@ -297,7 +301,7 @@ internal fun CategoryManagerContent(
             exit = fadeOut(tween(if (motion) 120 else 0)) + slideOutVertically(tween(if (motion) 160 else 0)) { it / 3 }) {
             DisposableEffect(drag) { onDispose { drag.deleteBounds = Rect.Zero } }
             PaperDeleteZone(armed = drag.deleteArmed,
-                label = if (drag.deleteArmed) "松手后确认删除分类" else "拖到这里删除分类",
+                label = if (drag.deleteArmed) strings.text(R.string.ui_release_to_confirm_deletion_989ee) else strings.text(R.string.ui_drag_here_to_delete_category_c85d1),
                 modifier = Modifier.fillMaxWidth().height(deleteHeight).testTag("category-delete-zone")
                     .onGloballyPositioned { drag.deleteBounds = it.boundsInRoot() })
         }

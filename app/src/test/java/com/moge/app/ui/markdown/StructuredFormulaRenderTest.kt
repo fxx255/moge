@@ -33,14 +33,30 @@ class StructuredFormulaRenderTest {
     private val integrand = "y(2-x^2-y^2)+(2-x^2-y^2)x\\cdot2x+xy\\cdot2y"
     private val set = "\\mathcal D_1=\\left\\{(x,y):y\\ge0,\\ \\sqrt3x+y\\ge3+\\sqrt3," +
         "\\ (1+\\sqrt3)x+(1-\\sqrt3)y\\ge1+\\sqrt3\\right\\}"
+    private val matrixDerivation = "(E-BA)(E+BCA)\\\\" +
+        "=E+BCA-BA-BABCA\\\\=E+\\left(BCA-BA\\right)-BABCA=E."
     private val formulas get() = listOf(
         "\\left[$polynomial\\right]r\\,dr",
         "\\iint_{D_{xy}}\\left[$integrand\\right]dxdy",
         "\\boxed{$set}.",
         "\\langle Ax,Ay\\rangle=(Ax)^T(Ay)=x^TA^TAy=x^Ty=\\langle x,y\\rangle",
+        matrixDerivation,
     )
 
     @Before fun init() { LatexEngine.init(RuntimeEnvironment.getApplication()) }
+
+    @Test fun `reported matrix derivation keeps BCA minus BA as one horizontal difference`() {
+        val difference = "\\left(BCA-BA\\right)"
+        for (size in listOf(26f, 36f)) for (width in listOf(260, 400, 520)) {
+            val measure = formulaWidthMeasurer(size)
+            val rows = splitFormula(matrixDerivation, width, measure)
+            assertTrue("The whole difference must share a display row: $rows", rows.any { difference in it })
+            assertTrue(rows.toString(), rows.none { "\\begin{array}" in it })
+            assertEquals(content(matrixDerivation), content(rows.joinToString("")))
+        }
+        renderPreview(400, 26f, "matrix-derivation-wrap.png", listOf(matrixDerivation))
+        renderPreview(320, 36f, "matrix-derivation-large-wrap.png", listOf(matrixDerivation))
+    }
 
     @Test fun `reported inner product derivation renders whole brackets across narrow widths`() {
         val first = "\\langle Ax,Ay\\rangle"
@@ -76,14 +92,16 @@ class StructuredFormulaRenderTest {
         }
     }
 
-    @Test fun `plain and sized brackets keep integral and differential outside and frame stays continuous`() {
+    @Test fun `plain and sized brackets use separate display rows while boxed derivations keep their frame`() {
         val measure = formulaWidthMeasurer(26f)
         for ((open, close) in listOf("[" to "]", "\\bigl[" to "\\bigr]", "\\left[" to "\\right]")) {
             val source = "\\iint_{D_{xy}}$open$integrand${close}dxdy"
-            val wrapped = splitFormula(source, 520, measure).single()
-            assertTrue(wrapped, wrapped.startsWith("\\iint_{D_{xy}}\\left[\\begin{array}"))
-            assertTrue(wrapped, wrapped.endsWith("\\end{array}\\right]dxdy"))
-            assertEquals(1, Regex("\\\\iint").findAll(wrapped).count())
+            val wrapped = splitFormula(source, 520, measure)
+            assertTrue(wrapped.toString(), wrapped.size > 1)
+            assertTrue(wrapped.first(), wrapped.first().startsWith("\\iint_{D_{xy}}\\left["))
+            assertTrue(wrapped.last(), wrapped.last().endsWith("\\right]dxdy"))
+            assertTrue(wrapped.toString(), wrapped.none { "\\begin{array}" in it })
+            assertEquals(1, Regex("\\\\iint").findAll(wrapped.joinToString("")).count())
         }
         for (frame in listOf("boxed", "fbox")) {
             val wrapped = splitFormula("\\$frame{$set}", 520, measure).single()
@@ -102,12 +120,12 @@ class StructuredFormulaRenderTest {
         renderPreview(400, 36f, "structured-formula-narrow-wrap.png")
     }
 
-    private fun renderPreview(width: Int, size: Float, filename: String) {
+    private fun renderPreview(width: Int, size: Float, filename: String, sources: List<String> = formulas) {
         val views = listOf(Color.BLACK to Color.rgb(250, 247, 234), Color.WHITE to Color.rgb(36, 51, 45))
             .map { (ink, background) ->
                 val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), ink, Color.YELLOW, fontSizePx = size)
                 view.layoutParams = ViewGroup.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-                val markdown = formulas.joinToString("\n\n") { "\$\$\n$it\n\$\$" }
+                val markdown = sources.joinToString("\n\n") { "\$\$\n$it\n\$\$" }
                 val prepared = wrapLongFormulas(prepareReplyMarkdown(markdown), formulaMaxWidthPx(view, width), formulaWidthMeasurer(size))
                 val expectedBlocks = Regex("\\$\\$[\\s\\S]*?\\$\\$").findAll(prepared).count()
                 renderMarkdown(view, markdown, width, ink, Color.YELLOW)
@@ -115,7 +133,7 @@ class StructuredFormulaRenderTest {
                 AsyncDrawableScheduler.unschedule(view)
                 val text = view.text as Spanned
                 val spans = text.getSpans(0, text.length, BaselineLatexSpan::class.java)
-                assertTrue("All source formulas must remain present", expectedBlocks >= formulas.size)
+                assertTrue("All source formulas must remain present", expectedBlocks >= sources.size)
                 assertEquals(expectedBlocks, spans.size)
                 for (span in spans) {
                     val drawable = JLatexMathDrawable.builder(span.drawable.destination).textSize(size).color(ink)

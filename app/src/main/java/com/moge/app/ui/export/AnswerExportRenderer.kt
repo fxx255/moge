@@ -1,5 +1,7 @@
 package com.moge.app.ui.export
 
+import com.moge.app.R
+
 import com.moge.app.ui.markdown.parseMarkdownTable
 import com.moge.app.ui.markdown.MarkdownTable
 
@@ -56,15 +58,16 @@ internal suspend fun renderAnswerExport(
     content: AnswerExportContent,
     choice: ExportChoice,
     resolver: FigurePathResolver,
+    bodyTypeface: Typeface = Typeface.DEFAULT,
     onProgress: (String) -> Unit,
 ): ExportResult {
     val files = ExportFiles.create(context)
     try {
         return withContext(Dispatchers.Main.immediate) {
             LatexEngine.init(context)
-            val renderer = NativeExportRenderer(context, files, onProgress)
+            val renderer = NativeExportRenderer(context, files, onProgress, bodyTypeface)
             try {
-                for (part in exportParts(content, choice)) {
+                for (part in exportParts(content, choice, com.moge.app.ui.localization.AppStrings(context))) {
                     currentCoroutineContext().ensureActive()
                     when (part) {
                         is ExportPart.Text -> renderer.text(part)
@@ -85,21 +88,22 @@ internal fun exportTextView(
     width: Int,
     markdown: Boolean = true,
     heading: Boolean = false,
+    bodyTypeface: Typeface = Typeface.DEFAULT,
     warning: (String) -> Unit = {},
 ): TextView {
     val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
-        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE).apply {
+        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface).apply {
         includeFontPadding = true
         setPadding(0, 0, 0, 0)
         setLineSpacing(8f * ExportLimits.SCALE, 1f)
-        if (heading) setTypeface(Typeface.SERIF, Typeface.BOLD)
+        if (heading) setTypeface(if (bodyTypeface == Typeface.DEFAULT) Typeface.SERIF else bodyTypeface, Typeface.BOLD)
     }
     if (!markdown) view.text = source
     else {
         try {
             val normalized = prepareReplyMarkdown(source)
             val wrapped = wrapLongFormulas(normalized, width - 8 * ExportLimits.SCALE) { latex ->
-                require(latex.length <= ExportLimits.FORMULA_CHARS) { "公式过长" }
+                require(latex.length <= ExportLimits.FORMULA_CHARS) { context.getString(R.string.ui_formula_too_long_eb69b) }
                 JLatexMathDrawable.builder(latex).textSize(view.textSize).build().intrinsicWidth
             }
             val markwon = view.tag as Markwon
@@ -108,19 +112,19 @@ internal fun exportTextView(
             // Finish EVERY inline formula before measuring, including table cells. Detached views
             // otherwise have no draw/layout callback to await, and can export empty formula boxes.
             for (span in parsed.getSpans(0, parsed.length, AsyncDrawableSpan::class.java)) {
-                require(span is BaselineLatexSpan) { "外部 Markdown 图片需保留原文" }
+                require(span is BaselineLatexSpan) { context.getString(R.string.ui_external_markdown_image_kept_as_source_fa547) }
                 val formula = span.drawable.destination
-                require(formula.length <= ExportLimits.FORMULA_CHARS) { "公式过长" }
+                require(formula.length <= ExportLimits.FORMULA_CHARS) { context.getString(R.string.ui_formula_too_long_eb69b) }
                 val drawable = JLatexMathDrawable.builder(formula).textSize(view.textSize).color(EXPORT_INK).build()
                 span.drawable.initWithKnownDimensions(width, view.textSize)
                 span.drawable.setResult(drawable)
                 // This is a drawable, not an inline formula. External Markdown images have no
                 // loader in this renderer; preserve the complete source instead of hiding it.
-                check(span.drawable.hasResult()) { "公式未完成" }
+                check(span.drawable.hasResult()) { context.getString(R.string.ui_incomplete_formula_5afb8) }
             }
             view.text = parsed
         } catch (_: Exception) {
-            val message = "部分 Markdown / 公式无法排版，已保留完整原文"
+            val message = context.getString(R.string.ui_some_markdown_or_formulas_could_not_be_laid_out_full_source_8108d)
             warning(message)
             view.text = "$source\n\n[$message]"
         }
@@ -154,6 +158,7 @@ private class NativeExportRenderer(
     private val context: Context,
     private val files: ExportFiles,
     private val progress: (String) -> Unit,
+    private val bodyTypeface: Typeface,
 ) {
     private data class Drawing(val top: Float, val bottom: Float, val draw: suspend (Canvas) -> Unit)
     private val drawings = mutableListOf<Drawing>()
@@ -200,7 +205,7 @@ private class NativeExportRenderer(
     }
 
     private suspend fun space(height: Int) {
-        require(height <= ExportLimits.CONTENT_HEIGHT) { "导出分块超出安全高度" }
+        require(height <= ExportLimits.CONTENT_HEIGHT) { context.getString(R.string.ui_export_block_exceeds_safe_height_ef7e0) }
         ensurePage()
         if (y + height > ExportLimits.HEIGHT - ExportLimits.MARGIN - ExportLimits.FOOTER) {
             flush(); ensurePage()
@@ -213,13 +218,13 @@ private class NativeExportRenderer(
             val actualHeight = (y + ExportLimits.MARGIN + ExportLimits.FOOTER)
                 .coerceAtMost(ExportLimits.HEIGHT).coerceAtLeast(ExportLimits.MARGIN * 2 + ExportLimits.FOOTER)
             val bottom = actualHeight - ExportLimits.MARGIN
-            val footerLabel = "墨格 · ${pages.size + 1} · 按页码连续阅读"
+            val footerLabel = context.getString(R.string.ui_moge_1_s_read_in_page_order_873c2, pages.size + 1)
             draw(bottom - ExportLimits.FOOTER.toFloat(), bottom.toFloat() + 4 * ExportLimits.SCALE) { canvas ->
                 canvas.drawLine(ExportLimits.MARGIN.toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(),
                     (ExportLimits.WIDTH - ExportLimits.MARGIN).toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(), rule)
                 canvas.drawText(footerLabel, ExportLimits.MARGIN.toFloat(), bottom.toFloat(), footer)
             }
-            progress("正在编码第 ${pages.size + 1} 张高清图片…")
+            progress(context.getString(R.string.ui_encoding_image_1_s_4dee9, pages.size + 1))
             pages += files.writePage(ExportLimits.WIDTH, actualHeight, pages.size + 1) { canvas, top, end ->
                 withContext(Dispatchers.Main.immediate) {
                     paper(canvas)
@@ -245,11 +250,11 @@ private class NativeExportRenderer(
             }
             for (chunk in boundedSourceChunks(section.text)) {
                 if (chunk.plain) {
-                    warning("过长内容已分块保留原文")
-                    plainNotice("[过长内容，以下分块保留完整原文]")
+                    warning(context.getString(R.string.ui_long_content_split_with_full_source_preserved_f9bbf))
+                    plainNotice(context.getString(R.string.ui_long_content_full_source_continues_below_9fde0))
                 }
                 val view = exportTextView(context, chunk.source, ExportLimits.CONTENT_WIDTH,
-                    markdown = part.markdown && !chunk.plain, heading = part.heading, warning = ::warning)
+                    markdown = part.markdown && !chunk.plain, heading = part.heading, bodyTypeface = bodyTypeface, warning = ::warning)
                 drawText(view, heading = part.heading)
                 yield()
             }
@@ -257,7 +262,7 @@ private class NativeExportRenderer(
     }
 
     private suspend fun plainNotice(source: String) {
-        drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false))
+        drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false, bodyTypeface = bodyTypeface))
     }
 
     private suspend fun drawText(view: TextView, heading: Boolean = false) {
@@ -296,19 +301,19 @@ private class NativeExportRenderer(
 
     private suspend fun table(table: MarkdownTable) {
         if (table.headers.any { it.length > ExportLimits.SOURCE_CHUNK }) {
-            tableAsCards(table, "表头过长，按行逐列续排以保留全部内容")
+            tableAsCards(table, context.getString(R.string.ui_long_header_continues_by_column_to_preserve_all_content_e6fbd))
             return
         }
         for (columns in tableColumnGroups(table.columns)) {
             if (table.columns > columns.count()) {
-                plainNotice("表格：第 ${columns.first + 1}–${columns.last + 1} 列 / 共 ${table.columns} 列（按列组连续阅读）")
+                plainNotice(context.getString(R.string.ui_table_columns_1_s_2_s_of_3_s_read_by_column_group_27537, columns.first + 1, columns.last + 1, table.columns))
             }
             val cellWidth = ExportLimits.CONTENT_WIDTH / columns.count()
             // Repeat headings for each data row/continuation. Formula cells use the same native
             // Markwon/JLatexMath TextViews as prose, unlike TableRowSpan's hidden async layouts.
             for (row in table.rows.ifEmpty { listOf(List(table.columns) { "" }) }) {
                 if (columns.any { row[it].length > ExportLimits.SOURCE_CHUNK }) {
-                    plainNotice("超长表格行，按列续排以保留全部内容")
+                    plainNotice(context.getString(R.string.ui_long_table_row_continues_by_column_36ba5))
                     for (column in columns) {
                         text(ExportPart.Text(table.headers[column], heading = true))
                         text(ExportPart.Text(row[column]))
@@ -321,7 +326,7 @@ private class NativeExportRenderer(
                 val headerHeight = headerBands.sumOf { band -> band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2 }
                 val capacity = (ExportLimits.CONTENT_HEIGHT - headerHeight - CELL_PADDING * 2)
                 if (capacity < 100 * ExportLimits.SCALE) {
-                    plainNotice("表头较长，按列续排以保留全部内容")
+                    plainNotice(context.getString(R.string.ui_long_table_header_continues_by_column_8b254))
                     for (column in columns) {
                         text(ExportPart.Text(table.headers[column], heading = true))
                         text(ExportPart.Text(row[column]))
@@ -329,7 +334,7 @@ private class NativeExportRenderer(
                     continue
                 }
                 for ((bandIndex, band) in cellBands(cells, capacity).withIndex()) {
-                    if (bandIndex > 0) plainNotice("表格行续页（同一行的剩余内容）")
+                    if (bandIndex > 0) plainNotice(context.getString(R.string.ui_table_row_continued_remaining_content_187b3))
                     val bandHeight = band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2
                     space(headerHeight + bandHeight)
                     for (headerBand in headerBands) drawCells(headers, headerBand, cellWidth, header = true)
@@ -352,7 +357,7 @@ private class NativeExportRenderer(
     }
 
     private fun cell(source: String, width: Int): TextView {
-        return exportTextView(context, source, width - CELL_PADDING * 2, warning = ::warning)
+        return exportTextView(context, source, width - CELL_PADDING * 2, bodyTypeface = bodyTypeface, warning = ::warning)
     }
 
     private fun cellBands(views: List<TextView>, height: Int): List<List<VerticalSlice?>> {
@@ -386,7 +391,7 @@ private class NativeExportRenderer(
         } catch (error: kotlinx.coroutines.CancellationException) { throw error }
         catch (_: Exception) { null }
         if (resolved == null) {
-            val message = "${part.label}缺失或无法读取，请核对原题 / 重试生成图形"
+            val message = context.getString(R.string.ui_1_s_is_unavailable_check_the_question_or_regenerate_the_figu_056e4, part.label)
             warning(message); plainNotice("[$message]"); return
         }
         val (path, info) = resolved
@@ -423,7 +428,7 @@ private class NativeExportRenderer(
         cachedImage?.recycle(); cachedImage = null; cachedImagePath = null
         withContext(Dispatchers.IO) { cachedImage = decodeExportImage(path) }
         cachedImagePath = path
-        return checkNotNull(cachedImage) { "配图无法读取，请重新添加后导出" }
+        return checkNotNull(cachedImage) { context.getString(R.string.ui_could_not_read_image_add_it_again_before_exporting_43dec) }
     }
 
     suspend fun finish(): ExportResult {

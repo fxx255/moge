@@ -27,6 +27,9 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
  */
 data class UserSettings(
     val appearance: Appearance = Appearance.SYSTEM,
+    val interfaceLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
+    val answerLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
+    val font: AppFont = AppFont.SYSTEM,
     val defaultSolveMode: SolveMode = SolveMode.DETAILED,
     val webSearchEnabled: Boolean = false,
     /** 提示词里对用户的称呼；空串表示不称呼。 */
@@ -50,6 +53,9 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
 
     val settings: Flow<UserSettings> = store.data.map { prefs ->
         UserSettings(
+            interfaceLanguage = AppLanguage.fromName(prefs[KEY_INTERFACE_LANGUAGE]),
+            answerLanguage = AppLanguage.fromName(prefs[KEY_ANSWER_LANGUAGE]),
+            font = AppFont.fromName(prefs[KEY_FONT]),
             appearance = prefs[KEY_APPEARANCE]
                 ?.let { name -> Appearance.entries.firstOrNull { it.name == name } }
                 ?: Appearance.SYSTEM,
@@ -72,6 +78,18 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
 
     suspend fun setAppearance(value: Appearance) {
         store.edit { it[KEY_APPEARANCE] = value.name }
+    }
+
+    suspend fun setInterfaceLanguage(value: AppLanguage) {
+        store.edit { it[KEY_INTERFACE_LANGUAGE] = value.name }
+    }
+
+    suspend fun setAnswerLanguage(value: AppLanguage) {
+        store.edit { it[KEY_ANSWER_LANGUAGE] = value.name }
+    }
+
+    suspend fun setFont(value: AppFont) {
+        store.edit { it[KEY_FONT] = value.name }
     }
 
     suspend fun setDefaultSolveMode(value: SolveMode) {
@@ -108,6 +126,9 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
     }
 
     private companion object {
+        val KEY_INTERFACE_LANGUAGE = stringPreferencesKey("interface_language")
+        val KEY_ANSWER_LANGUAGE = stringPreferencesKey("answer_language")
+        val KEY_FONT = stringPreferencesKey("font")
         const val MAX_NICKNAME_CHARS = 16
         val KEY_APPEARANCE = stringPreferencesKey("appearance")
         val KEY_SOLVE_MODE = stringPreferencesKey("default_solve_mode")

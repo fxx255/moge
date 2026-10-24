@@ -1,5 +1,8 @@
 package com.moge.app.ui.home
 
+import com.moge.app.R
+import com.moge.app.core.LocalizedText
+
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -63,6 +66,7 @@ class HomeViewModel @Inject constructor(
     private val captureStore: CaptureStore,
     @param:IoDispatcher private val io: CoroutineDispatcher,
     private val photoPreparation: QuestionPhotoPreparation,
+    private val localizedText: LocalizedText,
 ) : ViewModel() {
 
     private val conversationMode = ConversationMode.fromName(savedState[Routes.ARG_CAPTURE_MODE])
@@ -118,7 +122,7 @@ class HomeViewModel @Inject constructor(
     fun onCaptured(path: String) {
         if (!state.value.canAddMore) {
             File(path).delete()
-            showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            showMessage(localizedText.text(R.string.ui_up_to_1_s_photos_at_a_time_710a1, CaptureStore.MAX_PHOTOS))
             return
         }
         update { it.copy(cropQueue = it.cropQueue + path) }
@@ -128,7 +132,7 @@ class HomeViewModel @Inject constructor(
         if (uris.isEmpty()) return
         val room = CaptureStore.MAX_PHOTOS - state.value.count
         if (room <= 0) {
-            showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            showMessage(localizedText.text(R.string.ui_up_to_1_s_photos_at_a_time_710a1, CaptureStore.MAX_PHOTOS))
             return
         }
         viewModelScope.launch {
@@ -137,10 +141,10 @@ class HomeViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                showMessage(e.message ?: "照片导入失败")
+                showMessage(e.message ?: localizedText.text(R.string.ui_could_not_import_photo_72b85))
                 return@launch
             }
-            if (uris.size > room) showMessage("一次最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入")
+            if (uris.size > room) showMessage(localizedText.text(R.string.ui_up_to_1_s_photos_extra_photos_were_not_added_b6efe, CaptureStore.MAX_PHOTOS))
             update { it.copy(cropQueue = it.cropQueue + imported) }
         }
     }

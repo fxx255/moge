@@ -21,7 +21,7 @@ internal fun splitTrailingFormulaCondition(
 private val CONDITION_RELATION = Regex("""[<>=]|\\(?:leq?|geq?|neq?|in)\b""")
 private val TRAILING_MATH_SPACE = Regex("""(?:\s|\\(?:quad\b|qquad\b|[,;:! ]))+$""")
 
-/** Prefer one continuous delimiter/frame around the wrapped mathematical object. */
+/** Frames can contain derivation rows; ordinary brackets must not turn sums into column vectors. */
 internal fun wrapFormulaGroup(
     latex: String,
     kind: FormulaGroupKind,
@@ -33,6 +33,12 @@ internal fun wrapFormulaGroup(
         if (body.isEmpty()) continue
         val prefix = latex.substring(0, group.start) + group.opening
         val suffix = group.closing + latex.substring(group.end)
+        if (kind == FormulaGroupKind.Delimiter) {
+            // A genuinely over-wide group can continue onto separate display rows
+            // with invisible delimiter partners, never an array inside tall brackets.
+            wrapDelimitedRows(body, prefix, suffix, maxWidthPx, measure)?.let { return it }
+            continue
+        }
         fun render(rows: List<String>) = prefix + (if (rows.size == 1) rows.single() else formulaRows(rows)) + suffix
         // Reserve actual widths of integral limits, differential suffixes, frame
         // padding and the array's column padding, rather than estimating characters.
@@ -47,12 +53,6 @@ internal fun wrapFormulaGroup(
             if (overflow <= 0) return listOf(candidate)
             // Tall delimiters can be slightly wider than the one-row probe.
             width -= overflow + 1
-        }
-        if (kind == FormulaGroupKind.Delimiter) {
-            // On narrow screens an integral and its differential can occupy more
-            // than half the width. Attach them only to the first/last rows, with
-            // invisible partners keeping each row independently valid TeX.
-            wrapDelimitedRows(body, prefix, suffix, maxWidthPx, measure)?.let { return it }
         }
     }
     return null

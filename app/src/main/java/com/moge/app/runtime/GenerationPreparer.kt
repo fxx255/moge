@@ -208,7 +208,7 @@ class GenerationPreparer @Inject constructor(
             originalHistory = bounded,
             prompt = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, prefs.nickname,
                 identity?.reasoningEffort ?: AiReasoningEffort.LOW, submission.solveMode,
-                conversationMode = conversationMode),
+                conversationMode = conversationMode, answerLanguage = prefs.answerLanguage),
             modelHistoryVersion = 1,
         )
     }
@@ -252,7 +252,8 @@ class GenerationPreparer @Inject constructor(
                 else credentialStore.resolveIdentityFor(snapshot.primaryProfileId))?.reasoningEffort
             ?: AiReasoningEffort.LOW
         return snapshot.copy(prompt = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT,
-            settings.current().nickname, effort, solveMode, conversationMode = mode))
+            settings.current().nickname, effort, solveMode, conversationMode = mode,
+            answerLanguage = snapshot.prompt.answerLanguage))
     }
 
     private suspend fun preparedRetryFromSnapshot(

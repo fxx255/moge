@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -31,6 +34,7 @@ internal fun PaperCategoryDropPanel(
     state: PaperDragState,
     categories: List<NotebookCategoryEntity>,
 ) {
+    val strings = rememberAppStrings()
     val motion = MogeTheme.motionEnabled
     val scroll = rememberScrollState()
     val density = LocalDensity.current
@@ -40,7 +44,7 @@ internal fun PaperCategoryDropPanel(
         enter = expandVertically(tween(if (motion) 180 else 0), expandFrom = Alignment.Top) + fadeIn(tween(if (motion) 120 else 0)),
         exit = shrinkVertically(tween(if (motion) 160 else 0), shrinkTowards = Alignment.Top) + fadeOut(tween(if (motion) 100 else 0))) {
         Column {
-            Text(if (state.categoriesExpanded) "松手放入分组" else "向上拖入分组，展开全部分组",
+            Text(if (state.categoriesExpanded) strings.text(R.string.ui_release_to_move_to_category_158e0) else strings.text(R.string.ui_drag_up_to_expand_categories_455c9),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().testTag("drop-category-prompt")
                     .onGloballyPositioned { state.categoryPromptBounds = it.boundsInRoot() }
@@ -59,7 +63,7 @@ internal fun PaperCategoryDropPanel(
                     FlowRow(Modifier.fillMaxWidth().heightIn(max = gridMaxHeight).verticalScroll(scroll)
                         .testTag("drop-category-grid").padding(bottom = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val choices = listOf(PaperDropTarget.Category(null, "未分类")) +
+                        val choices = listOf(PaperDropTarget.Category(null, strings.text(R.string.ui_uncategorized_b28f1))) +
                             categories.map { PaperDropTarget.Category(it.id, it.name) }
                         choices.forEach { target ->
                             key(target.id) {

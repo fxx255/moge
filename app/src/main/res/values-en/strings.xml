@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Moge</string>
+    <string name="channel_generation_name">Answer in progress</string>
+    <string name="channel_generation_desc">Keep generation running in the background</string>
+    <string name="keepalive_title">Generating answer</string>
+    <string name="keepalive_text">You can leave while your answer is being generated</string>
+</resources>

@@ -10,3 +10,4 @@ gradlew text eol=lf
 
 # Preserve upstream license texts verbatim.
 docs/licenses/*.txt -whitespace
+app/src/main/assets/font_licenses/*.txt -whitespace

@@ -1,5 +1,9 @@
 package com.moge.app.ui.viewer
 
+
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,6 +68,7 @@ fun PhotoViewer(
     rotatable: Boolean = false,
     preferProcessed: Boolean = true,
 ) {
+    val strings = rememberAppStrings()
     if (paths.isEmpty()) {
         LaunchedEffect(Unit) { onDismiss() }
         return
@@ -89,22 +94,22 @@ fun PhotoViewer(
                 val path = withContext(Dispatchers.IO) {
                     resolver.resolve(stored, dark)?.let { if (processed) QuestionPhotoFiles.displayPath(it) else it }
                 }
-                    ?: error("图片文件不存在")
+                    ?: error(strings.text(R.string.ui_image_file_missing_831f9))
                 action(path)
             }
             busy = false
-            message = result.fold({ it }, { it.message ?: "操作失败，请重试" })
+            message = result.fold({ it }, { it.message ?: strings.text(R.string.ui_operation_failed_try_again_51d3c) })
         }
     }
 
     val saveToGallery = {
         withCurrentFile { path ->
             val album = withContext(Dispatchers.IO) { saveImageToGallery(context, path) }
-            "已保存到相册 $album"
+            strings.text(R.string.ui_saved_to_album_1_s_3135c, album)
         }
     }
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) saveToGallery() else message = "没有存储权限，无法保存"
+        if (granted) saveToGallery() else message = strings.text(R.string.ui_storage_permission_is_needed_to_save_aa370)
     }
 
     LaunchedEffect(message) {
@@ -129,7 +134,7 @@ fun PhotoViewer(
             ) { page ->
                 ZoomableImage(
                     storedPath = paths[page],
-                    pageLabel = "图片 ${page + 1}，共 ${paths.size} 张",
+                    pageLabel = strings.text(R.string.ui_image_1_s_of_2_s_bffc8, page + 1, paths.size),
                     onTapToClose = { if (!busy) onDismiss() },
                     onSwipeDownToClose = { if (!busy) onDismiss() },
                     preferProcessed = preferProcessed,
@@ -145,7 +150,7 @@ fun PhotoViewer(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onDismiss, enabled = !busy) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Color.White)
+                    Icon(Icons.Filled.Close, contentDescription = strings.text(R.string.ui_close_6c14b), tint = Color.White)
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     if (paths.size > 1) {
@@ -167,7 +172,7 @@ fun PhotoViewer(
                                 }
                             },
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "逆时针旋转 90 度", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = strings.text(R.string.ui_rotate_left_90_degrees_11e91), tint = Color.White)
                         }
                     }
                     IconButton(
@@ -183,7 +188,7 @@ fun PhotoViewer(
                             }
                         },
                     ) {
-                        Icon(Icons.Filled.Download, contentDescription = "保存到相册", tint = Color.White)
+                        Icon(Icons.Filled.Download, contentDescription = strings.text(R.string.ui_save_to_gallery_f32a9), tint = Color.White)
                     }
                     IconButton(
                         enabled = !busy,
@@ -194,7 +199,7 @@ fun PhotoViewer(
                             }
                         },
                     ) {
-                        Icon(Icons.Filled.Share, contentDescription = "分享", tint = Color.White)
+                        Icon(Icons.Filled.Share, contentDescription = strings.text(R.string.ui_share_7a924), tint = Color.White)
                     }
                 }
             }

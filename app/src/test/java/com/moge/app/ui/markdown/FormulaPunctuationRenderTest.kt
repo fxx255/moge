@@ -115,6 +115,8 @@ class FormulaPunctuationRenderTest {
     }
 
     private fun content(latex: String): String = latex
+        // A separator's spacing disappears when its next equation starts a new centered row.
+        .replace(Regex("""\\(?:quad|qquad)\b"""), "")
         .replace("\\begin{array}{l}", "").replace("\\end{array}", "").replace("\\\\", "")
         .replace("\\left.", "").replace("\\right.", "")
         .replace("\\left", "").replace("\\right", "").filterNot(Char::isWhitespace)

@@ -1,5 +1,8 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -33,6 +36,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BackgroundGenerationSection(report: suspend () -> String) {
+    val strings = rememberAppStrings()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -58,28 +62,28 @@ internal fun BackgroundGenerationSection(report: suspend () -> String) {
                 Uri.parse("package:${context.packageName}"))) }
         }
     }
-    SettingsSection("后台生成") {
+    SettingsSection(strings.text(R.string.ui_background_generation_ea5fa)) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("生成期间启用后台通知、CPU 唤醒与可用的 Wi-Fi 保护，减少息屏后的中断。", style = MaterialTheme.typography.bodyMedium)
-            Text("通知：${if (notifications) "已允许" else "未允许"} · 电池优化：${if (battery) "不受限" else "受系统管理"}",
+            Text(strings.text(R.string.ui_use_background_notifications_cpu_wake_protection_and_availab_7cb1c), style = MaterialTheme.typography.bodyMedium)
+            Text(strings.text(R.string.ui_notifications_1_s_battery_2_s_9e23a, if (notifications) strings.text(R.string.ui_allowed_3dec7) else strings.text(R.string.ui_not_allowed_3cbef), if (battery) strings.text(R.string.ui_unrestricted_7fbf9) else strings.text(R.string.ui_system_managed_f2013)),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("电池优化可能在息屏后暂停网络，请允许不受限后台运行。若系统提供应用启动管理，也请开启“允许后台活动”。",
+            Text(strings.text(R.string.ui_battery_optimization_may_pause_networking_when_the_screen_is_640e1),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("通知设置") }
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text(strings.text(R.string.ui_notification_settings_64676)) }
                 TextButton(onClick = {
                     open(if (battery) Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                         else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                             Uri.parse("package:${context.packageName}")))
-                }) { Text(if (battery) "后台运行设置" else "允许息屏联网") }
+                }) { Text(if (battery) strings.text(R.string.ui_background_settings_4138d) else strings.text(R.string.ui_allow_network_with_screen_off_ae15c)) }
                 TextButton(onClick = {
                     scope.launch {
                         val text = report()
                         context.getSystemService(ClipboardManager::class.java)
-                            ?.setPrimaryClip(ClipData.newPlainText("后台生成诊断", text))
+                            ?.setPrimaryClip(ClipData.newPlainText(strings.text(R.string.ui_background_generation_diagnostics_99ab0), text))
                     }
-                }) { Text("复制后台诊断") }
+                }) { Text(strings.text(R.string.ui_copy_diagnostics_47d09)) }
             }
         }
     }

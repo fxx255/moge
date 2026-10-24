@@ -249,12 +249,14 @@ class ConversationPageNavigationTest {
         navigate { ticket = navigateWithSwipe(nav, 1) { navigateToNewConversation(nav) } }
         val newPage = requireNotNull(nav.currentBackStackEntry)
         assertEquals(1, ticket!!.directionFor(old.id, newPage.id))
+        assertEquals(true, ticket!!.stationaryComposer)
         navigate { nav.popBackStack() }
         assertEquals(0, ticket!!.directionFor(newPage.id, requireNotNull(nav.currentBackStackEntry).id))
         navigate { navigateToNewConversation(nav) }
         val newAgain = requireNotNull(nav.currentBackStackEntry)
         navigate { ticket = navigateWithSwipe(nav, 1) { nav.navigate(Routes.HISTORY) } }
         val history = requireNotNull(nav.currentBackStackEntry)
+        assertEquals(false, ticket!!.stationaryComposer)
         navigate { nav.popBackStack() }
         assertSame(newAgain, nav.currentBackStackEntry)
         assertEquals(0, ticket!!.directionFor(history.id, newAgain.id))
@@ -267,6 +269,7 @@ class ConversationPageNavigationTest {
         navigate { ticket = navigateWithSwipe(nav, -1) { navigateToConversation(nav, "existing") } }
         assertSame(old, nav.currentBackStackEntry)
         assertEquals(-1, ticket!!.directionFor(newPage.id, old.id))
+        assertEquals(true, ticket!!.stationaryComposer)
         navigate { ticket = navigateWithSwipe(nav, -1) { navigateToConversation(nav, "existing") } }
         assertNull(ticket)
     }

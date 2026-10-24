@@ -1,5 +1,8 @@
 package com.moge.app.ui.history
 
+import com.moge.app.R
+import com.moge.app.core.LocalizedText
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -63,6 +66,7 @@ class HistoryViewModel @Inject constructor(
     private val manager: GenerationManager,
     private val notebooks: NotebookRepository,
     private val settings: SettingsRepository,
+    private val localizedText: LocalizedText,
 ) : ViewModel() {
     private val restoredCategory = savedState.get<String>(CATEGORY).orEmpty()
     private val _state = MutableStateFlow(HistoryUiState(
@@ -99,7 +103,7 @@ class HistoryViewModel @Inject constructor(
                         .onStart { emit(Load(loading = true)) }
                         .catch { error ->
                             if (error is CancellationException) throw error
-                            emit(Load(error = "历史读取失败，请重试"))
+                            emit(Load(error = localizedText.text(R.string.ui_could_not_load_history_try_again_3c82a)))
                         }
                 }.collect { load ->
                     _state.update { current ->
@@ -115,7 +119,7 @@ class HistoryViewModel @Inject constructor(
             reload.flatMapLatest {
                 notebooks.observeCategories().catch { error ->
                     if (error is CancellationException) throw error
-                    _state.update { it.copy(categoryError = "分类读取失败，请重试") }
+                    _state.update { it.copy(categoryError = localizedText.text(R.string.ui_could_not_load_categories_try_again_9a7e8)) }
                 }
             }.collect { categories ->
                 _state.update { it.copy(categories = categories, categoryError = null) }
@@ -144,7 +148,7 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch {
             try { onOpen(id, repository.revealSearchMatch(id, query)) }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { _state.update { it.copy(message = e.message ?: "对话没能打开，请重试") } }
+            catch (e: Exception) { _state.update { it.copy(message = e.message ?: localizedText.text(R.string.ui_could_not_open_conversation_try_again_5b0f0)) } }
             finally { _state.update { it.copy(busy = false) } }
         }
     }
@@ -156,9 +160,9 @@ class HistoryViewModel @Inject constructor(
         persistSelection()
     }
 
-    fun createCategory(name: String) = mutate { notebooks.createCategory(name); "分类已创建" }
+    fun createCategory(name: String) = mutate { notebooks.createCategory(name); localizedText.text(R.string.ui_category_created_183f5) }
     fun renameCategory(id: String, name: String) = mutate {
-        if (notebooks.renameCategory(id, name)) "分类已改名" else "分类已被删除"
+        if (notebooks.renameCategory(id, name)) localizedText.text(R.string.ui_category_renamed_cbf09) else localizedText.text(R.string.ui_category_deleted_00cab)
     }
     fun deleteCategory(id: String) = mutate {
         notebooks.deleteCategory(id)
@@ -166,7 +170,7 @@ class HistoryViewModel @Inject constructor(
             _state.update { it.copy(categoryId = null, uncategorizedOnly = true) }
             savedState[CATEGORY] = UNCATEGORIZED
         }
-        "分类已删除，题目与对话已移至未分类"
+        localizedText.text(R.string.ui_category_deleted_questions_and_conversations_moved_to_uncate_86a78)
     }
     fun reorderCategory(id: String, offset: Int) {
         val order = state.value.categories.map { it.id }.toMutableList()
@@ -174,7 +178,7 @@ class HistoryViewModel @Inject constructor(
         val to = from + offset
         if (from !in order.indices || to !in order.indices) return
         order.add(to, order.removeAt(from))
-        mutate { notebooks.reorderCategories(order); "分类顺序已修改" }
+        mutate { notebooks.reorderCategories(order); localizedText.text(R.string.ui_category_order_updated_1b019) }
     }
     fun moveItems(ids: Set<String>, categoryId: String?) {
         if (ids.isEmpty()) return
@@ -198,9 +202,9 @@ class HistoryViewModel @Inject constructor(
             }
             _state.update { it.copy(selectedIds = it.selectedIds - ids) }
             persistSelection()
-            if (notebookSyncFailed) "已移动 $moved 个对话；题册同步失败，可稍后重试"
-            else if (saved.isEmpty()) "已移动 $moved 个对话；暂无完整解答可加入题册"
-            else "已移动 $moved 个对话，并同步收藏 ${saved.size} 条"
+            if (notebookSyncFailed) localizedText.text(R.string.ui_moved_1_s_conversations_notebook_sync_failed_retry_later_b8c35, moved)
+            else if (saved.isEmpty()) localizedText.text(R.string.ui_moved_1_s_conversations_no_complete_solutions_to_save_yet_ec22e, moved)
+            else localizedText.text(R.string.ui_moved_1_s_conversations_and_saved_2_s_items_a648d, moved, saved.size)
         }
     }
     private fun mutate(action: suspend () -> String) {
@@ -209,7 +213,7 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch {
             try { val message = action(); _state.update { it.copy(message = message) } }
             catch (error: CancellationException) { throw error }
-            catch (error: Exception) { _state.update { it.copy(message = error.message ?: "操作失败，请重试") } }
+            catch (error: Exception) { _state.update { it.copy(message = error.message ?: localizedText.text(R.string.ui_operation_failed_try_again_51d3c)) } }
             finally { _state.update { it.copy(busy = false) }; persistSelection() }
         }
     }
@@ -242,13 +246,13 @@ class HistoryViewModel @Inject constructor(
                 _state.update { it.copy(
                     selectedIds = emptySet(),
                     savedFavoriteId = saved.singleOrNull(),
-                    message = if (saved.isEmpty()) "所选对话暂无完整解答，暂不能收藏" else "已收藏 ${saved.size} 条题目",
+                    message = if (saved.isEmpty()) localizedText.text(R.string.ui_selected_conversations_have_no_complete_solutions_to_save_7bfb5) else localizedText.text(R.string.ui_saved_1_s_questions_aa22e, saved.size),
                 ) }
                 persistSelection()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _state.update { it.copy(message = error.message ?: "收藏失败，请重试") }
+                _state.update { it.copy(message = error.message ?: localizedText.text(R.string.ui_could_not_save_try_again_3a2cb)) }
             } finally {
                 _state.update { it.copy(busy = false) }
             }
@@ -266,11 +270,11 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val renamed = repository.rename(id, title)
-                _state.update { it.copy(message = if (renamed) "标题已修改" else "这个对话已被删除", selectedIds = emptySet()) }
+                _state.update { it.copy(message = if (renamed) localizedText.text(R.string.ui_title_updated_83c2f) else localizedText.text(R.string.ui_this_conversation_was_deleted_f7d12), selectedIds = emptySet()) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                _state.update { it.copy(message = error.message ?: "标题修改失败，请重试") }
+                _state.update { it.copy(message = error.message ?: localizedText.text(R.string.ui_could_not_update_title_try_again_df9d1)) }
             } finally {
                 _state.update { it.copy(busy = false) }
                 persistSelection()
@@ -285,11 +289,11 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repository.setPinned(selected.conversation.id, !selected.conversation.pinned)
-                _state.update { it.copy(selectedIds = emptySet(), message = if (selected.conversation.pinned) "已取消置顶" else "已置顶") }
+                _state.update { it.copy(selectedIds = emptySet(), message = if (selected.conversation.pinned) localizedText.text(R.string.ui_unpinned_64ca5) else localizedText.text(R.string.ui_pinned_d7d97)) }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _state.update { it.copy(message = "置顶修改失败，请重试") }
+                _state.update { it.copy(message = localizedText.text(R.string.ui_could_not_change_pin_try_again_da7cb)) }
             } finally {
                 _state.update { it.copy(busy = false) }
                 persistSelection()
@@ -314,16 +318,16 @@ class HistoryViewModel @Inject constructor(
                     }
                     val kept = selected - deleted
                     val message = when {
-                        kept.isNotEmpty() -> "已删除 ${deleted.size} 个对话；生成中的对话已保留，请停止生成后再删除"
-                        draftFailed -> "已删除 ${deleted.size} 个对话，部分草稿未能清理"
-                        else -> "已删除 ${deleted.size} 个对话"
+                        kept.isNotEmpty() -> localizedText.text(R.string.ui_deleted_1_s_conversations_active_conversations_were_kept_sto_e691f, deleted.size)
+                        draftFailed -> localizedText.text(R.string.ui_deleted_1_s_conversations_some_drafts_could_not_be_removed_b93a8, deleted.size)
+                        else -> localizedText.text(R.string.ui_deleted_1_s_conversations_dc84a, deleted.size)
                     }
                     _state.update { it.copy(selectedIds = (it.selectedIds - deleted).intersect(it.entries.map { entry -> entry.conversation.id }.toSet()), message = message) }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _state.update { it.copy(message = "删除失败，请重试") }
+                _state.update { it.copy(message = localizedText.text(R.string.ui_could_not_delete_try_again_a5eae)) }
             } finally {
                 _state.update { it.copy(busy = false) }
                 persistSelection()

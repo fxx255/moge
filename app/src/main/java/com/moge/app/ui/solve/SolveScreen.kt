@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -32,9 +34,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,7 +84,10 @@ fun SolveScreen(
     onSwipeResumeConversation: (() -> Unit)? = onResumeConversation,
     readViewport: (String) -> ConversationViewport? = { null },
     saveViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
+    pageMotion: ConversationPageMotion = ConversationPageMotion(),
+    ribbonState: ConversationRibbonState? = null,
 ) {
+    val strings = rememberAppStrings()
     val state by vm.uiState.collectAsStateWithLifecycle()
     KeepConversationScreenOn(state.keepScreenOnInConversation)
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
@@ -97,7 +99,7 @@ fun SolveScreen(
     var editingTitle by rememberSaveable(observedId) { mutableStateOf(false) }
     LaunchedEffect(observedId) { onConversationObserved(observedId) }
     LaunchedEffect(state.notice) {
-        if (state.notice != "已保存到题册") savedFavoriteId = null
+        if (state.notice != strings.text(R.string.ui_saved_to_notebook_32992)) savedFavoriteId = null
     }
     var cropQueue by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     val pickPhotos = rememberLauncherForActivityResult(
@@ -140,9 +142,9 @@ fun SolveScreen(
         selection == null && cropQueue.isEmpty() && state.editingQuestionId == null && !editingTitle,
         onLeft = if (existing) onSwipeNotebook else onSwipeResumeConversation,
         onRight = if (existing) onSwipeNewConversation else onSwipeHistory,
-        leftLabel = if (existing) "前往我的题册" else "返回上一个对话",
-        rightLabel = if (existing) "开始新对话" else "前往历史对话") {
-        ConversationScaffold(title = state.title, onBack = onBack,
+        leftLabel = if (existing) strings.text(R.string.ui_go_to_notebook_d61e9) else strings.text(R.string.ui_previous_conversation_bee47),
+        rightLabel = if (existing) strings.text(R.string.ui_start_new_chat_4d374) else strings.text(R.string.ui_go_to_history_b3ca6)) {
+        ConversationScaffold(title = state.title, onBack = onBack, pageMotion = pageMotion, ribbonState = ribbonState,
             conversationMode = state.conversationMode.takeIf { existing },
             newConversationMode = state.conversationMode.takeUnless { existing },
             modeSelectable = state.modeSelectable, onSelectMode = vm::selectConversationMode,
@@ -157,7 +159,7 @@ fun SolveScreen(
             )
         }, footer = {
             NoticeLine(state.notice, vm::dismissNotice,
-                action = savedFavoriteId?.takeIf { state.notice == "已保存到题册" }?.let { id ->
+                action = savedFavoriteId?.takeIf { state.notice == strings.text(R.string.ui_saved_to_notebook_32992) }?.let { id ->
                     { onViewFavorite(id); vm.dismissNotice() }
                 })
             FollowUpBar(state, vm::onInputChange, vm::send, vm::stop,
@@ -179,7 +181,8 @@ fun SolveScreen(
                 },
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
-                onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing)
+                onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing,
+                switchingPage = pageMotion.switching)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,
@@ -189,7 +192,7 @@ fun SolveScreen(
                 onEdit = vm::editQuestion, onSwitchVersion = vm::switchVersion,
                 readBranchViewport = { key -> observedId?.let { readViewport(it + "__path__" + key) } },
                 saveBranchViewport = { key, viewport -> observedId?.let { saveViewport(it + "__path__" + key, viewport) } },
-                conversationId = observedId, initialViewport = initialViewport,
+                conversationId = observedId, initialViewport = initialViewport, active = pageMotion.active,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
                 contentPadding = padding)
         }
@@ -207,25 +210,25 @@ fun SolveScreen(
     exportContent?.let { content -> AnswerExportDialog(content, onDismiss = { exportContent = null }) }
     favorite?.let { target -> FavoriteDialog(target, onDismiss = { favorite = null }, onSaved = { id ->
         savedFavoriteId = id
-        favorite = null; vm.showNotice("已保存到题册")
+        favorite = null; vm.showNotice(strings.text(R.string.ui_saved_to_notebook_32992))
     }) }
     selection?.let { pending ->
         AlertDialog(onDismissRequest = { selection = null },
-            title = { Text(if (pending.collect) "选择收藏的题目" else "选择分享的题目") },
+            title = { Text(if (pending.collect) strings.text(R.string.ui_choose_question_to_save_d5dba) else strings.text(R.string.ui_choose_question_to_share_84103)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("这次追问没有附图，可选择是否带上前面的题目照片。")
+                    Text(strings.text(R.string.ui_this_follow_up_has_no_image_you_can_include_earlier_question_1b9ac))
                     TextButton(onClick = { selection = null; performAction(pending.answer, pending.current, pending.collect) }) {
-                        Text("仅本次问题：" + pending.current.text.take(45))
+                        Text(strings.text(R.string.ui_this_question_only_f03e2) + pending.current.text.take(45))
                     }
                     pending.alternatives.forEach { previous ->
                         TextButton(onClick = {
                             selection = null
                             performAction(pending.answer, withFollowUp(previous, pending.current), pending.collect)
-                        }) { Text("原题与本次追问：" + previous.text.ifBlank { "图片题目" }.take(45)) }
+                        }) { Text(strings.text(R.string.ui_original_question_and_follow_up_89027) + previous.text.ifBlank { strings.text(R.string.ui_photo_question_770f1) }.take(45)) }
                     }
                 }
-            }, confirmButton = {}, dismissButton = { TextButton(onClick = { selection = null }) { Text("取消") } })
+            }, confirmButton = {}, dismissButton = { TextButton(onClick = { selection = null }) { Text(strings.text(R.string.ui_cancel_4d0b4)) } })
     }
 }
 
@@ -237,13 +240,14 @@ internal fun ConversationActions(
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     Row {
         if (existingConversation) {
-            IconButton(onClick = onNewConversation) { Icon(Icons.Outlined.AddComment, "新对话") }
+            IconButton(onClick = onNewConversation) { Icon(Icons.Outlined.AddComment, strings.text(R.string.ui_new_chat_1b7ab)) }
         } else {
-            IconButton(onClick = onOpenHistory) { Icon(Icons.Outlined.History, "历史对话") }
+            IconButton(onClick = onOpenHistory) { Icon(Icons.Outlined.History, strings.text(R.string.ui_history_68387)) }
         }
-        IconButton(onClick = onOpenSettings) { Icon(Icons.Outlined.Settings, "设置") }
+        IconButton(onClick = onOpenSettings) { Icon(Icons.Outlined.Settings, strings.text(R.string.ui_settings_7debf)) }
     }
 }
 
@@ -273,8 +277,11 @@ internal fun SolveList(
     onSwitchVersion: (String) -> Unit = {},
     readBranchViewport: (String) -> ConversationViewport? = { null },
     saveBranchViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
+    active: Boolean = true,
 ) {
-    val listState = rememberLazyListState()
+    val scroll = rememberConversationListScroll(conversationId, state.items, initialViewport,
+        contentPadding, active, saveViewport, readBranchViewport, saveBranchViewport)
+    val listState = scroll.state
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val nativeView = LocalView.current
@@ -282,56 +289,6 @@ internal fun SolveList(
         SelectionScrollHost(scope, density.density) { priority, block -> listState.scroll(priority, block) }
     }
     DisposableEffect(selectionScrollHost) { onDispose { selectionScrollHost.dispose() } }
-    var restored by remember(conversationId) { mutableStateOf(false) }
-    var questionIds by remember(conversationId) { mutableStateOf<List<String>?>(null) }
-    val currentItems by rememberUpdatedState(state.items)
-    val save by rememberUpdatedState(saveViewport)
-    val branchKey = state.items.filterIsInstance<SolveItem.Question>().lastOrNull()?.id.orEmpty()
-    val currentBranchKey by rememberUpdatedState(branchKey)
-    val saveBranch by rememberUpdatedState(saveBranchViewport)
-    var pendingVersion by remember(conversationId) { mutableStateOf<String?>(null) }
-    var pendingOffset by remember(conversationId) { mutableStateOf(0) }
-    var pendingAnchor by remember(conversationId) { mutableStateOf<String?>(null) }
-    val ids = state.items.map { it.id }
-    LaunchedEffect(conversationId, ids, contentPadding) {
-        if (ids.isEmpty()) return@LaunchedEffect
-        val questions = state.items.filterIsInstance<SolveItem.Question>().map { it.id }
-        if (!restored) {
-            // Allow the floating header/composer to report their sizes before restoring a short list.
-            withFrameNanos { }
-            val anchor = initialViewport
-            listState.scrollToItem(anchor?.indexIn(ids) ?: ids.lastIndex, anchor?.offset ?: 0)
-            restored = true
-        } else if (pendingVersion != null && pendingVersion in ids) {
-            val anchor = readBranchViewport(branchKey)
-            val commonIndex = ids.indexOf(pendingAnchor).takeIf { it >= 0 }
-            listState.scrollToItem(anchor?.indexIn(ids) ?: commonIndex ?: ids.indexOf(pendingVersion), anchor?.offset ?: pendingOffset)
-            pendingVersion = null
-        } else if (questionIds != null && questions.any { it !in questionIds.orEmpty() }) {
-            // Only a new question moves the viewport; reopening/history loading/answer refresh do not.
-            listState.animateScrollToItem(ids.lastIndex)
-        }
-        questionIds = questions
-    }
-    fun recordViewport() {
-        if (!restored || pendingVersion != null) return
-        val index = listState.firstVisibleItemIndex
-        currentItems.getOrNull(index)?.let {
-            val viewport = ConversationViewport(it.id, index, listState.firstVisibleItemScrollOffset)
-            save(viewport)
-            saveBranch(currentBranchKey, viewport)
-        }
-    }
-    LaunchedEffect(listState, conversationId, restored) {
-        if (restored) snapshotFlow {
-            (listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset) to
-                (currentItems.getOrNull(listState.firstVisibleItemIndex)?.id to pendingVersion)
-        }
-            .collect { recordViewport() }
-    }
-    DisposableEffect(listState, conversationId) {
-        onDispose { recordViewport() }
-    }
     if (state.items.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(contentPadding).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             if (state.conversationId == null) {
@@ -368,10 +325,7 @@ internal fun SolveList(
                         QuestionCard(item, onOpenImages) else FollowUpNote(item, onOpenImages = onOpenImages,
                         onEdit = onEdit, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos && state.editingQuestionId == null,
                         onSwitchVersion = { target ->
-                            recordViewport()
-                            pendingVersion = target
-                            pendingAnchor = currentItems.getOrNull(listState.firstVisibleItemIndex)?.id
-                            pendingOffset = listState.firstVisibleItemScrollOffset
+                            scroll.beforeVersionSwitch(target)
                             onSwitchVersion(target)
                         })
                     is SolveItem.Answer -> AnswerSheet(item, onRetry, onRegenerate,
@@ -389,12 +343,13 @@ internal fun SolveList(
 
 @Composable
 private fun NoticeLine(notice: String?, onTimeout: () -> Unit, action: (() -> Unit)? = null) {
+    val strings = rememberAppStrings()
     if (notice == null) return
     LaunchedEffect(notice) { delay(4_000); onTimeout() }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(notice, style = MaterialTheme.typography.bodyMedium,
             color = if (action != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             modifier = Modifier.weight(1f).liveRegion())
-        if (action != null) TextButton(onClick = action) { Text("查看题册") }
+        if (action != null) TextButton(onClick = action) { Text(strings.text(R.string.ui_view_notebook_aeb82)) }
     }
 }

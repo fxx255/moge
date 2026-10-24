@@ -15,6 +15,8 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [28], application = android.app.Application::class)
 class NotebookViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private val repository = mockk<NotebookRepository>()
@@ -33,7 +35,7 @@ class NotebookViewModelTest {
         every { history.observeConversation(any()) } returns source
     }
     @After fun teardown() { Dispatchers.resetMain() }
-    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = NotebookViewModel(handle, repository, history)
+    private fun vm(handle: SavedStateHandle = SavedStateHandle()) = NotebookViewModel(handle, repository, history, localizedText = com.moge.app.core.localizedTestText())
 
     @Test fun `category and query restore and changing filters clears selection`() {
         val handle = SavedStateHandle(mapOf("notebookQuery" to "函数", "notebookCategory" to "category"))

@@ -30,7 +30,7 @@ import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class)
+@Config(sdk = [33], application = Application::class, qualifiers = "zh-rCN")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AnswerExportRendererTest {
     private val context: Application get() = RuntimeEnvironment.getApplication()

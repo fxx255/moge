@@ -3,6 +3,7 @@ package com.moge.app.ui.solve
 import android.os.Bundle
 import androidx.lifecycle.SavedStateHandle
 
+/** Offset follows LazyListState: negative values anchor a message below the reading area's top. */
 data class ConversationViewport(val messageId: String, val index: Int, val offset: Int) {
     fun indexIn(messageIds: List<String>): Int =
         messageIds.indexOf(messageId).takeIf { it >= 0 }
@@ -18,11 +19,12 @@ internal class ConversationViewports(private val savedState: SavedStateHandle) {
 
     fun save(id: String, viewport: ConversationViewport) {
         if (id.isBlank() || viewport.messageId.isBlank()) return
+        if (read(id) == viewport) return
         val entries = Bundle(savedState.get<Bundle>(KEY) ?: Bundle())
         entries.putBundle(id, Bundle().apply {
             putString("message", viewport.messageId)
             putInt("index", viewport.index.coerceAtLeast(0))
-            putInt("offset", viewport.offset.coerceAtLeast(0))
+            putInt("offset", viewport.offset)
         })
         // Bound the saved-state payload; anchors are small and contain no answer text or photos.
         val recent = savedState.get<ArrayList<String>>(RECENT) ?: arrayListOf()

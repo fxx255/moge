@@ -1,5 +1,7 @@
 package com.moge.app.ui.markdown
 
+import com.moge.app.R
+
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.ClipData
@@ -70,8 +72,13 @@ internal fun createMarkdownTextView(
     fontSizePx: Float? = null,
     selectionScrollHost: SelectionScrollHost? = null,
     selectionSurfaceColor: Int = android.graphics.Color.WHITE,
+    bodyTypeface: android.graphics.Typeface = android.graphics.Typeface.DEFAULT,
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
+        init {
+            typeface = bodyTypeface
+            textLocales = context.resources.configuration.locales
+        }
         @Volatile override var renderSource: MarkdownRenderSource? = null
         override var onTextTap: (() -> Unit)? = null
         private var adjustingSelection = false
@@ -158,7 +165,7 @@ internal fun createMarkdownTextView(
             if (id == android.R.id.copy && hasSelection()) {
                 val selected = selectedMarkdownText(text, selectionStart, selectionEnd, delimitFormulas = true)
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("选中的文字", selected))
+                clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.ui_selected_text_721d6), selected))
                 if (conversationSelection?.selecting == true) conversationSelection.finish()
                 else selectionActionMode?.finish()
                     ?: (text as? Spannable)?.let { Selection.setSelection(it, selectionEnd) }
@@ -326,6 +333,7 @@ internal fun createMarkdownTextView(
                             latex,
                             error.javaClass.simpleName,
                             maxWidthPx = source?.formulaWidthPx ?: (fallbackSizePx * 28).toInt(),
+                            errorTitle = context.getString(R.string.ui_could_not_render_formula_1_s_07588, error.javaClass.simpleName),
                         )
                     }
                 },
@@ -399,7 +407,7 @@ internal fun renderMarkdown(
         appendRenderErrorLog(view.context, rendered, error, originalMarkdown = content)
         view.text = buildString {
             append(content)
-            append("\n\n[部分内容无法渲染，已回退为纯文本]")
+            append(view.context.getString(R.string.ui_n_n_some_content_is_shown_as_plain_text_because_rendering_fa_9b794))
         }
     }
 }
@@ -416,8 +424,9 @@ internal class LatexFallbackDrawable(
     val rawLatex: String,
     errorType: String? = null,
     maxWidthPx: Int = (textSizePx * 28).toInt(),
+    errorTitle: String? = null,
 ) : Drawable() {
-    private val title = if (errorType != null) "⚠ 公式无法渲染 ($errorType)" else "⚠ 公式无法渲染"
+    private val title = errorTitle ?: if (errorType != null) "⚠ 公式无法渲染 ($errorType)" else "⚠ 公式无法渲染"
     private val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x1F000000
         style = Paint.Style.FILL
@@ -515,14 +524,4 @@ internal fun formulaMaxWidthPx(view: TextView, measuredWidthPx: Int): Int {
     val padding = (metrics.density * 24).toInt()
     return (measuredWidthPx - view.totalPaddingLeft - view.totalPaddingRight - padding)
         .coerceAtLeast((metrics.density * 120).toInt())
-}
-
-/** 优先用 JLatexMath 真实测量公式宽度；测量失败时按字符数估算。 */
-internal fun formulaWidthMeasurer(view: TextView): (String) -> Int = formulaWidthMeasurer(view.textSize)
-
-internal fun formulaWidthMeasurer(textSizePx: Float): (String) -> Int {
-    return { latex ->
-        runCatching { JLatexMathDrawable.builder(latex).textSize(textSizePx).build().intrinsicWidth }
-            .getOrDefault((latex.length * textSizePx * 0.62f).toInt())
-    }
 }

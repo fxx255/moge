@@ -1,19 +1,17 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import com.moge.app.ui.components.excludePageSwipe
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -21,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.moge.app.ui.theme.LocalAppTypeface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -38,14 +37,19 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.ui.markdown.MARKDOWN_TEXT_SIZE_SP
 import com.moge.app.ui.markdown.LocalSelectionScrollHost
 import com.moge.app.ui.markdown.createMarkdownTextView
-import com.moge.app.ui.markdown.formulaWidthMeasurer
 import com.moge.app.ui.markdown.renderMarkdownIfChanged
 import com.moge.app.ui.markdown.setMarkdownTextTap
 
 /** Both first questions and follow-ups use the same native math path. */
 @Composable
-internal fun UserQuestionText(source: String, color: Color = MaterialTheme.colorScheme.onSurface, onClick: (() -> Unit)? = null) {
-    val click = if (onClick != null) Modifier.clickable(onClickLabel = "修改输入", onClick = onClick) else Modifier
+internal fun UserQuestionText(
+    source: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    showSourceCopy: Boolean = true,
+    onClick: (() -> Unit)? = null,
+) {
+    val strings = rememberAppStrings()
+    val click = if (onClick != null) Modifier.clickable(onClickLabel = strings.text(R.string.ui_edit_input_695fa), onClick = onClick) else Modifier
     val math = remember(source) { userMathSource(source) }
     if (math == null) {
         SelectionContainer {
@@ -57,13 +61,15 @@ internal fun UserQuestionText(source: String, color: Color = MaterialTheme.color
                 Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
             }
             else UserMathBody(math, color, onClick)
-            val context = LocalContext.current
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                IconButton(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("题目原文", source))
-                }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制题目原文", tint = color)
+            if (showSourceCopy) {
+                val context = LocalContext.current
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    IconButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText(strings.text(R.string.ui_original_question_d63c4), source))
+                    }) {
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = strings.text(R.string.ui_copy_original_question_33996), tint = color)
+                    }
                 }
             }
         }
@@ -72,8 +78,8 @@ internal fun UserQuestionText(source: String, color: Color = MaterialTheme.color
 
 /**
  * Reuse the existing native view, renderer, render cache and failure fallback.
- * Measure formulas with its own width measurer, then give the scrollable view
- * enough width instead of clipping equations to the input/card width.
+ * Use the bubble's actual width so shared formula wrapping and drawable fitting
+ * keep the entire equation visible, including unsplittable integral products.
  */
 @Composable
 private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Unit)?) {
@@ -83,41 +89,31 @@ private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Uni
     val selectionScrollHost = LocalSelectionScrollHost.current
     val context = LocalContext.current
     val density = LocalDensity.current
+    val bodyTypeface = LocalAppTypeface.current
+    val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
     val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
     BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds()) {
         val viewportWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        key(textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
+        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
             val view = remember {
                 createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
-                    selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor)
+                    selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface)
             }
-            val renderWidthPx = remember(math, viewportWidthPx) {
-                val measure = formulaWidthMeasurer(view)
-                // The shared measurer uses resource sp; account for Compose font-scale overrides too.
-                val scale = fontSizePx / (MARKDOWN_TEXT_SIZE_SP * view.resources.displayMetrics.scaledDensity)
-                val formulaWidth = math.formulas.maxOfOrNull { (measure(it) * scale).toInt() } ?: 0
-                val padding = with(density) { 32.dp.roundToPx() }
-                (formulaWidth.toLong() + padding)
-                    .coerceIn(viewportWidthPx.toLong(), maxOf(viewportWidthPx, with(density) { 4096.dp.roundToPx() }).toLong())
-                    .toInt()
-            }
-            LaunchedEffect(view, math.renderSource, renderWidthPx) {
+            LaunchedEffect(view, math.renderSource, viewportWidthPx) {
                 withFrameNanos { }
                 view.requestLayout()
             }
-            Box(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).clipToBounds()) {
-                AndroidView(
-                    modifier = Modifier.width(with(density) { renderWidthPx.toDp() }),
-                    factory = { view },
-                    update = {
-                        it.contentDescription = math.renderSource
-                        // A long press or a tap ending an existing selection is a selection
-                        // gesture; only an ordinary tap should start editing the old input.
-                        setMarkdownTextTap(it, onClick)
-                        renderMarkdownIfChanged(it, math.renderSource, renderWidthPx, textColor, linkColor)
-                    },
-                )
-            }
+            AndroidView(
+                modifier = Modifier.fillMaxWidth(),
+                factory = { view },
+                update = {
+                    it.contentDescription = math.renderSource
+                    // A long press or a tap ending an existing selection is a selection
+                    // gesture; only an ordinary tap should start editing the old input.
+                    setMarkdownTextTap(it, onClick)
+                    renderMarkdownIfChanged(it, math.renderSource, viewportWidthPx, textColor, linkColor)
+                },
+            )
         }
     }
 }

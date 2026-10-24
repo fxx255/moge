@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -43,6 +46,7 @@ internal fun PaperExplanationFold(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     val paper = MogeTheme.paper
     val motion = MogeTheme.motionEnabled
     val progress by animateFloatAsState(
@@ -69,12 +73,12 @@ internal fun PaperExplanationFold(
                     drawLine(paper.cardStroke.copy(alpha = 0.4f), Offset(size.width - fold, 0f),
                         Offset(size.width, fold), 1.dp.toPx())
                 }
-                .clickable(role = Role.Button, onClickLabel = if (expanded) "收起解答" else "展开解答", onClick = onToggle)
-                .semantics { stateDescription = if (expanded) "解答已展开" else "解答已折叠" }
+                .clickable(role = Role.Button, onClickLabel = if (expanded) strings.text(R.string.ui_collapse_solution_1ed86) else strings.text(R.string.ui_expand_solution_0b732), onClick = onToggle)
+                .semantics { stateDescription = if (expanded) strings.text(R.string.ui_solution_expanded_fdd1a) else strings.text(R.string.ui_solution_collapsed_9d587) }
                 .padding(start = 8.dp, end = 32.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (expanded) "收起解答" else "展开解答", style = MaterialTheme.typography.labelLarge,
+            Text(if (expanded) strings.text(R.string.ui_collapse_solution_1ed86) else strings.text(R.string.ui_expand_solution_0b732), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
             Icon(Icons.Outlined.ExpandMore, null, Modifier.rotate(180f * progress), tint = MaterialTheme.colorScheme.primary)
         }

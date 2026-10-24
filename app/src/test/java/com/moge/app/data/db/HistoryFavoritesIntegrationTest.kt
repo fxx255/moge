@@ -110,7 +110,7 @@ class HistoryFavoritesIntegrationTest {
             assertEquals(answer.imagePaths, visible.figurePaths)
             val handle = SavedStateHandle(mapOf("notebookEntryId" to id,
                 "notebookQuery" to "unrelated old query", "notebookCategory" to staleCategory.id))
-            val reader = NotebookViewModel(handle, notebook, history)
+            val reader = NotebookViewModel(handle, notebook, history, localizedText = com.moge.app.core.localizedTestText())
             viewModels.put("notebook", reader)
             val revealed = reader.state.first { !it.loading && it.detailEntry != null }
             assertEquals(id, revealed.openEntryId)

@@ -73,9 +73,34 @@ class CropViewportStateTest {
             val zoom = state.zoom
             state.transform(1.5f, Offset(30f, -20f), state.cropRect.center)
             assertTrue(state.zoom > zoom)
-            state.reset(IntSize(image.height, image.width))
-            assertTrue(isWholePhotoSelected(IntSize(image.height, image.width), state.viewport, state.framing))
+            val beforeRotation = pixels()
+            state.rotateCounterclockwise()
+            val rotatedImage = IntSize(image.height, image.width)
+            assertEquals(PixelCrop(beforeRotation.top, image.width - beforeRotation.left - beforeRotation.width,
+                beforeRotation.height, beforeRotation.width), cropBoundsInSource(rotatedImage, rotatedImage,
+                state.viewport, state.zoom, state.imageOffset, state.cropRect))
         }
+    }
+
+    @Test fun `rotation interrupts fitting and never resumes an obsolete frame adjustment`() {
+        mount()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle {
+            state.drag(CropDragMode.BOTTOM_RIGHT, Offset(-250f, -400f), 24f)
+            state.finishGesture(true)
+        }
+        compose.mainClock.advanceTimeBy(96)
+        compose.runOnIdle { state.rotateCounterclockwise() }
+        val rotated = state.framing
+        compose.mainClock.advanceTimeBy(400)
+        compose.runOnIdle {
+            assertEquals(rotated, state.framing)
+            state.beginGesture()
+            state.finishGesture(true)
+        }
+        compose.mainClock.advanceTimeBy(400)
+        compose.runOnIdle { assertEquals(rotated, state.framing) }
+        compose.mainClock.autoAdvance = true
     }
 
     @Test fun `deep auto fit can pinch out and return and over shrinking keeps the whole photo valid`() {

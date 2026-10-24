@@ -1,5 +1,7 @@
 package com.moge.app.ui.markdown
 
+import com.moge.app.R
+
 import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Color
@@ -324,7 +326,7 @@ internal class MarkdownSelectionController(
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         private fun updateRoleAppearance() {
-            contentDescription = if (start) "选区起点" else "选区终点"
+            contentDescription = if (start) view.context.getString(R.string.ui_selection_start_4fc2b) else view.context.getString(R.string.ui_selection_end_08e19)
             invalidate()
         }
         override fun onDraw(canvas: Canvas) {

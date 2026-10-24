@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.core.LocalizedText
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -112,6 +115,7 @@ class SolveViewModel @Inject constructor(
     private val captureStore: CaptureStore,
     private val storedFigureRepair: StoredFigureRepair,
     private val photoPreparation: QuestionPhotoPreparation,
+    private val localizedText: LocalizedText,
 ) : ViewModel() {
 
     /** 当前会话；null = 还没发出第一问的新题目。建好后写回 [savedState]，旋转/重建后仍指向它。 */
@@ -297,12 +301,12 @@ class SolveViewModel @Inject constructor(
         val id = conversationId.value ?: return false
         return try {
             conversationRepository.rename(id, title).also { renamed ->
-                if (!renamed) notice.value = "这个对话已被删除"
+                if (!renamed) notice.value = localizedText.text(R.string.ui_this_conversation_was_deleted_f7d12)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            notice.value = error.message ?: "主题修改失败，请重试"
+            notice.value = error.message ?: localizedText.text(R.string.ui_could_not_update_topic_try_again_e210b)
             false
         }
     }
@@ -364,7 +368,7 @@ class SolveViewModel @Inject constructor(
                 showDraft(draft)
                 notice.value = null
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { notice.value = e.message ?: "原输入没能读取，请重试" }
+            catch (e: Exception) { notice.value = e.message ?: localizedText.text(R.string.ui_could_not_load_original_input_try_again_2efa5) }
             finally { switchingBranch.value = false }
         }
     }
@@ -384,7 +388,7 @@ class SolveViewModel @Inject constructor(
                 draftSlot = next
                 showDraft(draft)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { notice.value = e.message ?: "编辑草稿没能关闭，请重试" }
+            catch (e: Exception) { notice.value = e.message ?: localizedText.text(R.string.ui_could_not_close_edit_draft_try_again_54494) }
             finally { switchingBranch.value = false }
         }
     }
@@ -404,7 +408,7 @@ class SolveViewModel @Inject constructor(
                 showDraft(draft)
                 notice.value = null
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { notice.value = e.message ?: "版本没能切换，请重试" }
+            catch (e: Exception) { notice.value = e.message ?: localizedText.text(R.string.ui_could_not_switch_version_try_again_25270) }
             finally { switchingBranch.value = false }
         }
     }
@@ -421,7 +425,7 @@ class SolveViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                notice.value = e.message ?: "文件导入失败"
+                notice.value = e.message ?: localizedText.text(R.string.ui_document_import_failed_cce10)
             } finally {
                 pendingPhotoPastes--
                 importingPhotos.value = pendingPhotoPastes > 0
@@ -435,7 +439,7 @@ class SolveViewModel @Inject constructor(
             val remaining = com.moge.app.data.document.DocumentStore.MAX_ATTACHMENTS - documents.value.size
             documents.value = (documents.value + paths.take(remaining.coerceAtLeast(0))).distinct()
             saveDraft()
-            if (paths.size > remaining) notice.value = "每次最多添加 8 个文档"
+            if (paths.size > remaining) notice.value = localizedText.text(R.string.ui_up_to_8_documents_at_a_time_a5950)
         }
     }
 
@@ -463,7 +467,7 @@ class SolveViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                notice.value = "暂时无法读取会话模式，请稍后再试"
+                notice.value = localizedText.text(R.string.ui_could_not_read_conversation_mode_try_again_later_801de)
             }
         }
     }
@@ -473,7 +477,7 @@ class SolveViewModel @Inject constructor(
         if (uris.isEmpty() || switchingBranch.value || submitting.value) return
         val room = CaptureStore.MAX_PHOTOS - photos.value.size
         if (room <= 0) {
-            notice.value = "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片"
+            notice.value = localizedText.text(R.string.ui_up_to_1_s_photos_per_question_5ed3f, CaptureStore.MAX_PHOTOS)
             return
         }
         pendingPhotoPastes++
@@ -485,7 +489,7 @@ class SolveViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                notice.value = e.message ?: "照片导入失败"
+                notice.value = e.message ?: localizedText.text(R.string.ui_could_not_import_photo_72b85)
             } finally {
                 pendingPhotoPastes--
                 importingPhotos.value = pendingPhotoPastes > 0
@@ -497,7 +501,7 @@ class SolveViewModel @Inject constructor(
     fun pasteImages(uris: List<android.net.Uri>) {
         if (uris.isEmpty() || switchingBranch.value) return
         if (submitting.value) {
-            notice.value = "正在发送，请稍后再粘贴图片"
+            notice.value = localizedText.text(R.string.ui_sending_paste_images_after_it_finishes_61fac)
             return
         }
         pendingPhotoPastes++
@@ -529,8 +533,8 @@ class SolveViewModel @Inject constructor(
                         }
                     }
                     if (failures > 0 || overLimit) notice.value = listOfNotNull(
-                        if (failures > 0) "有 $failures 张图片未能粘贴，请重新复制后再试" else null,
-                        if (overLimit) "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入" else null,
+                        if (failures > 0) localizedText.text(R.string.ui_could_not_paste_1_s_images_copy_them_again_a6645, failures) else null,
+                        if (overLimit) localizedText.text(R.string.ui_up_to_1_s_photos_per_question_extras_were_not_added_a6a5d, CaptureStore.MAX_PHOTOS) else null,
                     ).joinToString("；")
                 }
             } finally {
@@ -563,10 +567,10 @@ class SolveViewModel @Inject constructor(
         if (paths.isEmpty()) return
         val room = CaptureStore.MAX_PHOTOS - photos.value.size
         if (room <= 0) {
-            notice.value = "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片"
+            notice.value = localizedText.text(R.string.ui_up_to_1_s_photos_per_question_5ed3f, CaptureStore.MAX_PHOTOS)
             return
         }
-        if (paths.size > room) notice.value = "一道题最多 ${CaptureStore.MAX_PHOTOS} 张照片，多出的没有加入"
+        if (paths.size > room) notice.value = localizedText.text(R.string.ui_up_to_1_s_photos_per_question_extras_were_not_added_a6a5d, CaptureStore.MAX_PHOTOS)
         val added = paths.take(room)
         PhotoArrivals.markNew(added)
         photos.value = photos.value + added
@@ -610,7 +614,7 @@ class SolveViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                notice.value = "草稿没能保存到本地，退出前请先发送"
+                notice.value = localizedText.text(R.string.ui_could_not_save_draft_send_it_before_leaving_abaf0)
             }
         }
     }
@@ -644,9 +648,9 @@ class SolveViewModel @Inject constructor(
         val active = generationManager.active.value
         if (active.isRunning) {
             notice.value = if (active.conversationId == conversationId.value) {
-                "当前回答还在生成，等它结束或先停止"
+                localizedText.text(R.string.ui_this_answer_is_generating_wait_or_stop_it_first_6beb2)
             } else {
-                "另一段对话正在生成回答，请等它结束后再发送"
+                localizedText.text(R.string.ui_another_conversation_is_generating_wait_before_sending_efeed)
             }
             return
         }
@@ -686,12 +690,12 @@ class SolveViewModel @Inject constructor(
         // 缺图 / 空图绝不静默降级成纯文本：在建会话之前就拦下，输入框和照片都保留。
         val pinned = try {
             draftStore.persistAttachments(attachments).also {
-                documentPaths.forEach { path -> require(File(path).isFile && File(path).length() > 0) { "原文档已不存在" } }
+                documentPaths.forEach { path -> require(File(path).isFile && File(path).length() > 0) { localizedText.text(R.string.ui_original_document_is_missing_a8244) } }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            notice.value = "有附件读不出来了，请重新添加后发送"
+            notice.value = localizedText.text(R.string.ui_some_attachments_cannot_be_read_add_them_again_6661a)
             return
         }
         // 用户可能从历史页删除了当前对话，再返回仍保留草稿的页面。
@@ -701,20 +705,20 @@ class SolveViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            notice.value = "对话没能读取，内容已保留在输入框，请重试"
+            notice.value = localizedText.text(R.string.ui_could_not_load_conversation_your_input_is_kept_try_again_0f5c4)
             return
         }
         val created = existingId == null
         val targetId = existingId ?: try {
             // 纯照片题没有文字：先用「图片题目」占位，首次有效回答后由模型概括的主题替换。
             conversationRepository.createConversation(text.ifBlank {
-                if (documentPaths.isNotEmpty()) "文档分析"
-                else if (conversationModeAtSend == ConversationMode.CHAT) "图片对话" else PHOTO_PLACEHOLDER_TITLE
+                if (documentPaths.isNotEmpty()) localizedText.text(R.string.ui_document_analysis_7ddd2)
+                else if (conversationModeAtSend == ConversationMode.CHAT) localizedText.text(R.string.ui_image_conversation_9bc60) else PHOTO_PLACEHOLDER_TITLE
             }, mode, conversationModeAtSend).id
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            notice.value = "对话没能保存到本地（${e.message ?: "存储异常"}），内容已保留在输入框"
+            notice.value = localizedText.text(R.string.ui_could_not_save_conversation_1_s_your_input_is_kept_5c45a, e.message ?: localizedText.text(R.string.ui_storage_error_06f62))
             return
         }
         try {
@@ -731,18 +735,18 @@ class SolveViewModel @Inject constructor(
             )
         } catch (e: GenerationManager.AlreadyRunningException) {
             if (created) discardQuietly(targetId)
-            notice.value = "另一段对话正在生成回答，请等它结束后再发送"
+            notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_wait_before_sending_efeed)
             return
         } catch (e: ModelException) {
             if (created) discardQuietly(targetId)
-            notice.value = e.message ?: "模型配置不可用，请检查设置后重新发送"
+            notice.value = e.message ?: localizedText.text(R.string.ui_model_unavailable_check_settings_and_resend_d40bc)
             return
         } catch (e: CancellationException) {
             if (created) withContext(NonCancellable) { discardQuietly(targetId) }
             throw e
         } catch (e: Exception) {
             if (created) discardQuietly(targetId)
-            notice.value = "这一轮没能保存到本地（${e.message ?: "存储异常"}），内容已保留在输入框"
+            notice.value = localizedText.text(R.string.ui_could_not_save_this_turn_1_s_your_input_is_kept_893de, e.message ?: localizedText.text(R.string.ui_storage_error_06f62))
             return
         }
         if (created) {
@@ -787,7 +791,7 @@ class SolveViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            notice.value = "草稿没能清理，下次打开时可能还会出现"
+            notice.value = localizedText.text(R.string.ui_draft_could_not_be_removed_and_may_reappear_next_time_ecfaf)
         }
     }
 
@@ -822,7 +826,7 @@ class SolveViewModel @Inject constructor(
     private fun recoverInterrupted(requestId: String, continueAnswer: Boolean) {
         if (submitting.value) return
         if (generationManager.active.value.isRunning) {
-            notice.value = "另一段对话正在生成回答，请稍后再重发"
+            notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_resend_later_8d404)
             return
         }
         submitting.value = true
@@ -834,28 +838,28 @@ class SolveViewModel @Inject constructor(
             try {
                 val existing = requestRepository.get(requestId)
                 if (existing == null || existing.conversationId != ownerConversation) {
-                    notice.value = "这条记录已经不在了"
+                    notice.value = localizedText.text(R.string.ui_this_record_no_longer_exists_eef88)
                     return@launch
                 }
                 if (RequestStatus.fromName(existing.status) != RequestStatus.INTERRUPTED) {
                     return@launch // 已被别处重发或已完成：列表会随 Room 自己刷新
                 }
                 if (continueAnswer && existing.partialText.isBlank()) {
-                    notice.value = "还没有可接续的回答，请选择重新发送"
+                    notice.value = localizedText.text(R.string.ui_no_answer_to_continue_choose_resend_802b8)
                     return@launch
                 }
                 // 用户已经追问过：这条中断保留为历史记录，不插队重放。
                 val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
-                    notice.value = "你已经发过新的问题了，这条中断已保留为历史记录"
+                    notice.value = localizedText.text(R.string.ui_a_newer_question_was_sent_this_interruption_is_kept_in_histo_e19d5)
                     return@launch
                 }
                 // 缺图绝不静默降级成纯文本：明确提示，不发网络。
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
-                    notice.value = "有 $missing 张原图片已被清理，无法重发，请重新添加图片"
+                    notice.value = localizedText.text(R.string.ui_1_s_original_images_are_missing_add_them_again_to_resend_637a0, missing)
                     return@launch
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments).copy(
@@ -872,11 +876,11 @@ class SolveViewModel @Inject constructor(
                     }
                 generationManager.submitRetry(requestId, attempt)
             } catch (e: GenerationManager.AlreadyRunningException) {
-                notice.value = "另一段对话正在生成回答，请稍后再重发"
+                notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_resend_later_8d404)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                notice.value = e.message ?: if (continueAnswer) "接续失败" else "重发失败"
+                notice.value = e.message ?: if (continueAnswer) localizedText.text(R.string.ui_could_not_continue_a6e8b) else localizedText.text(R.string.ui_could_not_resend_ad9dd)
             } finally {
                 rollbackRejectedRetry(requestId, newAttempt)
                 submitting.value = false
@@ -895,7 +899,7 @@ class SolveViewModel @Inject constructor(
     fun regenerate(requestId: String) {
         if (submitting.value) return
         if (generationManager.active.value.isRunning) {
-            notice.value = "另一段对话正在生成回答，请稍后再重新生成"
+            notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_regenerate_later_caa91)
             return
         }
         submitting.value = true
@@ -906,20 +910,20 @@ class SolveViewModel @Inject constructor(
             try {
                 val existing = requestRepository.get(requestId)
                 if (existing == null || existing.conversationId != ownerConversation) {
-                    notice.value = "这条记录已经不在了"
+                    notice.value = localizedText.text(R.string.ui_this_record_no_longer_exists_eef88)
                     return@launch
                 }
                 if (RequestStatus.fromName(existing.status)?.isInFlight != false) return@launch
                 val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
-                    notice.value = "你已经发过新的问题了，只能重新生成最后一个回答"
+                    notice.value = localizedText.text(R.string.ui_a_newer_question_was_sent_only_the_last_answer_can_be_regene_98653)
                     return@launch
                 }
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
-                    notice.value = "有 $missing 张原图片已被清理，无法重新生成，请重新添加图片"
+                    notice.value = localizedText.text(R.string.ui_1_s_original_images_are_missing_add_them_again_to_regenerate_9a6d8, missing)
                     return@launch
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments)
@@ -932,11 +936,11 @@ class SolveViewModel @Inject constructor(
                     }
                 generationManager.submitRetry(requestId, attempt)
             } catch (e: GenerationManager.AlreadyRunningException) {
-                notice.value = "另一段对话正在生成回答，请稍后再重新生成"
+                notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_regenerate_later_caa91)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                notice.value = e.message ?: "重新生成失败"
+                notice.value = e.message ?: localizedText.text(R.string.ui_could_not_regenerate_49963)
             } finally {
                 rollbackRejectedRetry(requestId, newAttempt)
                 submitting.value = false
@@ -966,7 +970,7 @@ class SolveViewModel @Inject constructor(
                     attemptId = attemptId,
                     partialText = record.partialText,
                     kind = FailureKind.NETWORK,
-                    message = "重发没能开始，可以再点一次重新发送",
+                    message = localizedText.text(R.string.ui_resend_did_not_start_tap_resend_again_85f49),
                 )
             }
         }

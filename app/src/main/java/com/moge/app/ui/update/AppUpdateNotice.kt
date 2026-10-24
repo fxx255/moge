@@ -1,5 +1,8 @@
 package com.moge.app.ui.update
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +19,7 @@ import com.moge.app.data.update.UpdatePhase
 /** Place once at MogeNavHost's root; no install or permission flow runs on launch. */
 @Composable
 fun AppUpdateNotice() {
+    val strings = rememberAppStrings()
     val viewModel: AppUpdateViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val noticeVersion by viewModel.startupNoticeVersion.collectAsStateWithLifecycle()
@@ -26,13 +30,13 @@ fun AppUpdateNotice() {
         noticeVersion == state.candidate?.manifest?.versionCode) {
         AlertDialog(
             onDismissRequest = viewModel::dismissStartupNotice,
-            title = { Text("发现新版本") },
-            text = { Text("墨格 ${state.candidate?.manifest?.versionName.orEmpty()} 已可更新。") },
+            title = { Text(strings.text(R.string.ui_update_available_01047)) },
+            text = { Text(strings.text(R.string.ui_moge_1_s_is_available_fdc10, state.candidate?.manifest?.versionName.orEmpty())) },
             confirmButton = { TextButton(onClick = {
                 viewModel.dismissStartupNotice()
                 showAbout = true
-            }) { Text("查看更新") } },
-            dismissButton = { TextButton(onClick = viewModel::dismissStartupNotice) { Text("稍后") } },
+            }) { Text(strings.text(R.string.ui_view_update_dfc1a)) } },
+            dismissButton = { TextButton(onClick = viewModel::dismissStartupNotice) { Text(strings.text(R.string.ui_later_479fc)) } },
         )
     }
 }

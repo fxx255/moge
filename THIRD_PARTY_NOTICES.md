@@ -15,6 +15,14 @@ The unchanged upstream notices are preserved in:
 
 Upstream library and font source, including detailed font licenses, is available in the linked project. Moge does not modify this dependency.
 
+## Bundled interface fonts
+
+The optional interface fonts are distributed under the SIL Open Font License 1.1. Their original font files and license texts are included in the app:
+
+- [LXGW WenKai](https://github.com/lxgw/LxgwWenKai): [license](app/src/main/assets/font_licenses/wenkai.txt).
+- [Noto Serif CJK](https://github.com/notofonts/noto-cjk), from the Source Han Serif / Noto Serif CJK family: [license](app/src/main/assets/font_licenses/source_serif.txt).
+- [Resource Han Rounded](https://github.com/CyanoHao/Resource-Han-Rounded): [license](app/src/main/assets/font_licenses/rounded.txt).
+
 ## Other projects
 
 - [AndroidX](https://android.googlesource.com/platform/frameworks/support/) and [Dagger](https://github.com/google/dagger)

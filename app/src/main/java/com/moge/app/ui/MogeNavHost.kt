@@ -30,6 +30,8 @@ import com.moge.app.ui.history.HistoryScreen
 import com.moge.app.ui.settings.SettingsScreen
 import com.moge.app.ui.solve.SolveScreen
 import com.moge.app.ui.solve.SolveViewModel
+import com.moge.app.ui.solve.ConversationRibbonState
+import com.moge.app.ui.solve.conversationPageMotion
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.update.AppUpdateNotice
 import com.moge.app.ui.components.paperPageEnter
@@ -107,6 +109,7 @@ fun MogeNavHost(
     val nav = rememberNavController()
     val navigation: ConversationNavigationViewModel = hiltViewModel()
     val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
+    val conversationRibbon = remember { ConversationRibbonState() }
     var swipeTransition by remember { mutableStateOf<SwipeTransition?>(null) }
     var openedCard by remember { mutableStateOf<Pair<String, String>?>(null) }
     val duration = if (MogeTheme.motionEnabled) 240 else 0
@@ -146,28 +149,28 @@ fun MogeNavHost(
     NavHost(navController = nav, startDestination = Routes.solve(),
         enterTransition = {
             val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-            if (duration == 0) EnterTransition.None
+            if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) EnterTransition.None
             else if (direction != 0) slideInHorizontally(tween(duration)) { -direction * it }
             else if (openedCard == (initialState.id to targetState.id)) paperPageEnter(true)
             else EnterTransition.None
         },
         exitTransition = {
             val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-            if (duration == 0) ExitTransition.None
+            if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) ExitTransition.None
             else if (direction != 0) slideOutHorizontally(tween(duration)) { direction * it }
             else if (openedCard == (targetState.id to initialState.id)) paperPageExit(true)
             else ExitTransition.None
         },
         popEnterTransition = {
             val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-            if (duration == 0) EnterTransition.None
+            if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) EnterTransition.None
             else if (direction != 0) slideInHorizontally(tween(duration)) { -direction * it }
             else if (openedCard == (initialState.id to targetState.id)) paperPageEnter(true)
             else EnterTransition.None
         },
         popExitTransition = {
             val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-            if (duration == 0) ExitTransition.None
+            if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) ExitTransition.None
             else if (direction != 0) slideOutHorizontally(tween(duration)) { direction * it }
             else if (openedCard == (targetState.id to initialState.id)) paperPageExit(true)
             else ExitTransition.None
@@ -228,6 +231,11 @@ fun MogeNavHost(
                 }
             }
             SolveScreen(
+                ribbonState = conversationRibbon,
+                pageMotion = conversationPageMotion(
+                    direction = swipeTransition?.takeIf { entry.id == it.from || entry.id == it.to }?.direction ?: 0,
+                    stationaryComposer = swipeTransition?.stationaryComposer == true,
+                ),
                 conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
                 onBack = if (nav.previousBackStackEntry != null) back else null,
                 onOpenSettings = { ordinary(Routes.SETTINGS) },

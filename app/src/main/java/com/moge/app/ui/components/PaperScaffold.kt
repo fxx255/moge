@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +46,7 @@ fun PaperScaffold(
     actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.(PaddingValues) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     val density = LocalDensity.current
     var headerPixels by remember { mutableIntStateOf(0) }
     val header: @Composable () -> Unit = {
@@ -50,7 +54,7 @@ fun PaperScaffold(
             .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (onBack != null) IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.text(R.string.ui_back_11d02))
             } else Box(Modifier.padding(start = 12.dp))
             Box(Modifier.weight(1f)) { HighlightedTitle(title, maxLines = 1) }
             actions()

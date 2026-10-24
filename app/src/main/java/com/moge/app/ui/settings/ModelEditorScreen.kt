@@ -1,5 +1,8 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +63,7 @@ fun ModelEditorScreen(
     vm: SettingsViewModel,
     onClose: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     val editor by vm.editor.collectAsStateWithLifecycle()
     val key = profile?.id
     var name by rememberSaveable(key) { mutableStateOf(profile?.name.orEmpty()) }
@@ -82,7 +86,7 @@ fun ModelEditorScreen(
     fun draft() = ModelProfileDraft(name, baseUrl, model, apiKey, vision, when (apiProtocol) { AiApiProtocol.CHAT_COMPLETIONS -> AiSearchProtocol.CHAT_COMPLETIONS; AiApiProtocol.RESPONSES -> AiSearchProtocol.RESPONSES }, effort, apiProtocol, searchEnabled)
 
     PaperScaffold(
-        title = if (profile == null) "添加模型" else "编辑模型",
+        title = if (profile == null) strings.text(R.string.ui_add_model_532a6) else strings.text(R.string.ui_edit_model_29e31),
         onBack = onClose,
     ) {
         Column(
@@ -94,9 +98,9 @@ fun ModelEditorScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SettingsSection("接口") {
+            SettingsSection(strings.text(R.string.ui_api_8b48e)) {
                 if (profile == null) {
-                    Hint("常用服务：点一下填入地址")
+                    Hint(strings.text(R.string.ui_tap_a_provider_to_fill_its_address_0c3ae))
                     ChipRow {
                         PROVIDER_PRESETS.forEach { preset ->
                             FilterChip(
@@ -119,13 +123,13 @@ fun ModelEditorScreen(
                     OutlinedTextField(
                         value = baseUrl,
                         onValueChange = { baseUrl = it; vm.invalidateModels(); vm.clearEditorError() },
-                        label = { Text("接口地址") },
+                        label = { Text(strings.text(R.string.ui_api_url_29f5b)) },
                         placeholder = { Text("https://api.deepseek.com") },
                         supportingText = {
                             if (isCleartextUrl(baseUrl)) {
-                                Text("http 地址：请求和密钥会明文传输，只建议在局域网内用。", color = MaterialTheme.colorScheme.error)
+                                Text(strings.text(R.string.ui_http_sends_requests_and_keys_without_encryption_use_only_on_721a9), color = MaterialTheme.colorScheme.error)
                             } else {
-                                Text("填写服务的接口地址即可，会按所选协议补全请求路径。")
+                                Text(strings.text(R.string.ui_enter_your_provider_s_url_the_request_path_is_added_for_the_9359f))
                             }
                         },
                         singleLine = true,
@@ -137,7 +141,7 @@ fun ModelEditorScreen(
                     OutlinedTextField(
                         value = apiKey,
                         onValueChange = { apiKey = it.trim(); vm.invalidateModels(); vm.clearEditorError() },
-                        label = { Text(if (hasStoredKey) "API 密钥（留空则沿用）" else "API 密钥") },
+                        label = { Text(if (hasStoredKey) strings.text(R.string.ui_api_key_leave_blank_to_keep_47c01) else strings.text(R.string.ui_api_key_5df1d)) },
                         singleLine = true,
                         visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -145,7 +149,7 @@ fun ModelEditorScreen(
                             IconButton(onClick = { showKey = !showKey }) {
                                 Icon(
                                     if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = if (showKey) "隐藏密钥" else "显示密钥",
+                                    contentDescription = if (showKey) strings.text(R.string.ui_hide_key_6fe63) else strings.text(R.string.ui_show_key_cdb68),
                                 )
                             }
                         },
@@ -154,7 +158,7 @@ fun ModelEditorScreen(
                 }
             }
 
-            SettingsSection("模型") {
+            SettingsSection(strings.text(R.string.ui_models_98fd0)) {
                 Field {
                     OutlinedButton(
                         onClick = { vm.fetchModels(baseUrl, apiKey, profile?.id, protocol) },
@@ -165,7 +169,7 @@ fun ModelEditorScreen(
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
                         }
-                        Text(if (editor.modelsBusy) "正在获取…" else "获取模型列表")
+                        Text(if (editor.modelsBusy) strings.text(R.string.ui_loading_6f4d0) else strings.text(R.string.ui_fetch_models_941d9))
                     }
                 }
                 editor.fetchMessage?.let { Hint(it) }
@@ -178,20 +182,20 @@ fun ModelEditorScreen(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it; vm.clearEditorError() },
-                        label = { Text("配置名称") },
-                        placeholder = { Text("留空则用模型名") },
+                        label = { Text(strings.text(R.string.ui_configuration_name_a5f08)) },
+                        placeholder = { Text(strings.text(R.string.ui_leave_blank_to_use_model_name_7c6fe)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 SwitchRow(
-                    label = "多模态（可看图）",
-                    subtitle = "开启后拍题直接发图；关闭则需要另配一个识题模型",
+                    label = strings.text(R.string.ui_vision_image_support_f6d16),
+                    subtitle = strings.text(R.string.ui_send_photos_directly_when_enabled_otherwise_choose_a_separat_c1270),
                     checked = vision,
                     onCheckedChange = { vision = it },
                 )
                 Text(
-                    "思考强度",
+                    strings.text(R.string.ui_reasoning_effort_6164c),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -200,7 +204,7 @@ fun ModelEditorScreen(
                         FilterChip(
                             selected = effort == value,
                             onClick = { effort = value },
-                            label = { Text(reasoningLabel(value)) },
+                            label = { Text(reasoningLabel(value, strings)) },
                         )
                     }
                 }
@@ -208,8 +212,8 @@ fun ModelEditorScreen(
                     apiProtocol, editor.capabilities[model]))
             }
 
-            SettingsSection("接口协议") {
-                Hint("按服务实际接口选择 Chat Completions 或 Responses。关闭联网不会切换接口。")
+            SettingsSection(strings.text(R.string.ui_api_protocol_e56c5)) {
+                Hint(strings.text(R.string.ui_choose_chat_completions_or_responses_to_match_your_provider_a64f2))
                 ChipRow {
                     AiApiProtocol.entries.forEach { value ->
                         FilterChip(selected = apiProtocol == value, onClick = {
@@ -227,9 +231,9 @@ fun ModelEditorScreen(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Switch(checked = searchEnabled, onCheckedChange = { searchEnabled = it })
-                    Text("允许此接口使用联网搜索")
+                    Text(strings.text(R.string.ui_allow_web_search_for_this_api_23c5d))
                 }
-                Hint("附件使用按页读取工具；图表和扫描件需要开启模型看图能力。")
+                Hint(strings.text(R.string.ui_attachments_use_page_reading_tools_enable_vision_for_charts_3fc90))
                 Field {
                     OutlinedButton(
                         onClick = { vm.testWebSearch(draft(), profile?.id) },
@@ -240,7 +244,7 @@ fun ModelEditorScreen(
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
                         }
-                        Text(if (editor.webSearchBusy) "正在检测…" else "测试联网")
+                        Text(if (editor.webSearchBusy) strings.text(R.string.ui_checking_0eda5) else strings.text(R.string.ui_test_web_search_00008))
                     }
                 }
                 editor.webSearchResult?.let { StatusText(it) }
@@ -257,12 +261,12 @@ fun ModelEditorScreen(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onClose) { Text("取消") }
+                TextButton(onClick = onClose) { Text(strings.text(R.string.ui_cancel_4d0b4)) }
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = { vm.saveProfile(profile?.id, draft(), onSaved = onClose) },
                     enabled = !editor.saving,
-                ) { Text("保存并测试") }
+                ) { Text(strings.text(R.string.ui_save_test_cbd63)) }
             }
         }
     }
@@ -276,16 +280,17 @@ private fun Field(content: @Composable () -> Unit) {
 /** 模型名：可手填；拿到列表后右侧出现「选择」，下拉始终给完整列表，不按输入过滤。 */
 @Composable
 private fun ModelNameField(value: String, models: List<String>, onValueChange: (String) -> Unit) {
+    val strings = rememberAppStrings()
     var menuOpen by remember { mutableStateOf(false) }
     Field {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text("模型名") },
-            placeholder = { Text("选择或手动输入") },
+            label = { Text(strings.text(R.string.ui_model_name_5e65d)) },
+            placeholder = { Text(strings.text(R.string.ui_select_or_enter_manually_3213d)) },
             singleLine = true,
             trailingIcon = if (models.isEmpty()) null else {
-                { TextButton(onClick = { menuOpen = true }) { Text("选择") } }
+                { TextButton(onClick = { menuOpen = true }) { Text(strings.text(R.string.ui_select_70b20)) } }
             },
             modifier = Modifier.fillMaxWidth(),
         )

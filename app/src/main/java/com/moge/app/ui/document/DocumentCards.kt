@@ -1,5 +1,8 @@
 package com.moge.app.ui.document
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -30,6 +33,7 @@ import java.io.File
 /** Pending originals float above the composer; removing a chip only detaches it from the draft. */
 @Composable
 fun PendingDocumentChips(paths: List<String>, onRemove: (String) -> Unit) {
+    val strings = rememberAppStrings()
     if (paths.isEmpty()) return
     val context = LocalContext.current
     val store = remember(context) { DocumentStore(context) }
@@ -43,7 +47,7 @@ fun PendingDocumentChips(paths: List<String>, onRemove: (String) -> Unit) {
                 value = withContext(Dispatchers.IO) { runCatching { store.attachment(path) }.getOrNull() }
             }
             val name = document?.name ?: File(path).name
-            val (icon, kind) = documentIcon(path)
+            val (icon, kind) = documentIcon(path, strings)
             Surface(
                 modifier = Modifier.widthIn(min = 144.dp, max = 228.dp),
                 shape = RoundedCornerShape(50),
@@ -64,7 +68,7 @@ fun PendingDocumentChips(paths: List<String>, onRemove: (String) -> Unit) {
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     IconButton(onClick = { onRemove(path) }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.Close, "移除文档 $name", Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Close, strings.text(R.string.ui_remove_document_1_s_d409d, name), Modifier.size(18.dp))
                     }
                 }
             }
@@ -74,6 +78,7 @@ fun PendingDocumentChips(paths: List<String>, onRemove: (String) -> Unit) {
 
 @Composable
 fun DocumentCards(paths: List<String>, onRemove: ((String) -> Unit)? = null) {
+    val strings = rememberAppStrings()
     if (paths.isEmpty()) return
     val context = LocalContext.current
     val store = remember(context) { DocumentStore(context) }
@@ -83,7 +88,7 @@ fun DocumentCards(paths: List<String>, onRemove: ((String) -> Unit)? = null) {
                 value = withContext(Dispatchers.IO) { runCatching { store.attachment(path) }.getOrNull() }
             }
             val name = document?.name ?: File(path).name
-            val (icon, kind) = documentIcon(path)
+            val (icon, kind) = documentIcon(path, strings)
             Surface(
                 modifier = Modifier.fillMaxWidth().testTag("document-card"),
                 shape = RoundedCornerShape(16.dp),
@@ -110,7 +115,7 @@ fun DocumentCards(paths: List<String>, onRemove: ((String) -> Unit)? = null) {
                     }
                     onRemove?.let { remove ->
                         IconButton(onClick = { remove(path) }) {
-                            Icon(Icons.Outlined.Close, "移除文档 $name", Modifier.size(18.dp))
+                            Icon(Icons.Outlined.Close, strings.text(R.string.ui_remove_document_1_s_d409d, name), Modifier.size(18.dp))
                         }
                     }
                 }
@@ -119,10 +124,10 @@ fun DocumentCards(paths: List<String>, onRemove: ((String) -> Unit)? = null) {
     }
 }
 
-internal fun documentIcon(path: String) = when (File(path).extension.lowercase()) {
-    "pdf" -> Icons.Outlined.PictureAsPdf to "PDF 文档"
-    "doc", "docx" -> Icons.Outlined.Description to "Word 文档"
-    "ppt", "pptx" -> Icons.Outlined.Slideshow to "演示文稿"
-    "xls", "xlsx", "csv" -> Icons.Outlined.GridOn to "表格"
-    else -> Icons.AutoMirrored.Outlined.TextSnippet to "文本文档"
+internal fun documentIcon(path: String, strings: com.moge.app.core.TextResources? = null) = when (File(path).extension.lowercase()) {
+    "pdf" -> Icons.Outlined.PictureAsPdf to (strings?.text(R.string.ui_pdf_document_70269) ?: "PDF 文档")
+    "doc", "docx" -> Icons.Outlined.Description to (strings?.text(R.string.ui_word_document_457e5) ?: "Word 文档")
+    "ppt", "pptx" -> Icons.Outlined.Slideshow to (strings?.text(R.string.ui_presentation_6131f) ?: "演示文稿")
+    "xls", "xlsx", "csv" -> Icons.Outlined.GridOn to (strings?.text(R.string.ui_spreadsheet_15007) ?: "表格")
+    else -> Icons.AutoMirrored.Outlined.TextSnippet to (strings?.text(R.string.ui_text_document_fa9a3) ?: "文本文档")
 }

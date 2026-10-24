@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">墨格</string>
+    <string name="channel_generation_name">解答進行中</string>
+    <string name="channel_generation_desc">產生回答期間保持執行，避免切到背景後中斷</string>
+    <string name="keepalive_title">正在產生回答</string>
+    <string name="keepalive_text">回答產生中，可以先去做別的</string>
+</resources>

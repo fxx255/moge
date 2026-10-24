@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -41,6 +44,7 @@ internal fun CategoryCard(
     onSaveEdit: () -> Unit = {},
     onCancelEdit: () -> Unit = {},
 ) {
+    val strings = rememberAppStrings()
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
     val editorFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -58,22 +62,22 @@ internal fun CategoryCard(
                 val cleaned = editingValue.text.trim()
                 val valid = cleaned.isNotEmpty() && cleaned.codePointCount(0, cleaned.length) <= 80
                 OutlinedTextField(editingValue, onEditChange, enabled = enabled, singleLine = true,
-                    isError = !valid, placeholder = { Text("分类名称") },
+                    isError = !valid, placeholder = { Text(strings.text(R.string.ui_category_name_3fc30)) },
                     textStyle = MaterialTheme.typography.titleMedium,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (valid) onSaveEdit() }),
                     modifier = Modifier.weight(1f).padding(end = 8.dp).focusRequester(editorFocus)
-                        .testTag("category-name-editor").semantics { contentDescription = "分类名称，1至80个字" })
+                        .testTag("category-name-editor").semantics { contentDescription = strings.text(R.string.ui_category_name_1_80_characters_fbe4a) })
                 TextButton(onClick = onSaveEdit, enabled = enabled && valid,
-                    modifier = Modifier.semantics { contentDescription = "保存分类名称" }) { Text("保存") }
-                IconButton(onClick = onCancelEdit) { Icon(Icons.Outlined.Close, if (creating) "取消新建" else "取消改名") }
+                    modifier = Modifier.semantics { contentDescription = strings.text(R.string.ui_save_category_name_8205e) }) { Text(strings.text(R.string.ui_save_fadf2)) }
+                IconButton(onClick = onCancelEdit) { Icon(Icons.Outlined.Close, if (creating) strings.text(R.string.ui_cancel_creation_e41a0) else strings.text(R.string.ui_cancel_rename_ad64f)) }
             } else {
                 Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Outlined.Edit, "改名 $name") }
+                IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1_s_829f6, name)) }
                 Box(handleModifier.size(48.dp).semantics {
-                    contentDescription = "长按拖动 $name"
+                    contentDescription = strings.text(R.string.ui_hold_to_drag_1_s_637c3, name)
                     role = Role.Button
-                    stateDescription = "长按后拖动排序，或拖到下方删除区域"
+                    stateDescription = strings.text(R.string.ui_hold_and_drag_to_reorder_or_drag_down_to_delete_7d1ed)
                     if (!enabled) disabled()
                 }, contentAlignment = Alignment.Center) {
                     Canvas(Modifier.size(22.dp, 18.dp)) {

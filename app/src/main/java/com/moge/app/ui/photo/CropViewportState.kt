@@ -48,6 +48,15 @@ internal class CropViewportState(private val scope: CoroutineScope) {
         framing = initialCropFraming(image, viewport)
     }
 
+    fun rotateCounterclockwise() {
+        interrupt()
+        selectionFollowsPhoto = false
+        pendingFit = null
+        framing = rotateCropFramingCounterclockwise(framing, image, viewport)
+        image = IntSize(image.height, image.width)
+        maximumZoom = maxOf(maximumZoom, framing.zoom)
+    }
+
     fun resize(size: IntSize) {
         if (size == IntSize.Zero || size == viewport) return
         interrupt()

@@ -1,5 +1,7 @@
 package com.moge.app.ui.capture
 
+import com.moge.app.R
+
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.util.Log
@@ -67,7 +69,7 @@ class ViewfinderController {
 
     /** 拍一张写到 [target]；连拍时上一张没写完不接受下一次快门。 */
     fun takePicture(context: android.content.Context, target: File, onSaved: (File) -> Unit, onError: (String) -> Unit) {
-        val capture = imageCapture ?: return onError("相机还没准备好")
+        val capture = imageCapture ?: return onError(context.getString(R.string.ui_camera_is_not_ready_1ade9))
         if (busy) return
         busy = true
         val options = ImageCapture.OutputFileOptions.Builder(target).build()
@@ -84,7 +86,7 @@ class ViewfinderController {
                     busy = false
                     target.delete()
                     Log.w(TAG, "takePicture failed", exception)
-                    onError("拍照失败：${exception.message ?: exception.imageCaptureError}")
+                    onError(context.getString(R.string.ui_could_not_take_photo_1_s_03a31, exception.message ?: exception.imageCaptureError))
                 }
             },
         )

@@ -1,5 +1,8 @@
 package com.moge.app.ui.document
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -15,6 +18,9 @@ import androidx.compose.runtime.*
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.document.*
+import com.moge.app.data.prefs.AppFont
+import com.moge.app.data.prefs.AppLanguage
+import com.moge.app.data.prefs.UserSettings
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.ui.theme.MogeTheme
@@ -31,7 +37,8 @@ class DocumentPreviewActivity : ComponentActivity() {
         val locator = intent.getStringExtra("locator").orEmpty()
         val settings = SettingsRepository(applicationContext)
         setContent {
-            DocumentPreviewTheme(settings.appearance, onSystemBars = { chalk ->
+            val prefs by settings.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
+            DocumentPreviewTheme(settings.appearance, font = prefs.font, language = prefs.interfaceLanguage, onSystemBars = { chalk ->
                 val style = if (chalk) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                     else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
@@ -60,6 +67,8 @@ class DocumentPreviewActivity : ComponentActivity() {
 internal fun DocumentPreviewTheme(
     appearance: Flow<Appearance>,
     onSystemBars: (Boolean) -> Unit,
+    font: AppFont = AppFont.SYSTEM,
+    language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     content: @Composable () -> Unit,
 ) {
     val selected by appearance.collectAsStateWithLifecycle(initialValue = Appearance.SYSTEM)
@@ -68,11 +77,12 @@ internal fun DocumentPreviewTheme(
         onSystemBars(chalk)
         onDispose { }
     }
-    MogeTheme(appearance = selected, content = content)
+    MogeTheme(appearance = selected, font = font, language = language, content = content)
 }
 
 @Composable
 private fun DocumentPreview(path: String, initialLocator: String, onClose: () -> Unit) {
+    val strings = rememberAppStrings()
     val context = androidx.compose.ui.platform.LocalContext.current
     val store = remember(context) { DocumentStore(context) }
     var attachment by remember(path) { mutableStateOf<DocumentAttachment?>(null) }
@@ -98,7 +108,7 @@ private fun DocumentPreview(path: String, initialLocator: String, onClose: () ->
             if (locator.isBlank()) locator = result.sections.firstOrNull()?.id.orEmpty()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            error = e.message ?: "文件暂时无法读取"
+            error = e.message ?: strings.text(R.string.ui_file_unavailable_13caf)
         } finally { indexing = false }
     }
     LaunchedEffect(attachment, index, locator, retry) {
@@ -111,13 +121,13 @@ private fun DocumentPreview(path: String, initialLocator: String, onClose: () ->
                 if (file.extension.equals("pdf", true) || locator in index?.images.orEmpty()) {
                     val encoded = DocumentReader.image(context, file, locator).substringAfter(',')
                     val bytes = Base64.decode(encoded, Base64.DEFAULT)
-                    "" to (BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("页面图像无法读取"))
+                    "" to (BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error(strings.text(R.string.ui_could_not_read_page_image_d7b03)))
                 } else DocumentReader.read(context, file, locator).text to null
             }
             text = result.first; image = result.second; loadedLocator = locator
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            error = e.message ?: "此内容暂时无法读取"
+            error = e.message ?: strings.text(R.string.ui_content_unavailable_9a1c1)
         } finally { reading = false }
     }
     DocumentPreviewScreen(
@@ -130,7 +140,7 @@ private fun DocumentPreview(path: String, initialLocator: String, onClose: () ->
                 context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, document.mime)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
             }.onFailure {
-                android.widget.Toast.makeText(context, "没有可打开此格式的应用", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, strings.text(R.string.ui_no_app_can_open_this_format_420ac), android.widget.Toast.LENGTH_SHORT).show()
             } }
         },
         onSection = { position ->

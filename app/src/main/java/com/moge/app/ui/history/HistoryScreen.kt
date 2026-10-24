@@ -1,5 +1,9 @@
 package com.moge.app.ui.history
 
+
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -100,6 +104,7 @@ internal fun HistoryContent(
     onNewConversation: (() -> Unit)? = null,
     onDismissSavedFavorite: () -> Unit = {},
 ) {
+    val strings = rememberAppStrings()
     val drag = rememberPaperDragState()
     val paperScroll = rememberPaperScrollState()
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
@@ -114,7 +119,7 @@ internal fun HistoryContent(
     LaunchedEffect(state.message, state.savedFavoriteId) {
         state.message?.let { message ->
             val saved = state.savedFavoriteId
-            val result = snackbar.showSnackbar(message, actionLabel = if (message.startsWith("已收藏 ")) "查看题册" else null)
+            val result = snackbar.showSnackbar(message, actionLabel = if (message.startsWith(strings.text(R.string.ui_saved_c7e9a))) strings.text(R.string.ui_view_notebook_aeb82) else null)
             if (result == SnackbarResult.ActionPerformed) onOpenNotebook(saved)
             onDismissMessage()
             onDismissSavedFavorite()
@@ -125,17 +130,17 @@ internal fun HistoryContent(
     }
     PageSwipeSurface(enabled = !state.selecting && !drag.held && !state.busy &&
         !manageOpen && !moveOpen && !renameOpen && !deleteOpen,
-        onLeft = onNewConversation, leftLabel = "前往新对话") {
+        onLeft = onNewConversation, leftLabel = strings.text(R.string.ui_go_to_new_chat_44a4e)) {
         PaperScaffold(
-            title = if (state.selecting) "已选 ${state.selectedIds.size} 个" else "历史对话",
+            title = if (state.selecting) strings.text(R.string.ui_1_s_selected_70403, state.selectedIds.size) else strings.text(R.string.ui_history_68387),
             backgroundOffsetY = { paperScroll.offsetY },
             onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
             actions = {
                 if (!state.selecting) {
                     IconButton(onClick = { onOpenNotebook(null) }, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.AutoMirrored.Outlined.MenuBook, "我的题册")
+                        Icon(Icons.AutoMirrored.Outlined.MenuBook, strings.text(R.string.ui_my_notebook_7ec53))
                     }
-                    IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, "管理分类") }
+                    IconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, strings.text(R.string.ui_manage_categories_fed61)) }
                 }
             },
         ) {
@@ -144,31 +149,31 @@ internal fun HistoryContent(
                 exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
                 Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "移动分类") }
+                    IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01)) }
                     IconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
-                        Icon(Icons.Outlined.Edit, "重命名")
+                        Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1cd80))
                     }
                     IconButton(onClick = onCollect, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.Outlined.BookmarkBorder, "收藏最新解答到题册")
+                        Icon(Icons.Outlined.BookmarkBorder, strings.text(R.string.ui_save_latest_solution_to_notebook_1571c))
                     }
                     IconButton(onClick = onPin, enabled = state.selectedIds.size == 1 && !state.busy) {
-                        Icon(Icons.Outlined.PushPin, "置顶或取消置顶")
+                        Icon(Icons.Outlined.PushPin, strings.text(R.string.ui_pin_or_unpin_00b2c))
                     }
                     IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
-                        Icon(Icons.Outlined.Delete, "删除所选对话", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Outlined.Delete, strings.text(R.string.ui_delete_selected_conversations_7375d), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
                     PaperSearchPanel(
-                        query = state.query, onQuery = onQuery, hint = "搜索标题、消息或识别文本", enabled = !state.busy,
+                        query = state.query, onQuery = onQuery, hint = strings.text(R.string.ui_search_titles_messages_or_recognized_text_52b39), enabled = !state.busy,
                         filtersModifier = Modifier.paperCategoryActivation(drag).testTag("history-category-filters"),
                         expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
                     ) {
                         PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
-                            { onCategory(null, false) }, "全部", enabled = !state.busy && !drag.held)
-                        PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, "未分类",
+                            { onCategory(null, false) }, strings.text(R.string.ui_all_778fc), enabled = !state.busy && !drag.held)
+                        PaperCategoryFilter(state.uncategorizedOnly, { onCategory(null, true) }, strings.text(R.string.ui_uncategorized_b28f1),
                             enabled = !state.busy && !drag.held)
                         state.categories.forEach { category ->
                             PaperCategoryFilter(state.categoryId == category.id, { onCategory(category.id, false) },
@@ -177,24 +182,24 @@ internal fun HistoryContent(
                     }
                     state.categoryError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-                        TextButton(onRetry) { Text("重试读取分类") }
+                        TextButton(onRetry) { Text(strings.text(R.string.ui_reload_categories_2a2bd)) }
                     }
                     if (state.selecting && !drag.held) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onSelectAll, enabled = !state.busy) { Text("全选当前结果") }
-                            TextButton(onClearSelection, enabled = !state.busy) { Text("取消选择") }
+                            TextButton(onSelectAll, enabled = !state.busy) { Text(strings.text(R.string.ui_select_all_results_f9320)) }
+                            TextButton(onClearSelection, enabled = !state.busy) { Text(strings.text(R.string.ui_deselect_all_f02e9)) }
                         }
                     }
                 }) { insets ->
                     when {
-                        state.error != null -> HistoryPlaceholder(state.error, "重试", onRetry, Modifier.fillMaxSize().padding(insets))
+                        state.error != null -> HistoryPlaceholder(state.error, strings.text(R.string.ui_retry_e2d53), onRetry, Modifier.fillMaxSize().padding(insets))
                         // 换搜索词时保留旧结果直到新结果到达，网格不闪、滚动位置也不丢。
                         state.loading && state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.semantics { contentDescription = "正在读取历史" })
+                            CircularProgressIndicator(Modifier.semantics { contentDescription = strings.text(R.string.ui_loading_history_ea500) })
                         }
                         state.entries.isEmpty() -> HistoryPlaceholder(
-                            if (state.filtered) "没有找到匹配的对话" else "还没有历史对话，发送问题后会自动保存",
-                            if (state.filtered) "清除筛选" else "去提问",
+                            if (state.filtered) strings.text(R.string.ui_no_matching_conversations_08522) else strings.text(R.string.ui_conversations_are_saved_here_after_you_send_a_question_a675e),
+                            if (state.filtered) strings.text(R.string.ui_clear_filters_4bbc4) else strings.text(R.string.ui_ask_a_question_847be),
                             { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets),
                         )
                         else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop,
@@ -222,12 +227,12 @@ internal fun HistoryContent(
     if (deleteOpen && state.selecting) {
         AlertDialog(
             onDismissRequest = { deleteOpen = false },
-            title = { Text("删除 ${state.selectedIds.size} 个对话？") },
-            text = { Text("对话与消息将从历史中删除，无法撤销。已收藏的题目与解答快照仍保留在题册中。生成中的对话会保留，请先停止生成。") },
+            title = { Text(strings.text(R.string.ui_delete_1_s_conversations_a9236, state.selectedIds.size)) },
+            text = { Text(strings.text(R.string.ui_conversations_and_messages_will_be_permanently_deleted_saved_fd14f)) },
             confirmButton = { TextButton(onClick = { deleteOpen = false; onDelete() }, enabled = !state.busy) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+                Text(strings.text(R.string.ui_delete_3755f), color = MaterialTheme.colorScheme.error)
             } },
-            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text(strings.text(R.string.ui_cancel_4d0b4)) } },
         )
     }
 }
@@ -252,6 +257,7 @@ private fun HistoryGrid(
     modifier: Modifier,
     toolbarInsets: PaddingValues,
 ) {
+    val strings = rememberAppStrings()
     // 常规字号两列瀑布流；辅助大字号改一列，为正文留出足够宽度。
     val columns = if (LocalDensity.current.fontScale > 1.5f) 1 else 2
     var now by remember { mutableStateOf(Instant.now()) }
@@ -271,11 +277,11 @@ private fun HistoryGrid(
             val id = entry.conversation.id
             val thumbnail = if (entry.conversation.coverImage.isNotBlank())
                 rememberThumbnail(entry.conversation.coverImage, THUMB_MAX_PX, preferProcessed = true) else Thumbnail.Failed
-            val category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: "未分类"
+            val category = state.categories.firstOrNull { it.id == entry.conversation.categoryId }?.name ?: strings.text(R.string.ui_uncategorized_b28f1)
             val selected = id in state.selectedIds
             val selecting = state.selecting
             val generating = id == state.activeConversationId
-            val retention = historyRetentionLabel(entry, state.autoCleanupEnabled, state.retentionDays, now, generating)
+            val retention = historyRetentionLabel(entry, state.autoCleanupEnabled, state.retentionDays, now, generating, strings)
             // Allocate a new immutable preview when data changes; a live composable lambda
             // would otherwise update the lifted card during later recompositions.
             val preview: @Composable () -> Unit = remember(entry, selected, selecting, generating, category, thumbnail, retention) {
@@ -299,10 +305,11 @@ private fun HistoryCard(
     retention: String,
     showTape: Boolean = true,
 ) {
-    val shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+    val strings = rememberAppStrings()
+    val shape = RoundedCornerShape(8.dp)
     val conversation = entry.conversation
     TapedPaperCard(modifier.clickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button,
-        onClickLabel = if (selecting) "切换选择" else "打开对话", onClick = onClick)
+        onClickLabel = if (selecting) strings.text(R.string.ui_toggle_selection_bcab7) else strings.text(R.string.ui_open_conversation_11408), onClick = onClick)
         .semantics(mergeDescendants = true) { if (selecting) this.selected = selected }, showTape = showTape) { cardModifier ->
         Column(
             cardModifier.heightIn(min = 48.dp).clip(shape)
@@ -318,7 +325,7 @@ private fun HistoryCard(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (conversation.conversationMode == "CHAT") {
-                    Icon(Icons.AutoMirrored.Outlined.Chat, "普通对话",
+                    Icon(Icons.AutoMirrored.Outlined.Chat, strings.text(R.string.ui_chat_3ddf6),
                         Modifier.padding(end = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 3,
@@ -337,17 +344,17 @@ private fun HistoryCard(
             if (entry.favoriteCount > 0) Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("已收藏 ${entry.favoriteCount} 条回答", style = MaterialTheme.typography.labelMedium,
+                Text(strings.text(R.string.ui_1_s_saved_answers_27f1b, entry.favoriteCount), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary)
             }
-            if (conversation.pinned) Text("已置顶", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            if (conversation.pinned) Text(strings.text(R.string.ui_pinned_d7d97), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(conversation.updatedAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!generating && entry.requestStatus in setOf("INTERRUPTED", "CANCELLED")) {
-                Text("回答未完成 · 打开后可重试", style = MaterialTheme.typography.labelMedium,
+                Text(strings.text(R.string.ui_incomplete_open_to_retry_024a1), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error)
             }
-            if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text("正在生成", style = MaterialTheme.typography.labelMedium,
+            if (generating || entry.requestStatus in setOf("PREPARING", "RUNNING")) Text(strings.text(R.string.ui_generating_5f576), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
     }
@@ -355,15 +362,16 @@ private fun HistoryCard(
 
 @Composable
 private fun HistoryCover(thumbnail: Thumbnail) {
+    val strings = rememberAppStrings()
     Box(Modifier.fillMaxWidth().height(132.dp).clip(RoundedCornerShape(4.dp)).background(MogeTheme.paper.scratch),
         contentAlignment = Alignment.Center) {
         when (thumbnail) {
             is Thumbnail.Ready -> {
                 val painted = remember(thumbnail.bitmap) { thumbnail.bitmap.asImageBitmap() }
-                Image(painted, "题目照片", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Image(painted, strings.text(R.string.ui_question_photo_62144), Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
             Thumbnail.Loading -> Unit
-            Thumbnail.Failed -> Text("照片暂不可用", style = MaterialTheme.typography.bodySmall,
+            Thumbnail.Failed -> Text(strings.text(R.string.ui_photo_unavailable_4aba7), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -371,14 +379,15 @@ private fun HistoryCover(thumbnail: Thumbnail) {
 
 @Composable
 private fun RenameDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    val strings = rememberAppStrings()
     var title by rememberSaveable(initial) { mutableStateOf(initial) }
     val cleaned = title.trim()
     val valid = cleaned.isNotEmpty() && cleaned.codePointCount(0, cleaned.length) <= 80
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("重命名对话") },
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(strings.text(R.string.ui_rename_conversation_23543)) },
         text = {
-            OutlinedTextField(title, { title = it }, label = { Text("对话标题") }, singleLine = true,
-                isError = !valid, supportingText = { Text("1–80 个字") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(title, { title = it }, label = { Text(strings.text(R.string.ui_conversation_title_b259c)) }, singleLine = true,
+                isError = !valid, supportingText = { Text(strings.text(R.string.ui_1_80_characters_ab06f)) }, modifier = Modifier.fillMaxWidth())
         },
-        confirmButton = { TextButton(onClick = { onSave(cleaned) }, enabled = valid) { Text("保存") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+        confirmButton = { TextButton(onClick = { onSave(cleaned) }, enabled = valid) { Text(strings.text(R.string.ui_save_fadf2)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.text(R.string.ui_cancel_4d0b4)) } })
 }

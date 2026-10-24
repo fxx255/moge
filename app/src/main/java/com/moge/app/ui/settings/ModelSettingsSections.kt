@@ -1,5 +1,8 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -21,15 +24,16 @@ internal fun ModelsSection(
     onDelete: (String) -> Unit,
     onTest: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var pendingDelete by remember { mutableStateOf<AiModelProfile?>(null) }
     val selected = state.profiles.firstOrNull { it.id == state.activeId }
-    SettingsSection("模型") {
-        Hint("填任意 OpenAI 兼容接口。密钥由本机密钥库加密，不进系统备份。")
+    SettingsSection(strings.text(R.string.ui_models_98fd0)) {
+        Hint(strings.text(R.string.ui_use_any_openai_compatible_api_keys_are_encrypted_on_this_dev_f5c9f))
         ModelProfileDropdown(
-            label = "当前模型",
-            choices = state.profiles.map { ModelChoice(it.id, it.name, profileSummary(it)) },
+            label = strings.text(R.string.ui_current_model_a0af8),
+            choices = state.profiles.map { ModelChoice(it.id, it.name, profileSummary(it, strings)) },
             selectedId = state.activeId,
-            placeholder = if (state.profiles.isEmpty()) "还没有模型，先添加一个。" else "请选择模型",
+            placeholder = if (state.profiles.isEmpty()) strings.text(R.string.ui_no_models_yet_add_one_to_get_started_c1f2d) else strings.text(R.string.ui_choose_a_model_7330b),
             enabled = !state.testing,
             tag = "primary-model-selector",
             onSelect = { id -> id?.let(onSelect) },
@@ -40,19 +44,19 @@ internal fun ModelsSection(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                 Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("添加模型")
+                Text(strings.text(R.string.ui_add_model_532a6))
             }
             if (selected != null) {
                 OutlinedButton(onClick = onTest, enabled = !state.testing,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(if (state.testing) "测试中…" else "测试连接")
+                    Text(if (state.testing) strings.text(R.string.ui_testing_49562) else strings.text(R.string.ui_test_connection_10b7d))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = { onEdit(selected.id) }, enabled = !state.testing) {
-                        Icon(Icons.Outlined.Edit, "编辑「${selected.name}」")
+                        Icon(Icons.Outlined.Edit, strings.text(R.string.ui_edit_1_s_60333, selected.name))
                     }
                     IconButton(onClick = { pendingDelete = selected }, enabled = !state.testing) {
-                        Icon(Icons.Outlined.Delete, "删除「${selected.name}」", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Outlined.Delete, strings.text(R.string.ui_delete_1_s_ef70c, selected.name), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -62,31 +66,32 @@ internal fun ModelsSection(
     pendingDelete?.let { profile ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除模型配置？") },
-            text = { Text("将删除「${profile.name}」和它在本机保存的 API 密钥。") },
+            title = { Text(strings.text(R.string.ui_delete_model_configuration_8c008)) },
+            text = { Text(strings.text(R.string.ui_delete_1_s_and_its_api_key_stored_on_this_device_61b69, profile.name)) },
             confirmButton = { TextButton(onClick = { onDelete(profile.id); pendingDelete = null }) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+                Text(strings.text(R.string.ui_delete_3755f), color = MaterialTheme.colorScheme.error)
             } },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(strings.text(R.string.ui_cancel_4d0b4)) } },
         )
     }
 }
 
 @Composable
 internal fun VisionSection(state: ModelsUiState, onSelect: (String?) -> Unit) {
+    val strings = rememberAppStrings()
     val candidates = state.profiles.filter { it.visionEnabled }
-    SettingsSection("识题模型") {
-        Hint("主模型不看图时，先由识题模型把照片转写成文字。可选择开启了「多模态」的配置。")
+    SettingsSection(strings.text(R.string.ui_question_recognition_model_a3be2)) {
+        Hint(strings.text(R.string.ui_if_the_main_model_cannot_read_images_use_an_image_capable_mo_1ad14))
         ModelProfileDropdown(
-            label = "照片识题",
-            choices = listOf(ModelChoice(null, "不指定", "使用当前模型的看图能力")) +
+            label = strings.text(R.string.ui_photo_recognition_b818d),
+            choices = listOf(ModelChoice(null, strings.text(R.string.ui_none_1aad3), strings.text(R.string.ui_use_the_current_model_s_vision_ad013))) +
                 candidates.map { ModelChoice(it.id, it.name, it.model) },
             selectedId = state.visionProfileId,
-            placeholder = "请选择识题模型",
+            placeholder = strings.text(R.string.ui_choose_a_recognition_model_7d45a),
             enabled = !state.testing,
             tag = "vision-model-selector",
             onSelect = onSelect,
         )
-        StatusText(photoRouteHint(state.profiles, state.activeId, state.visionProfileId))
+        StatusText(photoRouteHint(state.profiles, state.activeId, state.visionProfileId, strings))
     }
 }

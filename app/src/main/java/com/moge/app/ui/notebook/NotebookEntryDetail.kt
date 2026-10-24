@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -24,6 +27,7 @@ internal fun NotebookEntryDetail(
     onOpenConversation: (String) -> Unit, modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
+    val strings = rememberAppStrings()
     val photos = remember(entry.questionImagePaths) { runCatching {
         RequestRepository.decodePathListStrict(entry.questionImagePaths).filter { it.isNotBlank() }
     } }
@@ -33,32 +37,32 @@ internal fun NotebookEntryDetail(
     Column(modifier.verticalScroll(rememberScrollState()).padding(contentPadding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(category, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Text("题目", style = MaterialTheme.typography.titleMedium)
+        Text(strings.text(R.string.ui_question_bfd7c), style = MaterialTheme.typography.titleMedium)
         com.moge.app.ui.document.DocumentCards(RequestRepository.decodePathList(entry.documentPaths))
         if (entry.questionText.isNotBlank()) AnswerMarkdownBody(entry.questionText, emptyList(), onImage)
-        if (photos.isFailure) Text("题目照片记录无法读取", color = MaterialTheme.colorScheme.error)
+        if (photos.isFailure) Text(strings.text(R.string.ui_could_not_read_saved_question_photos_c47fe), color = MaterialTheme.colorScheme.error)
         photos.getOrDefault(emptyList()).let { paths ->
             if (paths.isNotEmpty()) Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 paths.forEachIndexed { index, path ->
-                    PhotoThumb(path, "题目照片 ${index + 1}", { onImage(paths, index) }, Modifier.size(112.dp), preferProcessed = true)
+                    PhotoThumb(path, strings.text(R.string.ui_question_photo_1_s_22570, index + 1), { onImage(paths, index) }, Modifier.size(112.dp), preferProcessed = true)
                 }
             }
         }
         if (entry.questionTranscript.isNotBlank() && entry.questionTranscript != entry.questionText) {
-            Text("识别文本", style = MaterialTheme.typography.titleSmall)
+            Text(strings.text(R.string.ui_recognized_text_e601e), style = MaterialTheme.typography.titleSmall)
             AnswerMarkdownBody(entry.questionTranscript, emptyList(), onImage)
         }
-        if (figures.isFailure) Text("图表记录无法读取", color = MaterialTheme.colorScheme.error)
-        Text("保存的解答", style = MaterialTheme.typography.titleMedium)
+        if (figures.isFailure) Text(strings.text(R.string.ui_could_not_read_saved_charts_fb94a), color = MaterialTheme.colorScheme.error)
+        Text(strings.text(R.string.ui_saved_solution_3d6d8), style = MaterialTheme.typography.titleMedium)
         // Render both fields together: they share slots, and unanchored figures appear only once at the end.
         val fullAnswer = remember(entry.finalAnswer, entry.answerText) {
             if (entry.finalAnswer.isBlank()) entry.answerText
-            else "## 最终答案\n\n${entry.finalAnswer}\n\n## 完整解答\n\n${entry.answerText}"
+            else strings.text(R.string.ui_final_answer_n_n_1_s_n_n_full_solution_n_n_2_s_4d0d6, entry.finalAnswer, entry.answerText)
         }
         AnswerMarkdownBody(fullAnswer, figures.getOrDefault(emptyList()), onImage)
-        if (sourceExists) OutlinedButton(onClick = { onOpenConversation(entry.sourceConversationId) }) { Text("回到原对话") }
-        else Text("原对话已删除或暂不可用，保存的题目与解答仍可阅读", style = MaterialTheme.typography.bodySmall,
+        if (sourceExists) OutlinedButton(onClick = { onOpenConversation(entry.sourceConversationId) }) { Text(strings.text(R.string.ui_return_to_original_conversation_6b2f9)) }
+        else Text(strings.text(R.string.ui_the_original_conversation_is_unavailable_you_can_still_read_e1b58), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     viewer?.let { (paths, index) -> PhotoViewer(paths, index, { viewer = null }) }

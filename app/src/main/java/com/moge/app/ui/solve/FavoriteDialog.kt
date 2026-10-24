@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
@@ -102,6 +105,7 @@ class FavoriteViewModel @Inject constructor(private val notebook: NotebookReposi
 
 @Composable
 internal fun FavoriteDialog(target: FavoriteTarget, onDismiss: () -> Unit, onSaved: (String) -> Unit, vm: FavoriteViewModel = hiltViewModel()) {
+    val strings = rememberAppStrings()
     val categories by vm.categories.collectAsStateWithLifecycle()
     val existing by vm.existing.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -114,27 +118,27 @@ internal fun FavoriteDialog(target: FavoriteTarget, onDismiss: () -> Unit, onSav
     LaunchedEffect(existing?.id) { if (!categoryEdited) categoryId = existing?.categoryId }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(if (existing == null) "收藏到题册" else "更新收藏") },
+        title = { Text(if (existing == null) strings.text(R.string.ui_save_to_notebook_fd727) else strings.text(R.string.ui_update_saved_item_e37c0)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(target.question.text.ifBlank { "图片题目" }.take(100))
-                if (existing != null) Text("保存将更新这条收藏的题目与解答。", style = MaterialTheme.typography.bodySmall)
+                Text(target.question.text.ifBlank { strings.text(R.string.ui_photo_question_770f1) }.take(100))
+                if (existing != null) Text(strings.text(R.string.ui_saving_updates_this_item_s_question_and_answer_67ad3), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { categoryId = null; categoryEdited = true; newCategory = "" }, enabled = !busy) {
-                    Text((if (categoryId == null && newCategory.isBlank()) "✓ " else "") + "未分类")
+                    Text((if (categoryId == null && newCategory.isBlank()) "✓ " else "") + strings.text(R.string.ui_uncategorized_b28f1))
                 }
                 categories.forEach { category ->
                     TextButton(onClick = { categoryId = category.id; categoryEdited = true; newCategory = "" }, enabled = !busy) {
                         Text((if (categoryId == category.id && newCategory.isBlank()) "✓ " else "") + category.name)
                     }
                 }
-                OutlinedTextField(newCategory, { newCategory = it; categoryEdited = true }, label = { Text("或新建分类") },
+                OutlinedTextField(newCategory, { newCategory = it; categoryEdited = true }, label = { Text(strings.text(R.string.ui_or_create_a_category_b0857)) },
                     singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = { TextButton(onClick = { vm.save(target, categoryId, newCategory, onSaved) }, enabled = !busy && !loading) {
-            Text(if (loading) "读取收藏…" else if (busy) "保存中…" else "保存收藏")
+            Text(if (loading) strings.text(R.string.ui_loading_saved_item_4bda3) else if (busy) strings.text(R.string.ui_saving_6644f) else strings.text(R.string.ui_save_item_f699e))
         } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(strings.text(R.string.ui_cancel_4d0b4)) } },
     )
 }

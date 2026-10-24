@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">墨格</string>
+    <string name="channel_generation_name">回答を生成中</string>
+    <string name="channel_generation_desc">バックグラウンドで回答の生成を続けます</string>
+    <string name="keepalive_title">回答を生成中</string>
+    <string name="keepalive_text">生成中は他のアプリを使用できます</string>
+</resources>

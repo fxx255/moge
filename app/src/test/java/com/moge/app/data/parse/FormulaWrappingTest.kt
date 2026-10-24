@@ -12,6 +12,66 @@ class FormulaWrappingTest {
     private val d = "$$"
     private val measure: (String) -> Int = { it.length * 10 }
 
+    @Test fun `matrix derivation keeps a parenthesized difference horizontal and wraps outside it`() {
+        for ((open, close) in listOf("(" to ")", "\\left(" to "\\right)", "\\bigl(" to "\\bigr)")) {
+            val group = "${open}BCA-BA$close"
+            val source = "=E+$group-BABCA=E."
+            val rows = splitFormula(source, measure("=E+$group"), measure)
+            assertTrue(rows.toString(), rows.size > 1)
+            assertTrue("The difference must remain on one row: $rows", rows.any { group in it })
+            assertEquals(source, rows.joinToString(""))
+            assertFalse(rows.toString(), rows.any { "\\begin{array}" in it })
+            assertTrue(rows.toString(), rows.all { measure(it) <= measure("=E+$group") })
+        }
+    }
+
+    @Test fun `a very long bracketed sum uses continuation rows instead of a column array`() {
+        val source = "\\left(a+b+c+d+e+f+g+h+i+j\\right)"
+        val rows = splitFormula(source, 240, measure)
+        assertTrue(rows.toString(), rows.size > 1)
+        assertTrue(rows.toString(), rows.none { "\\begin{array}" in it })
+        assertEquals(source.replace("\\left", "").replace("\\right", ""),
+            rows.joinToString("").replace("\\left.", "").replace("\\right.", "")
+                .replace("\\left", "").replace("\\right", ""))
+        rows.forEach { assertEquals(it, it.split("\\left").size, it.split("\\right").size) }
+    }
+
+    @Test fun `function definitions wrap between equations and discard separator spacing`() {
+        val first = "M(x,y)=\\sin y-y\\sin x,"
+        val second = "N(x,y)=x\\cos y+\\cos x"
+        for (space in listOf(" ", "\\quad ", "\\qquad ", "\\,\\; ")) {
+            val source = first + space + second
+            assertEquals(source, listOf(first, second), splitFormula(source, maxOf(measure(first), measure(second)), measure))
+        }
+    }
+
+    @Test fun `derivative rows discard spacing that only separates equations on one line`() {
+        val first = "\\frac{\\partial M}{\\partial y}=\\cos y-\\sin x,"
+        val second = "\\frac{\\partial N}{\\partial x}=\\cos y-\\sin x"
+        assertEquals(listOf(first, second), splitFormula(first + "\\qquad " + second,
+            maxOf(measure(first), measure(second)), measure))
+    }
+
+    @Test fun `wide spaces between equations allow wrapping without breaking function arguments`() {
+        val first = "M(x,y)=\\sin y-y\\sin x"
+        val second = "N(x,y)=x\\cos y+\\cos x"
+        for (space in listOf("\\quad ", "\\qquad ")) {
+            assertEquals(listOf(first, second), splitFormula(first + space + second,
+                maxOf(measure(first), measure(second)), measure))
+        }
+        val grouped = "f(x\\quad y)=1"
+        assertTrue(splitFormula(grouped, 10, measure).contains("f(x\\quad y)"))
+    }
+
+    @Test fun `display and explicit continuation rows center without separator glue`() {
+        assertEquals("$$\nx=1\n$$", wrapLongFormulas("$$\n\\qquad x=1\\quad\n$$", 1000, measure))
+        assertEquals(listOf("x=1", "y=2"), splitFormula("x=1\\\\ \\qquad y=2", 40, measure))
+        assertEquals(listOf("x =1", "y =2"), unwrapEnvironmentRows(
+            "\\begin{array}{cc}x&=1\\\\ \\qquad y&=2\\end{array}"))
+        val short = "参数 ${d}x\\quad y${d}。"
+        assertEquals(short, wrapLongFormulas(short, 1000, measure))
+    }
+
     @Test fun `inner products in a derivation only wrap between complete mathematical units`() {
         for ((open, close) in listOf(
             "\\langle" to "\\rangle", "\\left\\langle" to "\\right\\rangle",

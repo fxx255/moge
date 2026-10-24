@@ -1,5 +1,9 @@
 package com.moge.app.ui.settings
 
+import com.moge.app.ui.localization.label
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -65,6 +69,7 @@ fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
     onOpenNotebook: (() -> Unit)? = null,
 ) {
+    val strings = rememberAppStrings()
     val models by vm.models.collectAsStateWithLifecycle()
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var updating by rememberSaveable { mutableStateOf(false) }
@@ -87,7 +92,7 @@ fun SettingsScreen(
     val orphanBytes by vm.orphanBytes.collectAsStateWithLifecycle()
     val dataBusy by vm.dataBusy.collectAsStateWithLifecycle()
 
-    PaperScaffold(title = "设置", onBack = onBack) {
+    PaperScaffold(title = strings.text(R.string.ui_settings_7debf), onBack = onBack) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -95,10 +100,10 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (onOpenNotebook != null) SettingsSection("我的题册") {
+            if (onOpenNotebook != null) SettingsSection(strings.text(R.string.ui_my_notebook_7ec53)) {
                 TextButton(onClick = onOpenNotebook, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.AutoMirrored.Outlined.MenuBook, null, Modifier.padding(end = 8.dp))
-                    Text("查看收藏的题目与解答")
+                    Text(strings.text(R.string.ui_view_saved_questions_and_answers_9b110))
                 }
             }
             ModelsSection(
@@ -110,9 +115,9 @@ fun SettingsScreen(
                 onTest = vm::testActiveProfile,
             )
             VisionSection(state = models, onSelect = vm::setVisionProfile)
-            SettingsSection("使用偏好") {
+            SettingsSection(strings.text(R.string.ui_preferences_9a18b)) {
                 ConversationScreenOnSetting(prefs.keepScreenOnInConversation, vm::setKeepScreenOnInConversation)
-                SwitchRow("题目图像预处理", "裁剪后在后台净化题目照片；对话照片不处理",
+                SwitchRow(strings.text(R.string.ui_clean_up_question_photos_921de), strings.text(R.string.ui_clean_up_question_photos_after_cropping_chat_photos_stay_as_f7f23),
                     prefs.questionPhotoPreprocessing, vm::setQuestionPhotoPreprocessing)
             }
             PreferencesSection(
@@ -122,11 +127,11 @@ fun SettingsScreen(
                 onNickname = vm::setNickname,
                 onAnswerFirst = vm::setAnswerFirst,
             )
-            SettingsSection("外观") {
+            SettingsSection(strings.text(R.string.ui_appearance_09b58)) {
                 Column(Modifier.selectableGroup()) {
-                    AppearanceOption("跟随系统", Appearance.SYSTEM, prefs.appearance, vm::setAppearance)
-                    AppearanceOption("方格本（日间）", Appearance.PAPER, prefs.appearance, vm::setAppearance)
-                    AppearanceOption("黑板（夜间）", Appearance.CHALK, prefs.appearance, vm::setAppearance)
+                    AppearanceOption(strings.text(R.string.ui_follow_system_f4bbd), Appearance.SYSTEM, prefs.appearance, vm::setAppearance)
+                    AppearanceOption(strings.text(R.string.ui_graph_paper_light_f6ce4), Appearance.PAPER, prefs.appearance, vm::setAppearance)
+                    AppearanceOption(strings.text(R.string.ui_blackboard_dark_857f4), Appearance.CHALK, prefs.appearance, vm::setAppearance)
                 }
             }
             DataSection(
@@ -142,8 +147,9 @@ fun SettingsScreen(
                 onRetentionDays = vm::setHistoryRetentionDays,
             )
             BackgroundGenerationSection(report = vm::backgroundGenerationReport)
-            SettingsSection("关于与更新") {
-                TextButton(onClick = { updating = true }) { Text("版本与检查更新") }
+            LanguageFontSettingsSection(prefs, vm::setInterfaceLanguage, vm::setAnswerLanguage, vm::setFont)
+            SettingsSection(strings.text(R.string.ui_about_updates_0902e)) {
+                TextButton(onClick = { updating = true }) { Text(strings.text(R.string.ui_version_check_for_updates_a5dab)) }
             }
         }
     }
@@ -158,9 +164,10 @@ private fun PreferencesSection(
     onNickname: (String) -> Unit,
     onAnswerFirst: (Boolean) -> Unit,
 ) {
-    SettingsSection("解题偏好") {
+    val strings = rememberAppStrings()
+    SettingsSection(strings.text(R.string.ui_solution_preferences_d842b)) {
         Text(
-            "默认模式",
+            strings.text(R.string.ui_default_mode_c8b07),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -169,20 +176,20 @@ private fun PreferencesSection(
                 FilterChip(
                     selected = prefs.defaultSolveMode == mode,
                     onClick = { onMode(mode) },
-                    label = { Text(mode.label) },
+                    label = { Text(strings.label(mode)) },
                 )
             }
         }
         SwitchRow(
-            label = "答案优先",
-            subtitle = "先看答案，点击展开完整解答；展开无需再次生成",
+            label = strings.text(R.string.ui_answer_first_065b5),
+            subtitle = strings.text(R.string.ui_show_the_answer_first_tap_to_expand_the_full_solution_withou_89cee),
             checked = prefs.answerFirst,
             onCheckedChange = onAnswerFirst,
         )
 
         SwitchRow(
-            label = "联网搜索",
-            subtitle = "开启后由模型和服务端决定是否检索；协议在每个模型配置里选",
+            label = strings.text(R.string.ui_web_search_45e62),
+            subtitle = strings.text(R.string.ui_the_model_and_provider_decide_when_to_search_choose_the_prot_ba8dd),
             checked = prefs.webSearchEnabled,
             onCheckedChange = onWebSearch,
         )
@@ -194,6 +201,7 @@ private fun PreferencesSection(
 /** 称呼输入：本地先改，停顿 600ms 才写盘，避免每个字都落一次 DataStore。 */
 @Composable
 private fun NicknameField(saved: String, onSave: (String) -> Unit) {
+    val strings = rememberAppStrings()
     var text by rememberSaveable { mutableStateOf(saved) }
     var edited by rememberSaveable { mutableStateOf(false) }
     // 首帧拿到的是默认值，DataStore 读完后再同步一次；用户动过就不再覆盖
@@ -207,8 +215,8 @@ private fun NicknameField(saved: String, onSave: (String) -> Unit) {
     OutlinedTextField(
         value = text,
         onValueChange = { text = it.take(16); edited = true },
-        label = { Text("称呼（可选）") },
-        placeholder = { Text("回答里怎么称呼你") },
+        label = { Text(strings.text(R.string.ui_preferred_name_optional_47ad2)) },
+        placeholder = { Text(strings.text(R.string.ui_how_should_the_assistant_address_you_410da)) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -231,41 +239,42 @@ private fun DataSection(
     onAutoCleanup: (Boolean) -> Unit,
     onRetentionDays: (Int) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var pending by remember { mutableStateOf<DataAction?>(null) }
-    SettingsSection("数据") {
+    SettingsSection(strings.text(R.string.ui_storage_data_54b8a)) {
         HistoryRetentionControls(prefs, onAutoCleanup, onRetentionDays)
-        DataRow("图表缓存", cacheBytes?.let(::formatBytes) ?: "计算中…") {
-            OutlinedButton(onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text("清理") }
+        DataRow(strings.text(R.string.ui_chart_cache_1c1f9), cacheBytes?.let(::formatBytes) ?: strings.text(R.string.ui_calculating_70117)) {
+            OutlinedButton(onClick = onClearCache, enabled = !busy && (cacheBytes ?: 0L) > 0L) { Text(strings.text(R.string.ui_clean_up_907c3)) }
         }
-        Hint("只删渲染出的图片，题目里的图表下次打开时会重新画。")
-        DataRow("未使用的照片和图表", orphanBytes?.let { "可释放 ${formatBytes(it)}" } ?: "计算中…") {
+        Hint(strings.text(R.string.ui_delete_rendered_images_only_charts_are_redrawn_the_next_time_e0bf6))
+        DataRow(strings.text(R.string.ui_unused_photos_charts_11ef3), orphanBytes?.let { strings.text(R.string.ui_1_s_can_be_freed_c74a1, formatBytes(it)) } ?: strings.text(R.string.ui_calculating_70117)) {
             OutlinedButton(
                 onClick = { pending = DataAction.ORPHANS },
                 enabled = !busy && (orphanBytes ?: 0L) > 0L,
-            ) { Text("清理") }
+            ) { Text(strings.text(R.string.ui_clean_up_907c3)) }
         }
-        Hint("已删除的题目留下的文件。最近 24 小时内拍的照片不会动。")
-        DataRow("清空题册", "移除全部收藏，保留历史对话和分类") {
+        Hint(strings.text(R.string.ui_files_left_by_deleted_questions_photos_from_the_past_24_hour_0a0c3))
+        DataRow(strings.text(R.string.ui_clear_notebook_39a63), strings.text(R.string.ui_remove_saved_items_keep_conversation_history_and_categories_cf660)) {
             OutlinedButton(
                 onClick = { pending = DataAction.NOTEBOOK },
                 enabled = !busy,
-            ) { Text("清空", color = if (busy) Color.Unspecified else MaterialTheme.colorScheme.error) }
+            ) { Text(strings.text(R.string.ui_clear_84fcd), color = if (busy) Color.Unspecified else MaterialTheme.colorScheme.error) }
         }
         message?.let { StatusText(it) }
     }
 
     when (pending) {
         DataAction.ORPHANS -> ConfirmDialog(
-            title = "清理未使用的文件？",
-            text = "将删除不再被任何题目或草稿使用的照片和图表，约 ${formatBytes(orphanBytes ?: 0L)}。删除后无法恢复。",
-            confirm = "清理",
+            title = strings.text(R.string.ui_delete_unused_files_17e8f),
+            text = strings.text(R.string.ui_delete_about_1_s_of_photos_and_charts_no_longer_used_by_ques_7791c, formatBytes(orphanBytes ?: 0L)),
+            confirm = strings.text(R.string.ui_clean_up_907c3),
             onConfirm = onClearOrphans,
             onDismiss = { pending = null },
         )
         DataAction.NOTEBOOK -> ConfirmDialog(
-            title = "清空题册？",
-            text = "将移除全部收藏，无法恢复。历史对话与自定义分类会保留；不再使用的照片与图表可另行清理。",
-            confirm = "清空",
+            title = strings.text(R.string.ui_clear_the_notebook_31a2b),
+            text = strings.text(R.string.ui_remove_all_saved_items_permanently_conversation_history_and_bb0f1),
+            confirm = strings.text(R.string.ui_clear_84fcd),
             onConfirm = onClearNotebook,
             onDismiss = { pending = null },
         )
@@ -279,11 +288,12 @@ internal fun HistoryRetentionControls(
     onAutoCleanup: (Boolean) -> Unit,
     onRetentionDays: (Int) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var editing by rememberSaveable { mutableStateOf(false) }
-    SwitchRow("自动清理历史对话", "仅清理未收藏、未分类的过期对话", prefs.historyAutoCleanupEnabled, onAutoCleanup)
-    DataRow("保留期限", "从最近一次更新起计算；收藏或分类后长期保留") {
+    SwitchRow(strings.text(R.string.ui_auto_delete_old_conversations_ebf42), strings.text(R.string.ui_only_delete_expired_conversations_that_are_neither_saved_nor_b2890), prefs.historyAutoCleanupEnabled, onAutoCleanup)
+    DataRow(strings.text(R.string.ui_retention_period_f08e3), strings.text(R.string.ui_count_from_the_last_update_saved_or_categorized_conversation_d0820)) {
         OutlinedButton(onClick = { editing = true }, enabled = prefs.historyAutoCleanupEnabled) {
-            Text("${prefs.historyRetentionDays} 天")
+            Text(strings.text(R.string.ui_1_s_days_5d45f, prefs.historyRetentionDays))
         }
     }
     if (editing && prefs.historyAutoCleanupEnabled) {
@@ -296,27 +306,28 @@ internal fun HistoryRetentionControls(
 
 @Composable
 private fun HistoryRetentionDaysDialog(days: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    val strings = rememberAppStrings()
     var input by rememberSaveable { mutableStateOf(days.toString()) }
     val value = input.toIntOrNull()?.takeIf { it in 1..UserSettings.MAX_HISTORY_RETENTION_DAYS }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("历史保留期限") },
+        title = { Text(strings.text(R.string.ui_history_retention_b54be)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("超过期限的未收藏、未分类对话会自动删除，收藏和分类内容长期保留。")
+                Text(strings.text(R.string.ui_expired_conversations_are_deleted_unless_saved_or_categorize_d7fd3))
                 OutlinedTextField(input, onValueChange = { input = it.filter(Char::isDigit).take(3) },
-                    label = { Text("保留天数") }, suffix = { Text("天") }, singleLine = true,
+                    label = { Text(strings.text(R.string.ui_days_to_keep_6aea7)) }, suffix = { Text(strings.text(R.string.ui_days_c3304)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                    isError = value == null, supportingText = { Text("可设置 1–365 天") })
+                    isError = value == null, supportingText = { Text(strings.text(R.string.ui_choose_1_365_days_0679d)) })
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(3, 7, 14, 30, 90).forEach { preset ->
-                        FilterChip(value == preset, onClick = { input = preset.toString() }, label = { Text("$preset 天") })
+                        FilterChip(value == preset, onClick = { input = preset.toString() }, label = { Text(strings.text(R.string.ui_1_s_days_5d45f, preset)) })
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text("保存") } },
-        dismissButton = { TextButton(onDismiss) { Text("取消") } },
+        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text(strings.text(R.string.ui_save_fadf2)) } },
+        dismissButton = { TextButton(onDismiss) { Text(strings.text(R.string.ui_cancel_4d0b4)) } },
     )
 }
 
@@ -347,6 +358,7 @@ private fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -356,7 +368,7 @@ private fun ConfirmDialog(
                 Text(confirm, color = MaterialTheme.colorScheme.error)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.text(R.string.ui_cancel_4d0b4)) } },
     )
 }
 
@@ -408,7 +420,8 @@ internal fun ChipRow(content: @Composable () -> Unit) {
 /** 整行可切换的开关；Switch 本身不再单独响应，读屏只播报一次。 */
 @Composable
 internal fun ConversationScreenOnSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    SwitchRow("对话中屏幕常亮", subtitle = null, checked = checked, onCheckedChange = onCheckedChange)
+    val strings = rememberAppStrings()
+    SwitchRow(strings.text(R.string.ui_keep_screen_on_during_conversations_8cf60), subtitle = null, checked = checked, onCheckedChange = onCheckedChange)
 }
 
 @Composable

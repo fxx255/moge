@@ -46,7 +46,7 @@ class ConversationViewportUiTest {
         compose.waitForIdle()
         val before = requireNotNull(saved)
         assertTrue(before.index in 10..20)
-        assertTrue(before.offset > 0)
+        assertTrue(before.offset != 0)
         compose.runOnIdle { shown.value = false }
         compose.waitForIdle()
         compose.runOnIdle { items.value = emptyList(); shown.value = true }
@@ -55,6 +55,51 @@ class ConversationViewportUiTest {
         compose.runOnIdle { items.value = questions }
         compose.waitForIdle()
         assertEquals(before, saved)
+    }
+
+    @Test fun `centered follow up stays anchored over repeated returns and delayed answer reflow`() {
+        val shown = mutableStateOf(true)
+        val initial = listOf(
+            SolveItem.Question("first", "原题", emptyList(), "", true),
+            SolveItem.Answer("answer", AnswerState.COMPLETED, "前面的长回答。".repeat(120)),
+            SolveItem.Question("follow", "请说明这里的公式含义。", emptyList(), "", false),
+            SolveItem.Answer("last", AnswerState.COMPLETED, "后面的长回答。".repeat(120)),
+        )
+        val items = mutableStateOf<List<SolveItem>>(initial)
+        var saved: ConversationViewport? = null
+        compose.setContent { MogeTheme {
+            if (shown.value) SolveList(SolveUiState(conversationId = "c", items = items.value), {}, {}, { _, _ -> }, {}, {},
+                initialViewport = saved, saveViewport = { saved = it }, contentPadding = PaddingValues(16.dp))
+        } }
+        compose.onNodeWithTag("conversation-list").performScrollToIndex(2)
+        compose.onNodeWithTag("conversation-list").performTouchInput {
+            swipe(center - Offset(0f, 100f), center + Offset(0f, 100f), durationMillis = 500)
+        }
+        compose.waitForIdle()
+        val before = requireNotNull(saved)
+        assertEquals("follow", before.messageId)
+        assertTrue(before.offset < 0)
+        val top = compose.onNodeWithText("请说明这里的公式含义。").fetchSemanticsNode().boundsInRoot.top
+        repeat(3) { round ->
+            compose.runOnIdle { shown.value = false }
+            compose.waitForIdle()
+            compose.runOnIdle { items.value = emptyList(); shown.value = true }
+            compose.waitForIdle()
+            assertEquals(before, saved)
+            compose.runOnIdle { items.value = initial }
+            compose.waitForIdle()
+            // Same message IDs, different measured height, as when native math/images arrive.
+            compose.runOnIdle { items.value = initial.map {
+                if (it is SolveItem.Answer && it.id == "answer") it.copy(text = it.text.repeat(round + 2)) else it
+            } }
+            compose.waitForIdle()
+            assertEquals(top, compose.onNodeWithText("请说明这里的公式含义。").fetchSemanticsNode().boundsInRoot.top, 1f)
+            assertEquals(before, saved)
+        }
+        // User scrolling ends the restoration pin and saves the new position.
+        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(durationMillis = 500) }
+        compose.waitForIdle()
+        assertNotEquals(before, saved)
     }
 
     @Test fun `answer refresh does not scroll reader while new question still appears at bottom`() {

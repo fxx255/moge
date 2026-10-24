@@ -1,5 +1,8 @@
 package com.moge.app.ui.capture
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -31,6 +34,7 @@ import kotlin.math.roundToInt
 /** 只在开关启用且首页处于前台时监听重力传感器（没有时回退加速度计）。 */
 @Composable
 fun LevelIndicator(modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val manager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
@@ -64,13 +68,13 @@ fun LevelIndicator(modifier: Modifier = Modifier) {
     val aligned = degrees?.let { abs(it) <= 2 } == true
     val color = if (aligned) Color(0xFFFFE066) else Color.White
     val label = when {
-        sensor == null -> "设备不支持水平仪"
-        degrees == null -> "请竖起手机"
-        aligned -> "已水平"
-        else -> "倾斜 ${abs(degrees!!)}°"
+        sensor == null -> strings.text(R.string.ui_level_is_unavailable_on_this_device_43e6f)
+        degrees == null -> strings.text(R.string.ui_hold_your_phone_upright_051d4)
+        aligned -> strings.text(R.string.ui_level_080c3)
+        else -> strings.text(R.string.ui_tilted_1_s_3d3b1, abs(degrees!!))
     }
     Column(modifier.background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(8.dp)
-        .semantics(mergeDescendants = true) { contentDescription = "水平仪，$label" }, horizontalAlignment = Alignment.CenterHorizontally) {
+        .semantics(mergeDescendants = true) { contentDescription = strings.text(R.string.ui_level_1_s_50abc, label) }, horizontalAlignment = Alignment.CenterHorizontally) {
         Canvas(Modifier.size(96.dp, 32.dp)) {
             val center = Offset(size.width / 2, size.height / 2)
             drawLine(Color.White.copy(alpha = 0.45f), Offset(0f, center.y), Offset(size.width, center.y), 1.dp.toPx())

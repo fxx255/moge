@@ -1,5 +1,8 @@
 package com.moge.app.ui.components
 
+import com.moge.app.R
+import com.moge.app.ui.localization.appString
+
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -44,8 +47,8 @@ internal fun PageSwipeSurface(
     enabled: Boolean = true,
     onLeft: (() -> Unit)? = null,
     onRight: (() -> Unit)? = null,
-    leftLabel: String = "向左切换页面",
-    rightLabel: String = "向右切换页面",
+    leftLabel: String = appString(R.string.ui_swipe_left_to_switch_page_a0ad1),
+    rightLabel: String = appString(R.string.ui_swipe_right_to_switch_page_ffbaf),
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {

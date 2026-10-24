@@ -133,13 +133,14 @@ class ModelClient @Inject constructor(
     ): ParsedReply = modelRequest {
         val response = ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE)
         val configured = resolveConfigured(policy).copy(conversationMode = response.mode)
-        val prompt = PromptAssembler.reusablePrompt(policy?.prompt, solveMode, response.mode) ?: PromptAssembler.assemble(
+        val prompt = PromptAssembler.reusablePrompt(policy?.prompt, solveMode, response.mode) ?: settings.current().let { prefs -> PromptAssembler.assemble(
             protocol = SYSTEM_PROMPT,
-            nickname = settings.current().nickname,
+            nickname = prefs.nickname,
             reasoningEffort = configured.reasoningEffort,
             solveMode = solveMode,
             conversationMode = response.mode,
-        )
+            answerLanguage = policy?.prompt?.answerLanguage ?: prefs.answerLanguage,
+        ) }
         val searchProtocol = effectiveSearchProtocol(configured.baseUrl, configured.searchProtocol)
         // 联网开关用**本轮生效值**（重试时来自快照，不是当前设置）。
         val webSearchOn = webSearchEnabled &&
@@ -249,17 +250,17 @@ class ModelClient @Inject constructor(
             warnings = parsedAnswer.warnings + output.warnings,
         )
         val parsed = if (searchNote == null) base else base.copy(warnings = base.warnings + searchNote)
-        withCitations(parsed, output.citations)
+        withCitations(parsed, output.citations, prompt.answerLanguage)
     }
 
     /** 把去重后的联网来源以 Markdown 链接列表追加到正文末尾。 */
-    private fun withCitations(parsed: ParsedReply, citations: List<Citation>): ParsedReply {
+    private fun withCitations(parsed: ParsedReply, citations: List<Citation>, language: com.moge.app.data.prefs.AppLanguage): ParsedReply {
         val distinct = citations.distinctBy(Citation::url)
         if (distinct.isEmpty()) return parsed
         return parsed.copy(
             reply = buildString {
                 append(parsed.reply)
-                append("\n\n### 来源\n")
+                append("\n\n### ").append(language.sourcesHeading).append('\n')
                 distinct.forEach { citation ->
                     append("- [")
                     append(citation.title.replace("[", "").replace("]", "").ifBlank { citation.url })
@@ -1067,9 +1068,9 @@ class ModelClient @Inject constructor(
                 val recovered = chatDeepSeekNativeResponses(configured.copy(reasoningEffort = AiReasoningEffort.LOW, finalAnswer = true),
                     recoveryMessages, emptyList(), finalAnswerPrompt(prompt, configured.reasoningEffort), false,
                     onUsage, onEvent, false, responseFormat, allowRecovery = false)
-                return withCitations(recovered.copy(rawReasoning = (output.thinking + recovered.rawReasoning).takeLast(MAX_REASONING_CAPTURE_CHARS)), output.citations)
+                return withCitations(recovered.copy(rawReasoning = (output.thinking + recovered.rawReasoning).takeLast(MAX_REASONING_CAPTURE_CHARS)), output.citations, prompt.answerLanguage)
             }
-            return finalizeResponsesReply(output, warning, webSearchEnabled, responseFormat)
+            return finalizeResponsesReply(output, warning, webSearchEnabled, responseFormat, prompt.answerLanguage)
         }
         // 先尝试**真正的逐片流式**：Responses 端点支持 stream 时，
         // response.output_text.delta 会随生成逐片到达，用户能在结束前看到正文。
@@ -1407,6 +1408,7 @@ class ModelClient @Inject constructor(
         extraWarning: String? = null,
         webSearchRequested: Boolean = true,
         response: ConversationResponse = ConversationResponse(ConversationMode.SOLVE),
+        language: com.moge.app.data.prefs.AppLanguage,
     ): ParsedReply {
         val answer = output.text.trim()
         if (answer.isEmpty()) {
@@ -1433,7 +1435,7 @@ class ModelClient @Inject constructor(
             if (extraWarning != null) add(extraWarning)
         }
         val noted = if (warnings.isEmpty()) parsed else parsed.copy(warnings = parsed.warnings + warnings)
-        return withCitations(noted.copy(rawReasoning = output.thinking, truncated = output.truncated), output.citations)
+        return withCitations(noted.copy(rawReasoning = output.thinking, truncated = output.truncated), output.citations, language)
     }
 
     private fun buildDeepSeekResponsesPayload(

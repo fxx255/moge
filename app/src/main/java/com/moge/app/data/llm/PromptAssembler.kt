@@ -3,6 +3,7 @@ package com.moge.app.data.llm
 import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.domain.SolveMode
 import com.moge.app.domain.ConversationMode
+import com.moge.app.data.prefs.AppLanguage
 import java.time.Clock
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -42,6 +43,7 @@ data class ChatMessage(
 data class PromptSegments(
     val stableSystem: String,
     val volatileSystem: String,
+    val answerLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
 )
 
 object PromptAssembler {
@@ -67,9 +69,15 @@ object PromptAssembler {
         solveMode: SolveMode,
         clock: Clock = Clock.systemDefaultZone(),
         conversationMode: ConversationMode = ConversationMode.SOLVE,
+        answerLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     ): PromptSegments {
         val stableSystem = buildString {
             append(protocolForMode(protocol, conversationMode))
+            append("\n\n## 回答语言\n").append(answerLanguage.answerInstruction)
+            append("。回答正文使用此语言；题目原文、引用、语言学习例句、代码与专有名词保留原文。")
+            if (conversationMode == ConversationMode.SOLVE) {
+                append("简明答案、对话标题及图表的自然语言标签也使用此语言。JSON 字段名、LaTeX 和绘图协议不变。")
+            }
             val name = nickname.trim()
             if (name.isNotEmpty()) {
                 append("\n\n## 称呼\n")
@@ -90,11 +98,11 @@ object PromptAssembler {
                 append("\n\n").append(SYSTEM_RULE_NOTE)
             }
         }
-        return PromptSegments(stableSystem, volatileSystem)
+        return PromptSegments(stableSystem, volatileSystem, answerLanguage)
     }
 
     private const val CHAT_PROMPT = "你是墨格中的对话助手。根据用户的意图自然、准确地回答；" +
-        "不确定时坦诚说明，信息不足时适当澄清。默认使用用户的语言，直接输出正文，按需使用 Markdown。"
+        "不确定时坦诚说明，信息不足时适当澄清。使用指定的回答语言，直接输出正文，按需使用 Markdown。"
 
     private fun protocolForMode(protocol: String, mode: ConversationMode): String =
         if (mode == ConversationMode.CHAT) CHAT_PROMPT else protocol

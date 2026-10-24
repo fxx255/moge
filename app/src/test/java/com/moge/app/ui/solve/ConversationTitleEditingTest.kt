@@ -80,7 +80,11 @@ class ConversationTitleEditingTest {
         val sheet = compose.onNodeWithTag("conversation-title-sheet").fetchSemanticsNode().boundsInRoot
         val header = compose.onNodeWithTag("conversation-header").fetchSemanticsNode().boundsInRoot
         assertEquals(before.top, header.top, 1f)
-        assertTrue(sheet.top >= header.top && sheet.bottom <= header.bottom)
+        assertEquals("The pull-down must span the whole paper strip", header.left, sheet.left, 1f)
+        assertEquals(header.right, sheet.right, 1f)
+        assertTrue("The editor opens below the original title row", sheet.top >= before.bottom - 1f)
+        assertTrue(sheet.bottom <= header.bottom)
+        compose.onNodeWithContentDescription("解题模式").assertIsDisplayed()
         compose.runOnIdle { title = "模型稍晚生成的自动主题" }
         compose.onNodeWithTag("conversation-title-editor").assertTextEquals("我的英语阅读笔记")
         export(view, "paper-editing")
@@ -139,7 +143,7 @@ class ConversationTitleEditingTest {
         assertEquals(2, calls)
     }
 
-    @Test fun `sticky note wraps long titles at large font size and keeps confirmation below text`() {
+    @Test fun `pull down strip wraps long titles at large font size and keeps confirmation below text`() {
         compose.setContent { MogeTheme {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 1.5f)) {

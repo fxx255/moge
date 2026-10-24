@@ -35,6 +35,8 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [28], application = android.app.Application::class)
 class SettingsViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
@@ -73,7 +75,7 @@ class SettingsViewModelTest {
 
     private fun vm() = SettingsViewModel(
         settings, credentials, client, plots, diagrams, janitor, conversations, drafts, notebook, mockk(relaxed = true), dispatcher,
-    )
+     localizedText = com.moge.app.core.localizedTestText())
 
     private fun draft(apiKey: String = "sk-1") = ModelProfileDraft(
         "DeepSeek", "https://api.deepseek.com", "deepseek-chat", apiKey,

@@ -1,5 +1,8 @@
 package com.moge.app.ui.home
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -100,6 +103,7 @@ fun HomeScreen(
     onStartSolve: (CaptureBatch) -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
+    val strings = rememberAppStrings()
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val controller = remember { ViewfinderController() }
@@ -133,7 +137,7 @@ fun HomeScreen(
     }
     fun launchSystemCamera() {
         if (!state.canAddMore) {
-            vm.showMessage("最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
             return
         }
         val target = vm.newCameraFile()
@@ -144,7 +148,7 @@ fun HomeScreen(
         }.onFailure {
             pendingSystemShot = null
             target.delete()
-            vm.showMessage("没有找到可用的相机应用")
+            vm.showMessage(strings.text(R.string.ui_no_camera_app_available_f648a))
         }
     }
     val pickPhotos = rememberLauncherForActivityResult(
@@ -152,14 +156,14 @@ fun HomeScreen(
     ) { uris -> vm.onPicked(uris) }
     fun openGallery() {
         if (!state.canAddMore) {
-            vm.showMessage("最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
             return
         }
         pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
     fun shoot() {
         when {
-            !state.canAddMore -> vm.showMessage("最多 ${CaptureStore.MAX_PHOTOS} 张照片")
+            !state.canAddMore -> vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
             !cameraGranted -> grantCamera()
             controller.ready -> controller.takePicture(
                 context,
@@ -200,11 +204,11 @@ fun HomeScreen(
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
                     .background(if (useViewfinder) Color.Black.copy(alpha = 0.35f) else Color.Transparent, CircleShape),
             ) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回对话", tint = if (useViewfinder) Color.White else MaterialTheme.colorScheme.onBackground)
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, strings.text(R.string.ui_back_to_conversation_185d6), tint = if (useViewfinder) Color.White else MaterialTheme.colorScheme.onBackground)
             }
             if (useViewfinder && state.message == null) {
                 Text(
-                    "拍摄照片",
+                    strings.text(R.string.ui_take_a_photo_fd362),
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
@@ -238,7 +242,7 @@ fun HomeScreen(
             path = path,
             onCropped = vm::onCropDone,
             onDismiss = vm::onRetake,
-            dismissLabel = "重拍",
+            dismissLabel = strings.text(R.string.ui_retake_41c37),
             onCropStarted = { vm.onPhotoCropStarted(path) },
             onCropClosed = { vm.onPhotoCropClosed(path) },
             saveCrop = { vm.savePhotoCrop(path, it) },
@@ -323,6 +327,7 @@ private fun openAppSettings(context: android.content.Context) {
 /** 未授权或预览失败时仍可选图、授权、使用系统相机并返回对话。 */
 @Composable
 internal fun CameraUnavailable(cameraFailed: Boolean, onGrant: () -> Unit, onSystemCamera: () -> Unit) {
+    val strings = rememberAppStrings()
     Column(
         Modifier.widthIn(max = 480.dp).fillMaxWidth().padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState())
@@ -330,19 +335,19 @@ internal fun CameraUnavailable(cameraFailed: Boolean, onGrant: () -> Unit, onSys
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(if (cameraFailed) "取景框打不开" else "没有相机权限", style = MaterialTheme.typography.titleMedium)
+        Text(if (cameraFailed) strings.text(R.string.ui_could_not_open_viewfinder_704fd) else strings.text(R.string.ui_camera_permission_needed_30a59), style = MaterialTheme.typography.titleMedium)
         Text(
-            if (cameraFailed) "可以改用系统相机，或者从相册选择照片。" else "授权后可以拍照，也可以从相册选择照片。",
+            if (cameraFailed) strings.text(R.string.ui_use_the_system_camera_or_choose_photos_from_your_gallery_41176) else strings.text(R.string.ui_allow_camera_access_to_take_photos_or_choose_from_your_galle_b743d),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         if (!cameraFailed) {
-            OutlinedButton(onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text("去授权相机") }
+            OutlinedButton(onClick = onGrant, modifier = Modifier.heightIn(min = 48.dp)) { Text(strings.text(R.string.ui_allow_camera_1a535)) }
         }
         TextButton(onClick = onSystemCamera, modifier = Modifier.heightIn(min = 48.dp)) {
             Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-            Text("用系统相机拍")
+            Text(strings.text(R.string.ui_use_system_camera_cf162))
         }
     }
 }
@@ -377,6 +382,7 @@ internal fun CameraControls(
     onOpenStack: () -> Unit,
     cameraActive: Boolean = true,
 ) {
+    val strings = rememberAppStrings()
     val tint = if (onDark) Color.White else MaterialTheme.colorScheme.onBackground
     // Animate the actual camera target; compensate canvas changes when the window rotates too.
     val displayRotation = rememberDisplayRotation()
@@ -389,11 +395,11 @@ internal fun CameraControls(
         Row(horizontalArrangement = Arrangement.Center) {
             IconButton(enabled = controller.ready, onClick = { controller.setFlash(!controller.torchOn) }) {
                 Icon(if (controller.torchOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
-                    if (controller.torchOn) "关闭闪光灯" else "打开闪光灯", tint = tint,
+                    if (controller.torchOn) strings.text(R.string.ui_turn_flash_off_e5910) else strings.text(R.string.ui_turn_flash_on_56bb6), tint = tint,
                     modifier = Modifier.cameraIconRotation(iconRotation))
             }
             IconToggleButton(checked = levelEnabled, onCheckedChange = onLevel) {
-                Icon(Icons.Outlined.Straighten, if (levelEnabled) "关闭水平仪" else "打开水平仪",
+                Icon(Icons.Outlined.Straighten, if (levelEnabled) strings.text(R.string.ui_hide_level_4f356) else strings.text(R.string.ui_show_level_068df),
                     tint = if (levelEnabled) Color(0xFFFFE066) else tint,
                     modifier = Modifier.cameraIconRotation(iconRotation))
             }
@@ -401,15 +407,15 @@ internal fun CameraControls(
     }
     val gallery: @Composable () -> Unit = {
         IconButton(onClick = onGallery, modifier = Modifier.size(if (sideControls) 48.dp else 56.dp)) {
-            Icon(Icons.Outlined.PhotoLibrary, "相册", tint = tint,
+            Icon(Icons.Outlined.PhotoLibrary, strings.text(R.string.ui_gallery_c657c), tint = tint,
                 modifier = Modifier.cameraIconRotation(iconRotation))
         }
     }
     val stack: @Composable () -> Unit = {
         BadgedBox(badge = { if (count > 0) Badge { Text("$count") } }) {
             TextButton(onClick = onOpenStack, enabled = count > 0, modifier = Modifier.heightIn(min = 56.dp).widthIn(max = 56.dp)
-                .semantics { contentDescription = "查看已选照片" }) {
-                Text("确认", color = tint.copy(alpha = if (count > 0) 1f else 0.4f))
+                .semantics { contentDescription = strings.text(R.string.ui_view_selected_photos_4ba4f) }) {
+                Text(strings.text(R.string.ui_confirm_b56d9), color = tint.copy(alpha = if (count > 0) 1f else 0.4f))
             }
         }
     }
@@ -447,12 +453,13 @@ internal fun CameraControls(
 /** 外环 + 实心圆；无文字快门，80dp 触控区与独立无障碍描述。 */
 @Composable
 internal fun CameraShutter(enabled: Boolean, tint: Color, onClick: () -> Unit) {
+    val strings = rememberAppStrings()
     Surface(
         onClick = onClick,
         enabled = enabled,
         shape = CircleShape,
         color = Color.Transparent,
-        modifier = Modifier.size(80.dp).semantics { contentDescription = "拍照" },
+        modifier = Modifier.size(80.dp).semantics { contentDescription = strings.text(R.string.ui_take_photo_3da4b) },
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val color = tint.copy(alpha = if (enabled) 1f else 0.4f)

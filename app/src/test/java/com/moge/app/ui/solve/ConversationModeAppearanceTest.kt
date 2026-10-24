@@ -45,6 +45,9 @@ class ConversationModeAppearanceTest {
             }) { padding -> SolveList(state, {}, {}, { _, _ -> }, {}, {}, contentPadding = padding) }
         } }
         compose.onNodeWithText("新对话").assertIsDisplayed()
+        compose.onNodeWithContentDescription("对话模式").assertIsDisplayed()
+        compose.onNodeWithContentDescription("设置").assertIsDisplayed()
+        compose.onNodeWithContentDescription("历史对话").assertIsDisplayed()
         val picker = compose.onNodeWithTag("conversation-mode-switch").fetchSemanticsNode().boundsInRoot
         val composer = compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot
         assertTrue("Mode controls must fit above the attachment composer", picker.bottom <= composer.top)
@@ -85,6 +88,7 @@ class ConversationModeAppearanceTest {
         }
         compose.onNodeWithTag("conversation-mode-switch").performClick()
         compose.onNodeWithText("新题目").assertIsDisplayed()
+        compose.onNodeWithContentDescription("解题模式").assertIsDisplayed()
         compose.onNodeWithText("有什么题目要解？").assertIsDisplayed()
         compose.onNodeWithText("输入问题").assertIsDisplayed()
     }

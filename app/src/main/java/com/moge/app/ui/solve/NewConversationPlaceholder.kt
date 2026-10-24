@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,13 +23,14 @@ import com.moge.app.ui.theme.MogeTheme
 
 @Composable
 internal fun NewConversationPlaceholder(mode: ConversationMode) {
+    val strings = rememberAppStrings()
     val duration = if (MogeTheme.motionEnabled) 240 else 0
     BoxWithConstraints(Modifier.widthIn(max = 360.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
         // Leave compact landscape layouts to the header and composer.
         if (maxHeight >= 120.dp) AnimatedContent(mode,
             transitionSpec = { fadeIn(tween(duration)) togetherWith fadeOut(tween(duration)) },
             label = "conversation-greeting") { selected ->
-            Text(if (selected == ConversationMode.CHAT) "今天聊点什么？" else "有什么题目要解？",
+            Text(if (selected == ConversationMode.CHAT) strings.text(R.string.ui_what_shall_we_talk_about_ad45d) else strings.text(R.string.ui_what_would_you_like_to_solve_c1b45),
                 style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center)
         }

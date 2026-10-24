@@ -53,8 +53,8 @@ android {
         applicationId = "com.moge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 41
-        versionName = "0.6.1"
+        versionCode = 42
+        versionName = "0.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -132,6 +132,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // All supported interface languages must remain available for offline switching.
+    bundle {
+        language {
+            enableSplit = false
+        }
     }
 
     packaging {

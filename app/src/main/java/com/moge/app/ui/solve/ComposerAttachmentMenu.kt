@@ -1,5 +1,8 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -46,6 +49,7 @@ internal fun ComposerAttachmentMenu(
     onPickPhotos: () -> Unit,
     onPickDocument: () -> Unit,
 ) {
+    val strings = rememberAppStrings()
     var expanded by remember { mutableStateOf(false) }
     var visible by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
@@ -73,9 +77,9 @@ internal fun ComposerAttachmentMenu(
                 detectTapGestures { expanded = false }
             }.padding(shadowInset).size(184.dp, 176.dp)) {
                 val actions = listOf(
-                    Triple(Icons.Outlined.PhotoCamera, "拍照", onTakePhoto),
-                    Triple(Icons.Outlined.PhotoLibrary, "从相册选图", onPickPhotos),
-                    Triple(Icons.Outlined.AttachFile, "上传文档", onPickDocument),
+                    Triple(Icons.Outlined.PhotoCamera, strings.text(R.string.ui_take_photo_3da4b), onTakePhoto),
+                    Triple(Icons.Outlined.PhotoLibrary, strings.text(R.string.ui_choose_photos_97c18), onPickPhotos),
+                    Triple(Icons.Outlined.AttachFile, strings.text(R.string.ui_attach_documents_95594), onPickDocument),
                 )
                 actions.forEachIndexed { index, (icon, label, action) ->
                     val available = enabled && expanded && (index == 2 || photosEnabled)
@@ -113,12 +117,13 @@ internal fun ComposerAttachmentMenu(
 @Composable
 private fun AttachmentToggle(expanded: Boolean, enabled: Boolean,
     progress: Animatable<Float, AnimationVector1D>, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings()
     IconButton(onClick = onClick, enabled = enabled,
-        modifier = modifier.size(48.dp).semantics { stateDescription = if (expanded) "已展开" else "已收起" }) {
+        modifier = modifier.size(48.dp).semantics { stateDescription = if (expanded) strings.text(R.string.ui_expanded_fa83a) else strings.text(R.string.ui_collapsed_5dd9d) }) {
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.size(34.dp)) {
             Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Icon(Icons.Outlined.Add, if (expanded) "收起附件菜单" else "添加附件",
+                Icon(Icons.Outlined.Add, if (expanded) strings.text(R.string.ui_collapse_attachments_69b7e) else strings.text(R.string.ui_add_attachments_dba9e),
                     Modifier.size(22.dp).graphicsLayer { rotationZ = 45f * progress.value })
             }
         }

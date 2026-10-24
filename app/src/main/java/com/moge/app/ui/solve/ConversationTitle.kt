@@ -1,5 +1,9 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.ui.localization.label
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -16,16 +20,20 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.moge.app.domain.ConversationMode
-import com.moge.app.ui.components.HighlightedTitle
 import com.moge.app.ui.components.excludePageSwipe
 import com.moge.app.ui.theme.MogeTheme
 
@@ -40,9 +48,10 @@ internal fun ConversationTitle(
     onEditTitle: (() -> Unit)? = null,
     onSelectMode: (ConversationMode) -> Unit = {},
 ) {
+    val strings = rememberAppStrings()
     val text = when (newMode) {
-        ConversationMode.SOLVE -> "新题目"
-        ConversationMode.CHAT -> "新对话"
+        ConversationMode.SOLVE -> strings.text(R.string.ui_new_question_f832f)
+        ConversationMode.CHAT -> strings.text(R.string.ui_new_chat_1b7ab)
         null -> title
     }
     val motion = MogeTheme.motionEnabled
@@ -50,13 +59,13 @@ internal fun ConversationTitle(
     val target = HeaderTitle(text, newMode)
     val switch = if (newMode != null) Modifier.excludePageSwipe().testTag("conversation-mode-switch")
         .clickable(enabled = switchEnabled, role = Role.Button,
-            onClickLabel = if (newMode == ConversationMode.SOLVE) "切换到对话模式" else "切换到解题模式") {
+            onClickLabel = if (newMode == ConversationMode.SOLVE) strings.text(R.string.ui_switch_to_chat_1c3e0) else strings.text(R.string.ui_switch_to_solve_3e16b)) {
             onSelectMode(if (newMode == ConversationMode.SOLVE) ConversationMode.CHAT else ConversationMode.SOLVE)
-        }.semantics { stateDescription = "${newMode.label}模式" }
+        }.semantics { stateDescription = strings.text(R.string.ui_1_s_mode_3cfe2, strings.label(newMode)) }
     else if (onEditTitle != null) Modifier.excludePageSwipe().testTag("conversation-title")
-        .combinedClickable(onClick = {}, onLongClickLabel = "修改对话主题", onLongClick = onEditTitle)
+        .combinedClickable(onClick = {}, onLongClickLabel = strings.text(R.string.ui_edit_conversation_title_9c8af), onLongClick = onEditTitle)
     else Modifier
-    Box(switch.heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+    Box(switch.heightIn(min = 44.dp), contentAlignment = Alignment.CenterStart) {
         AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
             val duration = if (motion) 240 else 0
             if (initialState.newMode != null && targetState.newMode != null) {
@@ -74,7 +83,7 @@ internal fun ConversationTitle(
     }
 }
 
-/** Measure once, then reveal the ink and highlighter together without moving header actions. */
+/** Reveal the title ink without moving header actions. */
 @Composable
 private fun WritingTitle(title: String, animate: Boolean) {
     val motion = MogeTheme.motionEnabled
@@ -86,12 +95,16 @@ private fun WritingTitle(title: String, animate: Boolean) {
             reveal.animateTo(1f, tween(duration, easing = FastOutSlowInEasing))
         }
     }
-    HighlightedTitle(title, maxLines = 1, revealProgress = { reveal.value },
-        modifier = if (motion && revealed) Modifier.basicMarquee(
+    Text(title, maxLines = 1, style = MaterialTheme.typography.titleLarge,
+        color = MaterialTheme.colorScheme.onBackground,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = (if (motion && revealed) Modifier.basicMarquee(
             iterations = Int.MAX_VALUE,
             initialDelayMillis = 2_000,
             repeatDelayMillis = 2_000,
             spacing = MarqueeSpacing(36.dp),
             velocity = 18.dp,
-        ) else Modifier)
+        ) else Modifier).drawWithContent {
+            clipRect(right = size.width * reveal.value.coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
+        }.semantics { heading() })
 }

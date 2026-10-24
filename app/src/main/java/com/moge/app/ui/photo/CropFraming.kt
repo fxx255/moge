@@ -16,6 +16,28 @@ internal fun initialCropFraming(image: IntSize, viewport: IntSize): CropFraming 
     return CropFraming(zoom, Offset.Zero, visibleImageBounds(image, viewport, zoom, Offset.Zero))
 }
 
+/** Rotate both photo and selection about the viewport center, retaining the same source pixels. */
+internal fun rotateCropFramingCounterclockwise(
+    current: CropFraming, image: IntSize, viewport: IntSize,
+): CropFraming {
+    val rotatedImage = IntSize(image.height, image.width)
+    if (image.width <= 0 || image.height <= 0 || viewport.width <= 0 || viewport.height <= 0 ||
+        current.cropRect.width <= 0f || current.cropRect.height <= 0f) {
+        return initialCropFraming(rotatedImage, viewport)
+    }
+    val center = Offset(viewport.width / 2f, viewport.height / 2f)
+    val crop = current.cropRect
+    val rotated = CropFraming(
+        zoom = current.zoom * coverScale(image, viewport) / coverScale(rotatedImage, viewport),
+        imageOffset = Offset(current.imageOffset.y, -current.imageOffset.x),
+        cropRect = Rect(center.x + crop.top - center.y, center.y - crop.right + center.x,
+            center.x + crop.bottom - center.y, center.y - crop.left + center.x),
+    )
+    // A rectangular viewport may need to shrink or translate both layers to keep the rotated frame reachable.
+    val factor = minOf(1f, viewport.width / rotated.cropRect.width, viewport.height / rotated.cropRect.height)
+    return transformLinkedCropFraming(rotated, viewport, rotated.zoom * factor, Offset.Zero, center)
+}
+
 /** Transform the photo and selection together while the frame fits inside the viewport. */
 internal fun transformLinkedCropFraming(
     current: CropFraming, viewport: IntSize, zoom: Float, pan: Offset, focus: Offset,

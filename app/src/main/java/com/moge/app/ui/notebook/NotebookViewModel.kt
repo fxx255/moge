@@ -1,5 +1,8 @@
 package com.moge.app.ui.notebook
 
+import com.moge.app.R
+import com.moge.app.core.LocalizedText
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -44,6 +47,7 @@ class NotebookViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val repository: NotebookRepository,
     private val conversations: ConversationRepository,
+    private val localizedText: LocalizedText,
 ) : ViewModel() {
     private val restoredCategory = savedState.get<String>(CATEGORY).orEmpty()
     private val initialOpenEntryId = (if (savedState.contains(OPEN)) savedState.get<String>(OPEN)
@@ -64,7 +68,7 @@ class NotebookViewModel @Inject constructor(
             reload.flatMapLatest {
                 repository.observeCategories().map { Categories(it) }.catch { error ->
                     if (error is CancellationException) throw error
-                    emit(Categories(error = "分类读取失败，请重试"))
+                    emit(Categories(error = localizedText.text(R.string.ui_could_not_load_categories_try_again_9a7e8)))
                 }
             }.collect { loaded ->
                 _state.update { it.copy(categories = loaded.values ?: it.categories, categoryError = loaded.error) }
@@ -83,7 +87,7 @@ class NotebookViewModel @Inject constructor(
                         .map { Entries(values = it) }.onStart { emit(Entries(loading = true)) }
                         .catch { error ->
                             if (error is CancellationException) throw error
-                            emit(Entries(error = "题册读取失败，请重试"))
+                            emit(Entries(error = localizedText.text(R.string.ui_could_not_load_notebook_try_again_0ab3a)))
                         }
                 }.collect { loaded ->
                     _state.update { current ->
@@ -105,7 +109,7 @@ class NotebookViewModel @Inject constructor(
                         }
                         .catch { error ->
                             if (error is CancellationException) throw error
-                            if (state.value.openEntryId == id) _state.update { it.copy(message = "收藏读取失败，请重试") }
+                            if (state.value.openEntryId == id) _state.update { it.copy(message = localizedText.text(R.string.ui_could_not_load_saved_item_try_again_37823)) }
                             emit(null)
                         }
                         .flatMapLatest { entry ->
@@ -157,9 +161,9 @@ class NotebookViewModel @Inject constructor(
         _state.update { it.copy(selectedIds = emptySet()) }
         persistSelection()
     }
-    fun createCategory(name: String) = mutate { repository.createCategory(name); "分类已创建" }
+    fun createCategory(name: String) = mutate { repository.createCategory(name); localizedText.text(R.string.ui_category_created_183f5) }
     fun renameCategory(id: String, name: String) = mutate {
-        if (repository.renameCategory(id, name)) "分类已改名" else "分类已被删除"
+        if (repository.renameCategory(id, name)) localizedText.text(R.string.ui_category_renamed_cbf09) else localizedText.text(R.string.ui_category_deleted_00cab)
     }
     fun deleteCategory(id: String) = mutate {
         repository.deleteCategory(id)
@@ -167,7 +171,7 @@ class NotebookViewModel @Inject constructor(
             _state.update { it.copy(categoryId = null, uncategorizedOnly = true) }
             savedState[CATEGORY] = UNCATEGORIZED
         }
-        "分类已删除，题目与对话已移至未分类"
+        localizedText.text(R.string.ui_category_deleted_questions_and_conversations_moved_to_uncate_86a78)
     }
     fun reorderCategory(id: String, offset: Int) {
         val order = state.value.categories.map { it.id }.toMutableList()
@@ -175,7 +179,7 @@ class NotebookViewModel @Inject constructor(
         val to = from + offset
         if (from !in order.indices || to !in order.indices) return
         order.add(to, order.removeAt(from))
-        mutate { repository.reorderCategories(order); "分类顺序已修改" }
+        mutate { repository.reorderCategories(order); localizedText.text(R.string.ui_category_order_updated_1b019) }
     }
     fun moveSelected(categoryId: String?) = moveItems(actionIds(), categoryId)
     fun moveItems(ids: Set<String>, categoryId: String?) {
@@ -184,7 +188,7 @@ class NotebookViewModel @Inject constructor(
             val moved = repository.moveEntries(ids, categoryId)
             _state.update { it.copy(selectedIds = emptySet()) }
             persistSelection()
-            "已移动 $moved 条收藏"
+            localizedText.text(R.string.ui_moved_1_s_saved_items_75257, moved)
         }
     }
     fun deleteSelected() = deleteItems(actionIds())
@@ -195,7 +199,7 @@ class NotebookViewModel @Inject constructor(
             if (state.value.openEntryId in ids) closeEntry()
             _state.update { it.copy(selectedIds = emptySet()) }
             persistSelection()
-            "已移出 $deleted 条收藏，历史对话仍保留"
+            localizedText.text(R.string.ui_removed_1_s_saved_items_conversation_history_is_kept_2173b, deleted)
         }
     }
     fun retry() { reload.value++ }
@@ -207,7 +211,7 @@ class NotebookViewModel @Inject constructor(
         viewModelScope.launch {
             try { val message = action(); _state.update { it.copy(message = message) } }
             catch (error: CancellationException) { throw error }
-            catch (error: Exception) { _state.update { it.copy(message = error.message ?: "操作失败，请重试") } }
+            catch (error: Exception) { _state.update { it.copy(message = error.message ?: localizedText.text(R.string.ui_operation_failed_try_again_51d3c)) } }
             finally { _state.update { it.copy(busy = false) } }
         }
     }

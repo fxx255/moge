@@ -22,7 +22,7 @@ internal fun TapedPaperCard(
         // Reserved headroom keeps the rotated tape inside the item bounds and
         // above the first text line, even while an animation uses a clipped layer.
         if (showTape) Tape(
-            Modifier.align(Alignment.TopEnd).padding(end = 18.dp).offset(y = 4.dp)
+            Modifier.align(Alignment.TopCenter).offset(y = 4.dp)
                 .testTag("paper-card-tape"),
             width = 48.dp, height = 12.dp, angle = 5f,
         )

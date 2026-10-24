@@ -1,5 +1,9 @@
 package com.moge.app.ui.update
 
+
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,6 +37,7 @@ import com.moge.app.data.update.UpdatePhase
 /** Settings integration: invoke AppUpdateDialog(onDismiss = { showAbout = false }). */
 @Composable
 fun AppUpdateDialog(onDismiss: () -> Unit) {
+    val strings = rememberAppStrings()
     val viewModel: AppUpdateViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
@@ -59,63 +64,63 @@ fun AppUpdateDialog(onDismiss: () -> Unit) {
     val candidate = state.candidate
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("关于与更新") },
+        title = { Text(strings.text(R.string.ui_about_updates_0902e)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("墨格 Moge")
-                Text("当前版本 ${BuildConfig.VERSION_NAME}")
+                Text(strings.text(R.string.ui_moge_eec60))
+                Text(strings.text(R.string.ui_version_1_s_7f8ba, BuildConfig.VERSION_NAME))
                 viewModel.mirrorUrl?.let { mirror ->
-                    Text("更新镜像：$mirror", style = MaterialTheme.typography.bodySmall)
-                    Text("连接失败时自动尝试 GitHub 直连。", style = MaterialTheme.typography.bodySmall)
+                    Text(strings.text(R.string.ui_update_mirror_1_s_c2147, mirror), style = MaterialTheme.typography.bodySmall)
+                    Text(strings.text(R.string.ui_tries_github_directly_if_the_mirror_fails_6124d), style = MaterialTheme.typography.bodySmall)
                 }
-                viewModel.projectUrl?.let { url -> TextButton(onClick = { openLink(url) }) { Text("GitHub 项目") } }
+                viewModel.projectUrl?.let { url -> TextButton(onClick = { openLink(url) }) { Text(strings.text(R.string.ui_github_project_d0564)) } }
                 Text(when (state.phase) {
-                    UpdatePhase.UNAVAILABLE -> "暂未配置应用更新。"
-                    UpdatePhase.IDLE -> "检查是否有新版本。"
-                    UpdatePhase.CHECKING -> "正在检查更新…"
-                    UpdatePhase.CURRENT -> "目前没有可用的新版本。"
-                    UpdatePhase.AVAILABLE -> "发现新版本 ${candidate?.manifest?.versionName.orEmpty()}"
-                    UpdatePhase.UNSUPPORTED -> "新版本暂不支持此设备。"
-                    UpdatePhase.DOWNLOADING -> "正在下载 ${((state.downloadedBytes.toDouble() / (candidate?.manifest?.size ?: 1)) * 100).toInt()}%"
-                    UpdatePhase.VERIFYING -> "正在检查安装文件…"
-                    UpdatePhase.READY -> "新版本已下载，可以安装。"
-                    UpdatePhase.AWAITING_PERMISSION -> "请允许墨格安装应用，返回后继续安装。"
-                    UpdatePhase.INSTALLER_OPENED -> "请在系统界面确认安装。"
-                    UpdatePhase.FAILURE -> "更新未能完成，请重试。"
+                    UpdatePhase.UNAVAILABLE -> strings.text(R.string.ui_app_updates_are_not_configured_bfc56)
+                    UpdatePhase.IDLE -> strings.text(R.string.ui_check_for_a_new_version_2ecfd)
+                    UpdatePhase.CHECKING -> strings.text(R.string.ui_checking_for_updates_c8bea)
+                    UpdatePhase.CURRENT -> strings.text(R.string.ui_no_updates_available_9bd2d)
+                    UpdatePhase.AVAILABLE -> strings.text(R.string.ui_new_version_1_s_9e0cf, candidate?.manifest?.versionName.orEmpty())
+                    UpdatePhase.UNSUPPORTED -> strings.text(R.string.ui_this_update_does_not_support_your_device_5d6b7)
+                    UpdatePhase.DOWNLOADING -> strings.text(R.string.ui_downloading_1_s_2fd2f, ((state.downloadedBytes.toDouble() / (candidate?.manifest?.size ?: 1)) * 100).toInt())
+                    UpdatePhase.VERIFYING -> strings.text(R.string.ui_verifying_download_804c8)
+                    UpdatePhase.READY -> strings.text(R.string.ui_update_downloaded_and_ready_to_install_df95a)
+                    UpdatePhase.AWAITING_PERMISSION -> strings.text(R.string.ui_allow_moge_to_install_apps_then_return_to_continue_f6289)
+                    UpdatePhase.INSTALLER_OPENED -> strings.text(R.string.ui_confirm_installation_in_the_system_dialog_2431d)
+                    UpdatePhase.FAILURE -> strings.text(R.string.ui_update_failed_try_again_879a3)
                 })
                 if (state.phase == UpdatePhase.DOWNLOADING) {
                     LinearProgressIndicator(progress = { (state.downloadedBytes.toFloat() / (candidate?.manifest?.size ?: 1)).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth())
                 } else if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 candidate?.notes?.takeIf { it.isNotBlank() }?.let {
-                    Text("更新内容", style = MaterialTheme.typography.titleSmall)
+                    Text(strings.text(R.string.ui_what_s_new_e86c7), style = MaterialTheme.typography.titleSmall)
                     Text(it)
                 }
                 candidate?.manifest?.releaseUrl?.let { url ->
-                    TextButton(onClick = { openLink(url) }) { Text("打开发布页") }
+                    TextButton(onClick = { openLink(url) }) { Text(strings.text(R.string.ui_open_release_page_e465c)) }
                 }
                 if (candidate == null && state.phase == UpdatePhase.FAILURE) viewModel.projectUrl?.let { url ->
-                    TextButton(onClick = { openLink("$url/releases") }) { Text("打开发布页") }
+                    TextButton(onClick = { openLink("$url/releases") }) { Text(strings.text(R.string.ui_open_release_page_e465c)) }
                 }
-                if (linkFailed) Text("暂时无法打开链接，请稍后重试。")
+                if (linkFailed) Text(strings.text(R.string.ui_could_not_open_link_try_again_later_fb965))
                 if (state.phase in setOf(UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING)) {
-                    TextButton(onClick = viewModel::cancelDownload) { Text("取消下载") }
+                    TextButton(onClick = viewModel::cancelDownload) { Text(strings.text(R.string.ui_cancel_download_7115f)) }
                 }
                 if (state.phase == UpdatePhase.AWAITING_PERMISSION) {
-                    TextButton(onClick = viewModel::cancelInstall) { Text("暂不安装") }
+                    TextButton(onClick = viewModel::cancelInstall) { Text(strings.text(R.string.ui_not_now_e6bb5)) }
                 }
             }
         },
         confirmButton = {
             when (state.phase) {
-                UpdatePhase.IDLE, UpdatePhase.CURRENT, UpdatePhase.UNSUPPORTED -> TextButton(onClick = viewModel::check) { Text("检查更新") }
-                UpdatePhase.AVAILABLE -> TextButton(onClick = viewModel::download) { Text("下载更新") }
-                UpdatePhase.READY -> TextButton(onClick = viewModel::install) { Text("安装更新") }
-                UpdatePhase.AWAITING_PERMISSION -> TextButton(onClick = viewModel::install) { Text("允许安装") }
-                UpdatePhase.FAILURE -> TextButton(onClick = viewModel::retry) { Text("重试") }
+                UpdatePhase.IDLE, UpdatePhase.CURRENT, UpdatePhase.UNSUPPORTED -> TextButton(onClick = viewModel::check) { Text(strings.text(R.string.ui_check_for_updates_a6df3)) }
+                UpdatePhase.AVAILABLE -> TextButton(onClick = viewModel::download) { Text(strings.text(R.string.ui_download_update_c1f18)) }
+                UpdatePhase.READY -> TextButton(onClick = viewModel::install) { Text(strings.text(R.string.ui_install_update_b93a1)) }
+                UpdatePhase.AWAITING_PERMISSION -> TextButton(onClick = viewModel::install) { Text(strings.text(R.string.ui_allow_installation_3769e)) }
+                UpdatePhase.FAILURE -> TextButton(onClick = viewModel::retry) { Text(strings.text(R.string.ui_retry_e2d53)) }
                 else -> Unit
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.text(R.string.ui_close_6c14b)) } },
     )
 }

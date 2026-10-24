@@ -1,5 +1,9 @@
 package com.moge.app.ui.solve
 
+
+import com.moge.app.R
+import com.moge.app.ui.localization.rememberAppStrings
+
 import com.moge.app.domain.ConversationMode
 
 import androidx.compose.ui.draw.shadow
@@ -65,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.moge.app.ui.components.Stamp
 import com.moge.app.ui.components.PhotoArrival
 import com.moge.app.ui.components.Tape
+import com.moge.app.ui.components.TornPaperNote
 import com.moge.app.ui.components.dashedBorder
 import com.moge.app.ui.components.marginLine
 import com.moge.app.ui.components.paperCard
@@ -92,6 +97,7 @@ internal fun Modifier.liveRegion(): Modifier = semantics { liveRegion = LiveRegi
 /** 题目卡：胶带贴住的白纸，照片缩略图 + 用户文字 + 可折叠的识别文本。 */
 @Composable
 internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>, Int) -> Unit) {
+    val strings = rememberAppStrings()
     Box(Modifier.fillMaxWidth()) {
         Column(
             Modifier
@@ -102,7 +108,7 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "题目",
+                strings.text(R.string.ui_question_bfd7c),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -119,6 +125,7 @@ internal fun QuestionCard(item: SolveItem.Question, onOpenImages: (List<String>,
 
 @Composable
 private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int) -> Unit) {
+    val strings = rememberAppStrings()
     if (paths.isEmpty()) return
     Column(
         Modifier.fillMaxWidth(),
@@ -127,7 +134,7 @@ private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int
         paths.forEachIndexed { index, path ->
             key(path) {
             PhotoArrival(path, surface = "question", Modifier.fillMaxWidth()) {
-                QuestionPhoto(path, "照片 ${index + 1}", onClick = { onOpenImages(paths, index) })
+                QuestionPhoto(path, strings.text(R.string.ui_photo_1_s_a332e, index + 1), onClick = { onOpenImages(paths, index) })
             }
             }
         }
@@ -137,16 +144,17 @@ private fun QuestionPhotos(paths: List<String>, onOpenImages: (List<String>, Int
 /** 识题模型的转写，默认折叠，展开后供用户核对有没有认错。 */
 @Composable
 private fun Transcript(text: String) {
+    val strings = rememberAppStrings()
     var expanded by rememberSaveable { mutableStateOf(false) }
     Column(if (MogeTheme.motionEnabled) Modifier.animateContentSize() else Modifier) {
         Text(
-            text = if (expanded) "收起识别文本" else "查看识别文本",
+            text = if (expanded) strings.text(R.string.ui_hide_recognized_text_112f0) else strings.text(R.string.ui_view_recognized_text_8f759),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .heightIn(min = 48.dp)
                 .clickable(role = Role.Button) { expanded = !expanded }
-                .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }
+                .semantics { stateDescription = if (expanded) strings.text(R.string.ui_expanded_fa83a) else strings.text(R.string.ui_collapsed_c8f3d) }
                 .padding(vertical = 14.dp),
         )
         // 转写是 Markdown + LaTeX：走和解答一样的渲染，公式排版后才好核对有没有认错。
@@ -154,37 +162,35 @@ private fun Transcript(text: String) {
     }
 }
 
-/** 追问：右对齐的黄色便利贴。 */
+/** 追问：右对齐的撕边纸条。 */
 @Composable
 internal fun FollowUpNote(item: SolveItem.Question,
     onEdit: (String) -> Unit = {}, onSwitchVersion: (String) -> Unit = {}, enabled: Boolean = true,
     onOpenImages: (List<String>, Int) -> Unit) {
+    val strings = rememberAppStrings()
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Column(horizontalAlignment = Alignment.End) {
-        Column(
-            Modifier
-                .widthIn(max = 300.dp)
-                .background(MogeTheme.paper.stickyNote, RoundedCornerShape(10.dp))
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "修改输入") { onEdit(item.id) }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        TornPaperNote(
+            Modifier.widthIn(max = 300.dp), enabled = enabled,
+            onClickLabel = strings.text(R.string.ui_edit_input_695fa), onClick = { onEdit(item.id) },
         ) {
             QuestionPhotos(item.photoPaths, onOpenImages)
             com.moge.app.ui.document.DocumentCards(item.documentPaths)
             UserQuestionText(item.text, color = MogeTheme.paper.onStickyNote,
+                showSourceCopy = false,
                 onClick = if (enabled) ({ onEdit(item.id) }) else null)
         }
         if (item.versionIds.size > 1) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("question-versions")) {
                 IconButton(onClick = { onSwitchVersion(item.versionIds[item.versionIndex - 1]) },
                     enabled = enabled && item.versionIndex > 0) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一个输入版本")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, strings.text(R.string.ui_previous_input_version_75728))
                 }
                 Text("${item.versionIndex + 1} / ${item.versionIds.size}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(onClick = { onSwitchVersion(item.versionIds[item.versionIndex + 1]) },
                     enabled = enabled && item.versionIndex < item.versionIds.lastIndex) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一个输入版本")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, strings.text(R.string.ui_next_input_version_a20f3))
                 }
             }
         }
@@ -208,6 +214,7 @@ internal fun AnswerSheet(
     onResume: (String) -> Unit = {},
     conversationMode: ConversationMode = ConversationMode.SOLVE,
 ) {
+    val strings = rememberAppStrings()
     val paper = MogeTheme.paper
     val motion = MogeTheme.motionEnabled
     val generating = item.state == AnswerState.PREPARING || item.state == AnswerState.STREAMING
@@ -231,11 +238,11 @@ internal fun AnswerSheet(
             ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty())
         }
         if (hasAnswer && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
-            Text("答案", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(strings.text(R.string.ui_answer_8784e), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             // The full lecture already includes all figure slots. Keep summary references
             // readable without showing each image twice; a folded answer retains its images.
             val summary = if (item.state == AnswerState.COMPLETED && (!foldable || expanded)) {
-                replaceFigureAnchors(item.finalAnswer) { "图 ${it.numberText.trimStart('0').ifEmpty { "0" }}" }
+                replaceFigureAnchors(item.finalAnswer) { strings.text(R.string.ui_figure_1_s_a25b7, it.numberText.trimStart('0').ifEmpty { "0" }) }
             } else item.finalAnswer
             AnswerMarkdownBody(summary, item.figurePaths, onOpenImages, appendUnreferencedImages = false)
         }
@@ -243,17 +250,17 @@ internal fun AnswerSheet(
             PaperExplanationFold(expanded, onToggle = { expanded = !expanded }) {
                 if (item.state == AnswerState.COMPLETED) {
                     AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-                } else if (item.text.isEmpty()) GeneratingHint("正在整理完整解答…")
+                } else if (item.text.isEmpty()) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
                 else StreamingMarkdownBody(item.text)
             }
-            if (generating && !expanded) GeneratingHint("正在整理完整解答…")
+            if (generating && !expanded) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
         } else when (item.state) {
             AnswerState.COMPLETED -> AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) "正在思考…"
-                else if (conversationMode == ConversationMode.CHAT) "正在准备…" else "正在读题…")
+            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) strings.text(R.string.ui_thinking_4cc57)
+                else if (conversationMode == ConversationMode.CHAT) strings.text(R.string.ui_preparing_57233) else strings.text(R.string.ui_reading_question_fa9b9))
             AnswerState.STREAMING -> when {
-                answerFirst && !hasAnswer -> GeneratingHint("正在生成答案…")
-                item.text.isEmpty() -> GeneratingHint("正在思考…")
+                answerFirst && !hasAnswer -> GeneratingHint(strings.text(R.string.ui_generating_answer_1ee41))
+                item.text.isEmpty() -> GeneratingHint(strings.text(R.string.ui_thinking_4cc57))
                 else -> StreamingMarkdownBody(item.text)
             }
             AnswerState.FAILED, AnswerState.STOPPED ->
@@ -265,8 +272,9 @@ internal fun AnswerSheet(
 
 @Composable
 private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationMode) {
+    val strings = rememberAppStrings()
     val parts = buildList {
-        add(if (conversationMode == ConversationMode.CHAT) "回答" else "解答")
+        add(if (conversationMode == ConversationMode.CHAT) strings.text(R.string.ui_reply_065b4) else strings.text(R.string.ui_solution_d5d01))
         if (item.modelLabel.isNotBlank()) add(item.modelLabel)
         if (item.durationMs > 0) add("${(item.durationMs + 500) / 1000}s")
     }
@@ -284,6 +292,7 @@ private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationM
  */
 @Composable
 private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean) {
+    val strings = rememberAppStrings()
     var expanded by rememberSaveable(answerId) { mutableStateOf(false) }
     val startedAt = rememberSaveable(answerId) { SystemClock.elapsedRealtime() }
     var elapsedSec by remember(answerId) { mutableLongStateOf((SystemClock.elapsedRealtime() - startedAt) / 1000) }
@@ -293,7 +302,7 @@ private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean) {
             delay(1_000)
         }
     }
-    val label = if (thinking) "草稿中… ${elapsedSec}s" else "草稿 · ${elapsedSec}s"
+    val label = if (thinking) strings.text(R.string.ui_drafting_1_ss_352e8, elapsedSec) else strings.text(R.string.ui_draft_1_ss_0ecde, elapsedSec)
     Column(
         Modifier
             .fillMaxWidth()
@@ -301,10 +310,10 @@ private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean) {
             .background(MogeTheme.paper.scratch, RoundedCornerShape(6.dp))
             .dashedBorder(MaterialTheme.colorScheme.outline)
             .then(if (MogeTheme.motionEnabled) Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow)) else Modifier)
-            .clickable(role = Role.Button, onClickLabel = if (expanded) "收起草稿" else "展开草稿") {
+            .clickable(role = Role.Button, onClickLabel = if (expanded) strings.text(R.string.ui_hide_draft_6ffaf) else strings.text(R.string.ui_show_draft_a5e97)) {
                 expanded = !expanded
             }
-            .semantics { stateDescription = if (expanded) "已展开" else "已折叠" }
+            .semantics { stateDescription = if (expanded) strings.text(R.string.ui_expanded_fa83a) else strings.text(R.string.ui_collapsed_c8f3d) }
             .heightIn(min = 48.dp)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -349,10 +358,11 @@ private fun AnswerFooter(
     onSave: () -> Unit,
     onResume: (String) -> Unit,
 ) {
+    val strings = rememberAppStrings()
     when (item.state) {
         AnswerState.COMPLETED -> AnswerActions(item, onRegenerate, actionsEnabled, onShare, onSave)
         AnswerState.FAILED -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stamp("未完成")
+            Stamp(strings.text(R.string.ui_incomplete_b61b0))
             Text(
                 item.failureMessage,
                 style = MaterialTheme.typography.bodyMedium,
@@ -362,16 +372,16 @@ private fun AnswerFooter(
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item.resumeRequestId?.let { resumeId ->
                         OutlinedButton(onClick = { onResume(resumeId) }, enabled = actionsEnabled,
-                            modifier = Modifier.heightIn(min = 48.dp)) { Text("接着生成") }
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text(strings.text(R.string.ui_continue_de5bb)) }
                     }
                     OutlinedButton(onClick = { onRetry(requestId) }, enabled = actionsEnabled,
-                        modifier = Modifier.heightIn(min = 48.dp)) { Text("重新发送") }
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text(strings.text(R.string.ui_resend_a4e6f)) }
                 }
             }
         }
         AnswerState.STOPPED -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "已停止",
+                strings.text(R.string.ui_stopped_75ddd),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -387,9 +397,10 @@ private fun AnswerFooter(
 /** 页脚操作行：用量 · 重新生成 · 收藏 · 分享。 */
 @Composable
 private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit, actionsEnabled: Boolean, onShare: () -> Unit, onSave: () -> Unit) {
+    val strings = rememberAppStrings()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = usageLabel(item.usageJson).orEmpty(),
+            text = usageLabel(item.usageJson, strings).orEmpty(),
             style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
@@ -399,10 +410,10 @@ private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit
         }
         if (item.text.isNotBlank()) {
             IconButton(onClick = onSave) {
-                Icon(Icons.Outlined.BookmarkBorder, contentDescription = "收藏到题册")
+                Icon(Icons.Outlined.BookmarkBorder, contentDescription = strings.text(R.string.ui_save_to_notebook_fd727))
             }
             IconButton(onClick = onShare) {
-                Icon(Icons.Outlined.Share, contentDescription = "分享对话图片")
+                Icon(Icons.Outlined.Share, contentDescription = strings.text(R.string.ui_share_conversation_image_e5c0f))
             }
         }
     }
@@ -410,8 +421,9 @@ private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit
 
 @Composable
 private fun RegenerateButton(enabled: Boolean, onClick: () -> Unit) {
+    val strings = rememberAppStrings()
     IconButton(onClick = onClick, enabled = enabled) {
-        Icon(Icons.Outlined.Refresh, contentDescription = "重新生成")
+        Icon(Icons.Outlined.Refresh, contentDescription = strings.text(R.string.ui_regenerate_2e190))
     }
 }
 
@@ -419,14 +431,14 @@ private fun RegenerateButton(enabled: Boolean, onClick: () -> Unit) {
  * 页脚的用量文案：「输入 1.2k · 缓存 900 · 输出 860」。
  * 供应商没给的字段不显示（不冒充 0）；全都没有返回 null。
  */
-internal fun usageLabel(usageJson: String): String? {
+internal fun usageLabel(usageJson: String, strings: com.moge.app.core.TextResources? = null): String? {
     if (usageJson.isBlank()) return null
     val obj = runCatching { Json.parseToJsonElement(usageJson).jsonObject }.getOrNull() ?: return null
     fun field(name: String) = (obj[name] as? JsonPrimitive)?.longOrNull
     val parts = buildList {
-        field("inputTokens")?.let { add("输入 ${compactCount(it)}") }
-        field("cachedInputTokens")?.takeIf { it > 0 }?.let { add("缓存 ${compactCount(it)}") }
-        field("outputTokens")?.let { add("输出 ${compactCount(it)}") }
+        field("inputTokens")?.let { add((strings?.text(R.string.ui_input_1_s_d5982, compactCount(it)) ?: "输入 ${compactCount(it)}")) }
+        field("cachedInputTokens")?.takeIf { it > 0 }?.let { add((strings?.text(R.string.ui_cached_1_s_bc1e4, compactCount(it)) ?: "缓存 ${compactCount(it)}")) }
+        field("outputTokens")?.let { add((strings?.text(R.string.ui_output_1_s_0f7f9, compactCount(it)) ?: "输出 ${compactCount(it)}")) }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
@@ -452,25 +464,30 @@ internal fun FollowUpBar(
     onRemoveDocument: (String) -> Unit = {},
     onPasteImages: (List<android.net.Uri>) -> Unit = {},
     onCancelEditing: () -> Unit = {},
+    switchingPage: Boolean = false,
 ) {
+    val strings = rememberAppStrings()
+    val elevation by androidx.compose.animation.core.animateDpAsState(
+        if (switchingPage && MogeTheme.motionEnabled) 14.dp else 8.dp,
+        tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-shadow")
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.editingQuestionId != null) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("修改输入 · 发送后保留原版本", style = MaterialTheme.typography.labelMedium,
+                Text(strings.text(R.string.ui_edit_input_original_kept_after_sending_e37d9), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).liveRegion())
                 IconButton(onClick = onCancelEditing, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos) {
-                    Icon(Icons.Outlined.Close, "取消修改")
+                    Icon(Icons.Outlined.Close, strings.text(R.string.ui_cancel_edit_11eec))
                 }
             }
         }
         if (state.photos.isNotEmpty()) PendingPhotos(state.photos, onOpenPendingPhoto, onRemovePendingPhoto)
         com.moge.app.ui.document.PendingDocumentChips(state.documentPaths, onRemoveDocument)
         if (state.importingPhotos) {
-            Text("正在添加附件…", style = MaterialTheme.typography.bodySmall,
+            Text(strings.text(R.string.ui_adding_attachments_c3255), style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
-            Modifier.fillMaxWidth().testTag("composer-surface").shadow(8.dp, RoundedCornerShape(32.dp))
+            Modifier.fillMaxWidth().testTag("composer-surface").shadow(elevation, RoundedCornerShape(32.dp))
                 .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
         ) {
             Row(
@@ -481,9 +498,9 @@ internal fun FollowUpBar(
                     value = state.input,
                     onValueChange = onInputChange,
                     modifier = Modifier.weight(1f).testTag("conversation-input"),
-                    placeholder = if (state.editingQuestionId != null) "修改这次输入"
-                        else if (state.conversationMode == ConversationMode.CHAT) "发送消息"
-                        else if (state.conversationId == null) "输入问题" else "继续对话",
+                    placeholder = if (state.editingQuestionId != null) strings.text(R.string.ui_edit_this_input_ea8a7)
+                        else if (state.conversationMode == ConversationMode.CHAT) strings.text(R.string.ui_message_94306)
+                        else if (state.conversationId == null) strings.text(R.string.ui_enter_a_question_86b9d) else strings.text(R.string.ui_continue_chatting_88af8),
                     enabled = !state.switchingBranch,
                     editFocusKey = state.editingQuestionId,
                     onPasteImages = onPasteImages,
@@ -501,16 +518,16 @@ internal fun FollowUpBar(
                             containerColor = MaterialTheme.colorScheme.tertiary,
                             contentColor = MaterialTheme.colorScheme.onTertiary,
                         ),
-                    ) { Icon(Icons.Outlined.Stop, contentDescription = "停止生成") }
+                    ) { Icon(Icons.Outlined.Stop, contentDescription = strings.text(R.string.ui_stop_generation_76349)) }
                 } else {
                     FilledIconButton(onClick = onSend, enabled = state.canSend) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.text(R.string.ui_send_1214d))
                     }
                 }
             }
         }
         if (state.busyElsewhere) {
-            Text("另一个版本或对话正在生成，结束后才能发送", style = MaterialTheme.typography.bodySmall,
+            Text(strings.text(R.string.ui_another_version_or_conversation_is_generating_wait_before_se_40a37), style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 16.dp, top = 4.dp).liveRegion())
         }
     }
@@ -519,18 +536,19 @@ internal fun FollowUpBar(
 /** 待随下一问发出的照片：输入框上方一行小缩略图，每张可点开查看、可删。 */
 @Composable
 private fun PendingPhotos(paths: List<String>, onOpen: (Int) -> Unit, onRemove: (String) -> Unit) {
+    val strings = rememberAppStrings()
     Row(
         Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         paths.forEachIndexed { index, path ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PhotoThumb(path, "待发的第 ${index + 1} 张照片", onClick = { onOpen(index) }, modifier = Modifier.size(64.dp))
+                PhotoThumb(path, strings.text(R.string.ui_photo_1_s_to_send_b8dbb, index + 1), onClick = { onOpen(index) }, modifier = Modifier.size(64.dp))
                 IconButton(
                     onClick = { onRemove(path) },
                     modifier = Modifier.size(48.dp),
                 ) {
-                    Icon(Icons.Outlined.Close, contentDescription = "删掉第 ${index + 1} 张照片", Modifier.size(16.dp))
+                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1), Modifier.size(16.dp))
                 }
             }
         }
