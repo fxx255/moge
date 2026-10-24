@@ -48,6 +48,8 @@
 
 发布工具需要修复时，可从默认分支手动运行同一工作流并填写已有 `release_tag`。应用、测试与版本说明仍从该标签构建，发布工具从本次手动运行的提交加载；不改写已有标签、不覆盖已发布 Release。修复工具通过 Python 测试后才运行完整应用检查与发布。
 
+两条工作流共用 `scripts/release/test-runtime.gradle`：Robolectric 原生视图的默认语言设为简体中文，与应用默认设置一致；显式选择其他语言或屏幕配置的测试保留其配置。测试进程使用 1536 MiB 堆并每 40 个测试类重建一次，避免内置字体和原生资源在完整回归中累积耗尽内存。手动发布既有标签时也使用默认分支的同一运行配置，应用和测试源码仍来自标签。
+
 发布目标自动取该 GitHub 工作流所属仓库的真实标识，不在工程中捏造 URL。工作流明确要求该分发仓库公开。若将来源码必须私有，应另行设计公开分发仓库及其授权流程；当前工作流不自动创建或跨仓库推送。
 
 工作流执行测试、Lint、签名 arm64 构建，运行 `aapt dump badging` 和 `apksigner verify --print-certs`，由实际 APK 生成 `release-output/update.json`。内容包含 schemaVersion、versionCode、versionName、minSdk、packageName、abi、文件大小、SHA-256、签名证书 SHA-256、真实仓库/Release/APK URL 与标签。

@@ -1,0 +1,13 @@
+// Keep native UI/font regressions within a bounded, reproducible test process.
+def runtimeScript = gradle.startParameter.initScripts.find { it.name == 'test-runtime.gradle' }
+def runtimeResources = new File(runtimeScript.parentFile, 'test-resources')
+gradle.projectsEvaluated {
+    rootProject.allprojects {
+        tasks.withType(Test).configureEach {
+            maxHeapSize = '1536m'
+            maxParallelForks = 1
+            forkEvery = 40
+            classpath = files(runtimeResources) + classpath
+        }
+    }
+}

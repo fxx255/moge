@@ -34,4 +34,4 @@ jobs:
       - name: Tests, lint and debug build (no signing secrets)
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintDebug assembleDebug
+          ./gradlew -I scripts/release/test-runtime.gradle --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintDebug assembleDebug

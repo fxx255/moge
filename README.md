@@ -84,7 +84,7 @@ debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`，包名为 `com
 
 ```sh
 python3 -m unittest discover -s scripts/release -p 'test_*.py'
-./gradlew --no-configuration-cache testDebugUnitTest lintDebug assembleDebug
+./gradlew -I scripts/release/test-runtime.gradle --no-configuration-cache testDebugUnitTest lintDebug assembleDebug
 ```
 
 Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
