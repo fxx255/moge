@@ -13,6 +13,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.ui.graphics.toArgb
 import com.moge.app.core.LatexEngine
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.theme.Paper
 import com.moge.app.ui.theme.PaperGrid
 import com.moge.app.ui.theme.Ink
@@ -385,7 +386,8 @@ private class NativeExportRenderer(
     suspend fun image(part: ExportPart.Image, resolver: FigurePathResolver) {
         val resolved = try {
             withContext(Dispatchers.IO) {
-                val path = if (part.generated) resolver.resolve(part.path, false) else part.path
+                val path = if (part.generated) resolver.resolve(part.path, false)
+                    else QuestionPhotoFiles.displayPath(part.path)
                 path?.let { source -> exportImageInfo(source)?.let { source to it } }
             }
         } catch (error: kotlinx.coroutines.CancellationException) { throw error }

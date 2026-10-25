@@ -124,4 +124,26 @@ class MarkdownSelectionTest {
         view.onTextContextMenuItem(android.R.id.copy)
         assertEquals("中文", clipboard().primaryClip!!.getItemAt(0).text.toString())
     }
+
+    @Test fun `partial scalable bracket selections copy renderable latex through the native menu`() {
+        val source = "N_0\\left[1+\\cos\\left(\\frac{\\pi f}{B}\\right)\\right]"
+        for (fragment in listOf("1", "\\cos", "\\frac{\\pi f}{B}")) {
+            val view = render("\$\$$source\$\$")
+            val text = view.text as Spannable
+            val ranges = formulaTokenOffsets(text, spans(view).single())
+            val range = ranges.single { (token, _) -> source.substring(token.start, token.end) == fragment }.second
+            Selection.setSelection(text, range.start, range.end)
+            assertEquals(fragment, selectedMarkdownText(text, view.selectionStart, view.selectionEnd))
+            view.onTextContextMenuItem(android.R.id.copy)
+            assertEquals("\$\$$fragment\$\$", clipboard().primaryClip!!.getItemAt(0).text.toString())
+            ru.noties.jlatexmath.JLatexMathDrawable.builder(fragment).textSize(32f).build()
+        }
+        for ((start, end) in listOf(0 to source.indexOf("\\cos"), source.indexOf("\\cos") to source.length)) {
+            val view = render("\$\$$source\$\$")
+            val text = view.text as Spanned
+            val span = spans(view).single()
+            val latex = selectedMarkdownText(text, text.getSpanStart(span) + start, text.getSpanStart(span) + end)
+            ru.noties.jlatexmath.JLatexMathDrawable.builder(latex).textSize(32f).build()
+        }
+    }
 }

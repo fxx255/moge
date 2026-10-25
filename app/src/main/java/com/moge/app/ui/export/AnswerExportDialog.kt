@@ -10,31 +10,26 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -46,6 +41,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,14 +50,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import com.moge.app.ui.components.GridPaper
-import com.moge.app.ui.components.HighlightedTitle
 import com.moge.app.ui.components.Tape
 import com.moge.app.ui.components.marginLine
 import com.moge.app.ui.components.paperCard
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.photo.decodeUprightPhoto
+import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.viewer.galleryNeedsLegacyPermission
 import com.moge.app.ui.viewer.saveImagesToGallery
 import com.moge.app.ui.viewer.shareImages
@@ -149,93 +144,91 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
 
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-        GridPaper(Modifier.fillMaxSize().testTag("answer-export-dialog")) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    HighlightedTitle(strings.text(R.string.ui_share_images_2a61d), modifier = Modifier.weight(1f))
-                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, if (busy) strings.text(R.string.ui_cancel_close_2475f) else strings.text(R.string.ui_close_sharing_59808)) }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportChoiceCard(strings.text(R.string.ui_question_full_solution_0edff), selected = choice == ExportChoice.FULL, enabled = !busy,
-                        onClick = { choice = ExportChoice.FULL; confirmed = false }, modifier = Modifier.weight(1f))
-                    ExportChoiceCard(strings.text(R.string.ui_question_answer_4b1b0), selected = choice == ExportChoice.ANSWER_ONLY,
-                        enabled = !busy && content.finalAnswer.isNotBlank(),
-                        onClick = { choice = ExportChoice.ANSWER_ONLY; confirmed = false }, modifier = Modifier.weight(1f))
-                }
-                if (content.finalAnswer.isBlank()) Text(strings.text(R.string.ui_no_separate_answer_is_available_export_the_full_solution_67b7a), style = MaterialTheme.typography.bodySmall)
-                if (!confirmed) {
-                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                        .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke)
-                        .marginLine(MogeTheme.paper.marginLine, inset = 16.dp)
-                        .padding(start = 28.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(strings.text(R.string.ui_check_question_ac111), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                        Text(strings.text(R.string.ui_check_the_question_and_photos_before_creating_pages_to_share_ce046), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(content.title.ifBlank { strings.text(R.string.ui_question_solution_94121) }, style = MaterialTheme.typography.titleMedium)
-                        if (content.questionText.isNotBlank()) Text(content.questionText)
-                        // Display one selected photo at a time so proofing many attachments
-                        // never retains one decoded bitmap per question photo.
-                        if (content.questionPhotos.isNotEmpty()) QuestionPhotos(content.questionPhotos)
-                        if (content.questionTranscript.isNotBlank()) {
-                            Text(strings.text(R.string.ui_recognized_text_available_145e8), style = MaterialTheme.typography.titleSmall)
-                            Text(content.questionTranscript)
-                        }
-                        Text(strings.text(R.string.ui_export_on_light_paper_as_one_long_image_or_numbered_pages_fo_097fd), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Button(onClick = { confirmed = true; render() }, enabled = !busy,
-                        modifier = Modifier.fillMaxWidth().testTag("export-confirm-question")) { Text(strings.text(R.string.ui_confirm_preview_3c275)) }
-                } else {
-                    val ready = result
-                    if (ready != null) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { page-- }, enabled = !busy && page > 0) { Text(strings.text(R.string.ui_previous_image_b9f73)) }
-                            Text(strings.text(R.string.ui_1_s_2_s_read_in_page_order_134f7, page + 1, ready.pages.size), modifier = Modifier.weight(1f))
-                            TextButton(onClick = { page++ }, enabled = !busy && page < ready.pages.lastIndex) { Text(strings.text(R.string.ui_next_image_9a3dc)) }
-                        }
-                        key(ready, page) {
-                            ready.pages.getOrNull(page)?.let { selected ->
-                                ExportLongImagePreview(selected.absolutePath, strings.text(R.string.ui_export_preview_image_1_s_e4532, page + 1),
-                                    Modifier.weight(1f).fillMaxWidth())
-                            }
-                        }
-                        Text(strings.text(R.string.ui_double_tap_to_zoom_drag_to_explore_19c6c), style = MaterialTheme.typography.bodySmall)
-                        if (ready.warnings.isNotEmpty()) {
-                            Text(strings.text(R.string.ui_marked_in_preview_f8135) + ready.warnings.take(3).joinToString("；") +
-                                if (ready.warnings.size > 3) strings.text(R.string.ui_1_s_more_check_every_page_4fb08, ready.warnings.size - 3) else "",
-                                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        }
-                    } else Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        Text(if (busy) strings.text(R.string.ui_laying_out_pages_14c21) else strings.text(R.string.ui_images_not_generated_try_again_693df))
-                    }
-                    if (busy) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CircularProgressIndicator()
-                            Text(progress, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { session.job?.cancel() }) { Text(strings.text(R.string.ui_cancel_4d0b4)) }
-                        }
-                    } else if (ready == null) Button(onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text(strings.text(R.string.ui_retry_export_a8289)) }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
-                            if (galleryNeedsLegacyPermission() && ContextCompat.checkSelfPermission(context,
-                                    Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                                permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                            } else save()
-                        }) { Text(strings.text(R.string.ui_save_all_images_d22e2)) }
-                        Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f), onClick = {
-                            try {
-                                val exported = checkNotNull(ready)
-                                shareImages(context, exported.pages.map { it.absolutePath })
-                                exported.files.retainForSharing()
-                                message = strings.text(R.string.ui_opened_sharing_for_1_s_images_b6fe7, exported.pages.size)
-                            } catch (_: Exception) { message = strings.text(R.string.ui_could_not_open_sharing_try_again_or_save_images_first_1f340) }
-                        }) { Text(strings.text(R.string.ui_share_via_system_7bbac)) }
-                    }
-                    TextButton(enabled = !busy, onClick = { confirmed = false }) { Text(strings.text(R.string.ui_review_question_export_scope_bfbee)) }
-                }
-                message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("export-message")) }
+        ExportPaperSheet(busy, onDismiss) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExportChoiceCard(strings.text(R.string.ui_question_full_solution_0edff), selected = choice == ExportChoice.FULL, enabled = !busy,
+                    onClick = { choice = ExportChoice.FULL; confirmed = false }, modifier = Modifier.weight(1f))
+                ExportChoiceCard(strings.text(R.string.ui_question_answer_4b1b0), selected = choice == ExportChoice.ANSWER_ONLY,
+                    enabled = !busy && content.finalAnswer.isNotBlank(),
+                    onClick = { choice = ExportChoice.ANSWER_ONLY; confirmed = false }, modifier = Modifier.weight(1f))
             }
-        }
+            if (content.finalAnswer.isBlank()) Text(strings.text(R.string.ui_no_separate_answer_is_available_export_the_full_solution_67b7a), style = MaterialTheme.typography.bodySmall)
+            if (!confirmed) {
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 14.dp)
+                    .marginLine(MogeTheme.paper.marginLine, inset = 16.dp)
+                    .padding(start = 28.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(strings.text(R.string.ui_check_question_ac111), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(content.title.ifBlank { strings.text(R.string.ui_question_solution_94121) }, style = MaterialTheme.typography.titleLarge)
+                    if (content.questionText.isNotBlank()) Text(content.questionText)
+                    // Display one selected photo at a time so proofing many attachments
+                    // never retains one decoded bitmap per question photo.
+                    if (content.questionPhotos.isNotEmpty()) QuestionPhotos(content.questionPhotos)
+                    if (content.questionTranscript.isNotBlank()) {
+                        Text(strings.text(R.string.ui_recognized_text_available_145e8), style = MaterialTheme.typography.titleSmall)
+                        Text(content.questionTranscript)
+                    }
+                }
+                Button(onClick = { confirmed = true; render() }, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("export-confirm-question")) { Text(strings.text(R.string.ui_confirm_preview_3c275)) }
+            } else {
+                val ready = result
+                if (ready != null) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { page-- }, enabled = !busy && page > 0) { Text(strings.text(R.string.ui_previous_image_b9f73)) }
+                        Text(strings.text(R.string.ui_1_s_2_s_read_in_page_order_134f7, page + 1, ready.pages.size), modifier = Modifier.weight(1f))
+                        TextButton(onClick = { page++ }, enabled = !busy && page < ready.pages.lastIndex) { Text(strings.text(R.string.ui_next_image_9a3dc)) }
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(8.dp).testTag("export-preview-paper")) {
+                      key(ready, page) {
+                        ready.pages.getOrNull(page)?.let { selected ->
+                            ExportLongImagePreview(selected.absolutePath, strings.text(R.string.ui_export_preview_image_1_s_e4532, page + 1),
+                                Modifier.fillMaxSize())
+                        }
+                      }
+                    }
+                    Text(strings.text(R.string.ui_double_tap_to_zoom_drag_to_explore_19c6c), style = MaterialTheme.typography.bodySmall)
+                    if (ready.warnings.isNotEmpty()) {
+                        Text(strings.text(R.string.ui_marked_in_preview_f8135) + ready.warnings.take(3).joinToString("；") +
+                            if (ready.warnings.size > 3) strings.text(R.string.ui_1_s_more_check_every_page_4fb08, ready.warnings.size - 3) else "",
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                } else Column(Modifier.weight(1f).fillMaxWidth()
+                    .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 14.dp)
+                    .padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (busy) CircularProgressIndicator()
+                    Text(if (busy) strings.text(R.string.ui_laying_out_pages_14c21) else strings.text(R.string.ui_images_not_generated_try_again_693df))
+                }
+                if (busy) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(progress, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { session.job?.cancel() }) { Text(strings.text(R.string.ui_cancel_4d0b4)) }
+                    }
+                } else if (ready == null) Button(onClick = ::render, modifier = Modifier.fillMaxWidth()) { Text(strings.text(R.string.ui_retry_export_a8289)) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedButton(enabled = !busy && ready != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp), onClick = {
+                        if (galleryNeedsLegacyPermission() && ContextCompat.checkSelfPermission(context,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        } else save()
+                    }) { Text(strings.text(R.string.ui_save_all_images_d22e2)) }
+                    Button(enabled = !busy && ready != null, modifier = Modifier.weight(1f).heightIn(min = 52.dp), onClick = {
+                        try {
+                            val exported = checkNotNull(ready)
+                            shareImages(context, exported.pages.map { it.absolutePath })
+                            exported.files.retainForSharing()
+                            message = strings.text(R.string.ui_opened_sharing_for_1_s_images_b6fe7, exported.pages.size)
+                        } catch (_: Exception) { message = strings.text(R.string.ui_could_not_open_sharing_try_again_or_save_images_first_1f340) }
+                    }) { Text(strings.text(R.string.ui_share_via_system_7bbac)) }
+                }
+                TextButton(enabled = !busy, onClick = { confirmed = false }) { Text(strings.text(R.string.ui_review_question_export_scope_bfbee)) }
+            }
+            message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("export-message")) }
         }
     }
 }
@@ -268,7 +261,7 @@ private fun QuestionPhotos(paths: List<String>) {
         color = MaterialTheme.colorScheme.primary)
     Box(Modifier.fillMaxWidth()) {
         ExportPreviewImage(paths[current], strings.text(R.string.ui_question_photo_1_s_to_confirm_df025, current + 1))
-        Tape(Modifier.align(Alignment.TopEnd).padding(end = 12.dp), width = 42.dp, height = 14.dp)
+        Tape(Modifier.align(Alignment.TopCenter), width = 48.dp, height = 14.dp)
     }
     if (paths.size > 1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextButton(enabled = current > 0, onClick = { index = (current - 1).coerceAtLeast(0) }) { Text(strings.text(R.string.ui_previous_photo_c1669)) }
@@ -287,28 +280,30 @@ internal fun ExportPreviewImage(
     path: String,
     description: String,
     decoder: suspend (String, Int) -> Bitmap? = { source, maxSide ->
-        withContext(Dispatchers.IO) { decodeUprightPhoto(source, maxSide) }
+        withContext(Dispatchers.IO) { decodeUprightPhoto(QuestionPhotoFiles.displayPath(source), maxSide) }
     },
 ) {
     val strings = rememberAppStrings()
-    key(path) {
-        val preview by produceState<PreviewImage>(PreviewImage.Loading, path) {
+    val revision by remember(path) { QuestionPhotoFiles.observeRevision(path) }
+        .collectAsState(initial = QuestionPhotoFiles.revision(path))
+    key(path, revision) {
+        val preview by produceState<PreviewImage>(PreviewImage.Loading, path, revision) {
             value = try {
                 decoder(path, 1000)?.let { PreviewImage.Ready(it) } ?: PreviewImage.Missing
             } catch (error: CancellationException) { throw error }
             catch (_: Exception) { PreviewImage.Missing }
         }
         val paper = MogeTheme.paper
-        Box(Modifier.fillMaxWidth().height(240.dp)
-            .paperCard(MaterialTheme.colorScheme.surface, paper.cardStroke.copy(alpha = 0.55f)).padding(6.dp),
+        Box(Modifier.fillMaxWidth()
+            .paperCard(MaterialTheme.colorScheme.surface, paper.cardStroke.copy(alpha = 0.55f), radius = 10.dp).padding(6.dp),
             contentAlignment = Alignment.Center) {
             when (val current = preview) {
-                PreviewImage.Loading -> Text(strings.text(R.string.ui_loading_image_74b7a), Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-                PreviewImage.Missing -> Text(strings.text(R.string.ui_could_not_read_image_check_the_original_question_or_regenera_75ee8), Modifier.padding(12.dp),
+                PreviewImage.Loading -> Text(strings.text(R.string.ui_loading_image_74b7a), Modifier.heightIn(min = 80.dp).padding(12.dp), style = MaterialTheme.typography.bodySmall)
+                PreviewImage.Missing -> Text(strings.text(R.string.ui_could_not_read_image_check_the_original_question_or_regenera_75ee8), Modifier.heightIn(min = 80.dp).padding(12.dp),
                     color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 is PreviewImage.Ready -> Image(current.bitmap.asImageBitmap(), description,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize())
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).clip(RoundedCornerShape(6.dp)))
             }
         }
     }

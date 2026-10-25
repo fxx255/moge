@@ -54,7 +54,7 @@ internal class SelectionMagnifier(
             return
         }
         // A caret next to '=' still needs the complete equation row, including
-        // neighboring fractions. Handles themselves stay close to their item.
+        // neighboring fractions, with the same height as its selection highlight.
         val row = formulaSelectionEndpoint(source, selectionOffset, start, wholeRow = true)
             ?: selectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
         sampledRow = row

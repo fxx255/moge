@@ -1,6 +1,7 @@
 package com.moge.app.ui.markdown
 
 import android.text.Spanned
+import com.moge.app.data.parse.selectedLatexSource
 
 internal data class MarkdownSelection(val start: Int, val end: Int)
 
@@ -50,7 +51,7 @@ internal fun selectedMarkdownText(
                 range.start < selection.end && range.end > selection.start
             }
             if (selected.isNotEmpty()) {
-                val latex = source.substring(selected.first().first.start, selected.last().first.end).trim()
+                val latex = selectedLatexSource(source, selected.first().first.start, selected.last().first.end)
                 if (!delimitFormulas) append(latex)
                 else if ('\n' in latex) {
                     // Markwon requires multiline math delimiters on separate

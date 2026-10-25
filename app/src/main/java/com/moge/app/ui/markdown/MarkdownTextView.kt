@@ -174,11 +174,7 @@ internal fun createMarkdownTextView(
             return super.onTextContextMenuItem(id)
         }
 
-        /**
-         * 表格块不得抢占触摸：它没有文本选区，普通落点交给外层横向/纵向滚动。
-         * 可选中的回答正文直接走 TextView 默认处理，以保留长按选字和链接点击。
-         * 点击仍经 super.onTouchEvent → performClick，放行的落点本就不是本 View 的点击。
-         */
+        /** Selectable cells and prose share selection; their Compose parents own browsing scrolls. */
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(event: MotionEvent): Boolean {
             // 可选中文本必须让 TextView 自己收到文字区域内的 ACTION_DOWN/MOVE/UP；
@@ -235,40 +231,15 @@ internal fun createMarkdownTextView(
             setTextSelectHandleLeft(SelectionHandleDrawable(linkColor, start = true, resources.displayMetrics.density))
             setTextSelectHandleRight(SelectionHandleDrawable(linkColor, start = false, resources.displayMetrics.density))
         }
-        // selectable=false 用于表格块：setTextIsSelectable(true) 会顺带 setClickable(true)
-        // + setLongClickable(true)，把 TextView 变成一个「点击可聚焦」的 View。在真机的
-        // 触摸管线上，这类 View 有可能先于父级手势吃掉触摸事件，让外层的横向滚动拖不动。
-        // 表格以「读 + 横向拖动」为主，牺牲单元格内的长按选中是划算的。
+        // Table cells also use this path so their formulas keep the same copy rules as prose.
         if (selectable) {
             setTextIsSelectable(true)
             // TextView 的可聚焦/长按属性必须保留，系统才能在原气泡中显示选区和复制菜单。
             // 图片和表格是独立的 Compose 子项，不会再被气泡级长按处理器拦截。
             movementMethod = LinkMovementMethod.getInstance()
         } else {
-            // 表格块：**尽量不给 MovementMethod**。
-            // LinkMovementMethod 继承 ScrollingMovementMethod，只要表格内容比格位高，
-            // 用户就能在表格里上下拖动文字，和页面的纵向滚动直接打架（用户反馈
-            // 「表格上下拖动与整个页面上下滚动冲突」）。表格的横向滚动由外层 Compose 的
-            // horizontalScroll 负责，纵向完全交给页面；单元格内既不需要滚动也不需要选中。
-            //
-            // ⚠️ 但「设成 null」**拦不住 Markwon**：`CorePlugin.afterSetText()` 会在每次
-            // setText 之后检查，只要发现 `getMovementMethod() == null` 就**强行塞进**
-            // LinkMovementMethod：
-            //
-            //     public void afterSetText(TextView view) {
-            //         if (!hasExplicitMovementMethod && view.getMovementMethod() == null) {
-            //             view.setMovementMethod(LinkMovementMethod.getInstance());
-            //         }
-            //     }
-            //
-            // 而 `setMovementMethod` 又会通过 AOSP 的 `fixFocusableAndClickableSettings()`
-            // 把 clickable / longClickable / focusable 一并打开（探针实测：表格块渲染后
-            // 三个属性全是 true）。所以表格块同样会抢占触摸 —— 这正是「末尾表格拖不动」
-            // 反复不愈的机制。**唯一可靠的防线是上面重写的 `onTouchEvent`**：表格块的内容
-            // 里没有 `ClickableSpan`，于是任何触摸都会被它判定为「未命中可点片段」而放行。
-            //
-            // 这里仍然设置成 null（意图明确、且 Markwon 若未来版本尊重该值就能直接生效），
-            // 但不再依赖它 —— 真正的保障在 `onTouchEvent`。
+            // Passive export views need no selection movement. Markwon may install
+            // its default later; onTouchEvent still passes browsing gestures through.
             movementMethod = null
         }
         if (fontSizePx == null) textSize = MARKDOWN_TEXT_SIZE_SP
@@ -386,16 +357,18 @@ internal fun renderMarkdown(
     widthPx: Int,
     textColor: Int,
     linkColor: Int,
+    wrapFormulas: Boolean = true,
 ) {
     if (widthPx <= 0) return
     rememberMarkdownRenderSource(view, content, widthPx)
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
-    val rendered = wrapLongFormulas(
-        prepareReplyMarkdown(content),
+    val prepared = prepareReplyMarkdown(content)
+    val rendered = if (wrapFormulas) wrapLongFormulas(
+        prepared,
         formulaMaxWidthPx(view, widthPx),
         formulaWidthMeasurer(view),
-    )
+    ) else prepared
     runCatching {
         (view.tag as Markwon).setMarkdown(view, rendered)
         // 重渲染后复位内部滚动：LinkMovementMethod 继承自 ScrollingMovementMethod，

@@ -53,7 +53,7 @@ class FormulaSelectionGeometryTest {
         measure(view, width)
     }
 
-    @Test fun `blank row between formulas places handles on the two highlight edges`() {
+    @Test fun `blank row between formulas is copied without painting empty space`() {
         for (size in listOf(26f, 40f)) {
             val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), Color.BLACK, Color.BLUE, fontSizePx = size)
             view.layoutParams = android.view.ViewGroup.LayoutParams(740, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -64,13 +64,10 @@ class FormulaSelectionGeometryTest {
             val to = from + 1
             val path = android.graphics.Path()
             markdownSelectionPath(view, from, to, path)
-            val highlight = RectF().also { path.computeBounds(it, true) }
-            val start = requireNotNull(selectionEndpoint(view, from, true))
-            val end = requireNotNull(selectionEndpoint(view, to, false))
-            assertEquals(highlight.left, start.x, .1f)
-            assertEquals(highlight.right, end.x, .1f)
-            assertTrue(end.x - start.x > view.width * .8f)
-            assertEquals(start.centerY, end.centerY, .1f)
+            val painted = android.graphics.Region().apply {
+                setPath(path, android.graphics.Region(0, 0, view.width, view.height))
+            }
+            assertTrue("A blank separator must not become a full-width highlight", painted.isEmpty)
             assertEquals("\n", selectedMarkdownText(view.text, from, to))
         }
     }
@@ -144,7 +141,8 @@ class FormulaSelectionGeometryTest {
 
     @Test fun `selection probe preserves real formula dimensions and measures individual math items`() {
         LatexEngine.init(RuntimeEnvironment.getApplication())
-        for (source in listOf(formula, "a+b=c-\\sqrt{x^2+1}", "\\mathcal D_1=x_1+x_2")) {
+        for (source in listOf(formula, "a+b=c-\\sqrt{x^2+1}", "\\mathcal D_1=x_1+x_2",
+            "N_0\\left[1+\\cos\\left(\\frac{\\pi f}{B}\\right)\\right]")) {
             val original = JLatexMathDrawable.builder(source).textSize(32f).padding(0).build()
             val probe = requireNotNull(measureLatexSelection(source, 32f))
             assertEquals(source, original.intrinsicWidth, probe.width)

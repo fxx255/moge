@@ -8,9 +8,18 @@ internal data class SelectionEndpoint(val x: Float, val top: Float, val bottom: 
 }
 
 internal fun selectionEndpoint(view: TextView, offset: Int, start: Boolean): SelectionEndpoint? {
-    formulaSelectionEndpoint(view, offset, start)?.let { return it }
     val layout = view.layout ?: return null
-    val caret = offset.coerceIn(0, view.text.length)
+    var caret = offset.coerceIn(0, view.text.length)
+    formulaSelectionEndpoint(view, caret, start)?.let { return it }
+    // Separator newlines are copied between paragraphs but have no painted row.
+    // Anchor to the nearest selected content instead of an empty page-wide strip.
+    if (view.hasSelection()) {
+        val from = minOf(view.selectionStart, view.selectionEnd)
+        val to = maxOf(view.selectionStart, view.selectionEnd)
+        if (start) while (caret < to && view.text[caret].isWhitespace()) caret++
+        else while (caret > from && view.text[caret - 1].isWhitespace()) caret--
+    }
+    formulaSelectionEndpoint(view, caret, start)?.let { return it }
     var line = layout.getLineForOffset(caret)
     // An exclusive end at the next row's first character still belongs to the
     // selected row. Keep both its handle and its magnified boundary on that row.

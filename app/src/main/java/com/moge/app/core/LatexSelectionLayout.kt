@@ -3,7 +3,8 @@ package com.moge.app.core
 import android.graphics.Canvas
 import android.graphics.RectF
 import com.moge.app.data.parse.LatexSelectionToken
-import com.moge.app.data.parse.latexSelectionTokens
+import com.moge.app.data.parse.LatexSelectionNode
+import com.moge.app.data.parse.latexSelectionStructure
 import org.scilab.forge.jlatexmath.Atom
 import org.scilab.forge.jlatexmath.Box
 import org.scilab.forge.jlatexmath.MacroInfo
@@ -32,24 +33,45 @@ internal fun installLatexSelectionLayout() {
 
 /** Measure with the same TeX engine, including real fraction/script heights and operator spacing. */
 internal fun measureLatexSelection(source: String, textSize: Float): LatexSelectionLayout? = runCatching {
-    val tokens = latexSelectionTokens(source)
+    var nextId = 0
+    fun probe(node: LatexSelectionNode): SelectionProbeNode =
+        SelectionProbeNode(node, nextId++, node.children.map { probe(it) })
+    val nodes = latexSelectionStructure(source).map { probe(it) }
     val collector = mutableMapOf<Int, RectF>()
-    val annotated = tokens.mapIndexed { index, token ->
-        "\\mogeselection{$index}{${source.substring(token.start, token.end)}}"
-    }.joinToString("")
+    fun annotated(node: SelectionProbeNode): String {
+        val group = node.source.group
+        val body = if (group == null) source.substring(node.source.range.start, node.source.range.end)
+            else source.substring(node.source.range.start, group.bodyStart) +
+                node.children.joinToString("") { annotated(it) } + source.substring(group.bodyEnd, node.source.range.end)
+        return "\\mogeselection{${node.id}}{$body}"
+    }
     selectionProbe.set(collector)
     val drawable = try {
-        JLatexMathDrawable.builder(annotated).textSize(textSize).padding(0).build()
+        JLatexMathDrawable.builder(nodes.joinToString("") { annotated(it) }).textSize(textSize).padding(0).build()
     } finally { selectionProbe.remove() }
     // Geometry comes from Box.draw, including the canvas transforms used for
     // scripts. A recording canvas is enough: no answer-sized bitmap is retained.
     drawable.draw(Canvas())
-    LatexSelectionLayout(drawable.intrinsicWidth, drawable.intrinsicHeight,
-        tokens.mapIndexedNotNull { index, token ->
-            collector[index]?.takeIf { it.width() > 0f && it.height() > 0f }
-                ?.let { LatexSelectionItem(token, it) }
-        })
+    fun items(node: SelectionProbeNode): List<LatexSelectionItem> {
+        val bounds = collector[node.id] ?: return emptyList()
+        val group = node.source.group ?: return listOf(LatexSelectionItem(node.source.range, bounds))
+        val inner = node.children.mapNotNull { collector[it.id] }
+        if (inner.isEmpty()) return emptyList()
+        // The engine sizes the brackets around the already annotated children.
+        // Keep that real layout intact, then isolate the two delimiter gutters.
+        return buildList {
+            add(LatexSelectionItem(LatexSelectionToken(node.source.range.start, group.bodyStart),
+                RectF(bounds.left, bounds.top, inner.minOf { it.left }, bounds.bottom)))
+            node.children.forEach { addAll(items(it)) }
+            add(LatexSelectionItem(LatexSelectionToken(group.bodyEnd, node.source.range.end),
+                RectF(inner.maxOf { it.right }, bounds.top, bounds.right, bounds.bottom)))
+        }
+    }
+    LatexSelectionLayout(drawable.intrinsicWidth, drawable.intrinsicHeight, nodes.flatMap { items(it) }
+        .filter { it.bounds.width() > 0f && it.bounds.height() > 0f })
 }.getOrNull()
+
+private data class SelectionProbeNode(val source: LatexSelectionNode, val id: Int, val children: List<SelectionProbeNode>)
 
 private class SelectionContent(parser: TeXParser, source: String) : TeXFormula(parser, source, false)
 

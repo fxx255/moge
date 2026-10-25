@@ -30,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.runBlocking
 import com.moge.app.ui.theme.MogeTheme
+import com.moge.app.ui.components.LocalPaperNavigationScope
+import com.moge.app.ui.components.PaperNavigationLayers
+import com.moge.app.ui.components.PaperNavigationScope
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -53,6 +56,24 @@ class ExportPreviewTest {
     private fun awaitImage(description: String) {
         compose.waitUntil(5_000) {
             compose.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test fun `modal paper never borrows the underlying navigation background or title layers`() {
+        lateinit var underlying: PaperNavigationScope
+        var isolated = false
+        compose.setContent { MogeTheme { PaperNavigationLayers {
+            underlying = requireNotNull(LocalPaperNavigationScope.current)
+            ExportPaperSheet(false, {}) {
+                isolated = LocalPaperNavigationScope.current == null
+                androidx.compose.material3.Text("独立分享稿纸")
+            }
+        } } }
+        compose.onNodeWithText("独立分享稿纸").assertExists()
+        compose.runOnIdle {
+            assertTrue("The modal must paint its own opaque paper", isolated)
+            assertTrue("The modal title cannot enter the underlying navigation's ink layers", underlying.controls.isEmpty())
+            assertTrue("The modal cannot replace the underlying header sheet", underlying.headers.isEmpty())
         }
     }
 

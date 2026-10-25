@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.text.Spanned
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Surface
@@ -97,6 +98,28 @@ class MarkdownTableLayoutTest {
         compose.onNodeWithTag("markdown-table-cell-0-5").assertIsDisplayed()
         compose.onNodeWithTag("after-table").assertIsDisplayed()
         compose.runOnIdle { preview("table-paper-large") }
+    }
+
+    @Test fun `formula headings keep their equations inline and every cell remains selectable`() {
+        val snr = "\\mathrm{SNR}>2^{\\log_2 M}-1"
+        val power = "P=(0.5,1,1.5)"
+        render("| 调制 | 所需 ${'$'}$snr${'$'} | (c) ${'$'}$power${'$'} |\n|---|---|---|\n| PSK | ${'$'}>3${'$'} | 0.5 |",
+            Appearance.PAPER, fontScale = 1.5f)
+        compose.runOnIdle {
+            val cells = textViews(view.rootView).filter { it.text is Spanned }
+            for (formula in listOf(snr, power)) {
+                val host = cells.single { cell ->
+                    val text = cell.text as Spanned
+                    text.getSpans(0, text.length, BaselineLatexSpan::class.java)
+                        .any { it.drawable.destination == formula }
+                }
+                val text = host.text as Spanned
+                assertEquals("The equation must remain one inline object", 1,
+                    text.getSpans(0, text.length, BaselineLatexSpan::class.java).size)
+                assertFalse("Body display-block gaps must not enter a table", text.contains('\n'))
+                assertTrue("Table text and math must permit long-press selection", host.isTextSelectable)
+            }
+        }
     }
 
     private fun textViews(view: View): List<TextView> = when (view) {

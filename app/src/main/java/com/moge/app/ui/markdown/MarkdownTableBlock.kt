@@ -47,7 +47,7 @@ import kotlin.math.ceil
 internal fun MarkdownTableBlock(source: String) {
     val table = remember(source) { parseMarkdownTable(prepareReplyMarkdown(source)) }
     if (table == null) {
-        MarkdownChunk(source, fixedWidthPx = null, selectable = false)
+        MarkdownChunk(source, fixedWidthPx = null)
         return
     }
     val context = LocalContext.current
@@ -83,7 +83,10 @@ internal fun MarkdownTableBlock(source: String) {
                                 Box(Modifier.testTag("markdown-table-cell-$rowIndex-$column")
                                     .semantics { collectionItemInfo = CollectionItemInfo(rowIndex, 1, column, 1) }
                                     .padding(padding)) {
-                                    MarkdownChunk(cell, fixedWidthPx = null, selectable = false, bold = rowIndex == 0,
+                                    // Column measurement already reserves each formula's full width.
+                                    // Prose wrapping would subtract another body margin and promote
+                                    // a fitting equation into several tall, centered display blocks.
+                                    MarkdownChunk(cell, fixedWidthPx = null, bold = rowIndex == 0, wrapFormulas = false,
                                         textAlignment = when (table.alignments[column]) {
                                             TableColumnAlignment.Start -> View.TEXT_ALIGNMENT_TEXT_START
                                             TableColumnAlignment.Center -> View.TEXT_ALIGNMENT_CENTER

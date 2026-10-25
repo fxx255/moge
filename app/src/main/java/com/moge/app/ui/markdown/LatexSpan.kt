@@ -6,6 +6,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import com.moge.app.core.LatexSelectionLayout
 import com.moge.app.core.measureLatexSelection
+import com.moge.app.data.parse.latexSelectionTokens
 import io.noties.markwon.core.MarkwonTheme
 import io.noties.markwon.ext.latex.JLatexAsyncDrawableSpan
 import io.noties.markwon.image.AsyncDrawableSpan
@@ -32,6 +33,7 @@ internal class BaselineLatexSpan(
     theme: MarkwonTheme,
     private val original: JLatexAsyncDrawableSpan,
 ) : AsyncDrawableSpan(theme, original.drawable, ALIGN_BASELINE, false) {
+    internal val selectionTokens by lazy { latexSelectionTokens(drawable.destination.trim()) }
     private var selectionLayout: LatexSelectionLayout? = null
     private var selectionSize = -1f
 

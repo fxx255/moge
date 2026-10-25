@@ -3,7 +3,10 @@ package com.moge.app.data.parse
 /** Source ranges that can be copied without cutting a command, its arguments or scripts in half. */
 internal data class LatexSelectionToken(val start: Int, val end: Int)
 
-internal fun latexSelectionTokens(source: String): List<LatexSelectionToken> {
+internal fun latexSelectionTokens(source: String): List<LatexSelectionToken> =
+    latexSelectionStructure(source).flatMap { it.tokens() }
+
+internal fun atomicLatexSelectionTokens(source: String): List<LatexSelectionToken> {
     val reader = LatexTokenReader(source)
     val tokens = mutableListOf<LatexSelectionToken>()
     var cursor = 0

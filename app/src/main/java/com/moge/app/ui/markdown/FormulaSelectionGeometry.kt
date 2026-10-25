@@ -5,7 +5,6 @@ import android.graphics.RectF
 import android.text.Spanned
 import android.widget.TextView
 import com.moge.app.data.parse.LatexSelectionToken
-import com.moge.app.data.parse.latexSelectionTokens
 import ru.noties.jlatexmath.JLatexMathDrawable
 import kotlin.math.roundToInt
 
@@ -18,7 +17,7 @@ internal fun formulaTokenOffsets(text: Spanned, span: BaselineLatexSpan): List<P
     val length = text.getSpanEnd(span) - start
     if (source.isEmpty() || length <= 0) return emptyList()
     fun offset(index: Int) = start + (index.toFloat() * length / source.length).roundToInt()
-    return latexSelectionTokens(source).map { it to MarkdownSelection(offset(it.start), offset(it.end)) }
+    return span.selectionTokens.map { it to MarkdownSelection(offset(it.start), offset(it.end)) }
 }
 
 /** Actual TeX boxes in TextView-local coordinates, excluding the centered drawable's empty margins. */
@@ -41,7 +40,7 @@ internal fun formulaSelectionParts(view: TextView, span: BaselineLatexSpan): Lis
     val y = view.totalPaddingTop - view.scrollY + layout.getLineBaseline(line) - span.baselineOffset(view.paint) +
         (bounds.height() - (result.intrinsicHeight * scale).roundToInt()) / 2 + insets.top * scale
     val offsets = formulaTokenOffsets(text, span).toMap()
-    return measured.items.mapNotNull { item ->
+    val parts = measured.items.mapNotNull { item ->
         val range = offsets[item.source] ?: return@mapNotNull null
         val box = item.bounds
         FormulaSelectionPart(range.start, range.end, RectF(
@@ -56,15 +55,22 @@ internal fun formulaSelectionParts(view: TextView, span: BaselineLatexSpan): Lis
             inset(0f, -view.textSize * .125f * scale)
         })
     }
+    // Android glyph side bearings (notably italic letters and trailing scripts)
+    // extend past TeX's advance boxes. Cover that ink at the two outer edges
+    // without adding selection targets in the spaces between individual items.
+    val gutter = view.textSize * .25f * scale
+    parts.minByOrNull { it.bounds.left }?.bounds?.let { it.left -= gutter }
+    parts.maxByOrNull { it.bounds.right }?.bounds?.let { it.right += gutter }
+    return parts
 }
 
-internal fun formulaSelectionEndpoint(view: TextView, offset: Int, start: Boolean, wholeRow: Boolean = false): SelectionEndpoint? {
+internal fun formulaSelectionEndpoint(view: TextView, offset: Int, start: Boolean, wholeRow: Boolean = true): SelectionEndpoint? {
     val text = view.text as? Spanned ?: return null
     for (span in text.getSpans(offset, offset, BaselineLatexSpan::class.java)) {
         val parts = formulaSelectionParts(view, span)
-        val part = parts.firstOrNull {
-            if (start) offset >= it.start && offset < it.end else offset > it.start && offset <= it.end
-        } ?: continue
+        val part = if (start) parts.firstOrNull { offset < it.end }
+            else parts.lastOrNull { offset > it.start }
+        if (part == null) continue
         return SelectionEndpoint(if (start) part.bounds.left else part.bounds.right,
             if (wholeRow) parts.minOf { it.bounds.top } else part.bounds.top,
             if (wholeRow) parts.maxOf { it.bounds.bottom } else part.bounds.bottom)
@@ -94,28 +100,25 @@ internal fun formulaPartForPosition(view: TextView, x: Float, y: Float): Formula
 /** Shared by the answer and lens, so highlights and handles always use the same formula boxes. */
 internal fun markdownSelectionPath(view: TextView, start: Int, end: Int, path: Path) {
     path.reset()
-    val layout = view.layout ?: return
+    if (view.layout == null) return
     val text = view.text as? Spanned
     val from = minOf(start, end).coerceIn(0, view.text.length)
     val to = maxOf(start, end).coerceIn(0, view.text.length)
     val formulas = text?.getSpans(from, to, BaselineLatexSpan::class.java).orEmpty()
         .filter { text!!.getSpanStart(it) < to && text.getSpanEnd(it) > from }.sortedBy { text!!.getSpanStart(it) }
-    val native = Path()
     fun appendText(a: Int, b: Int) {
-        if (a >= b) return
-        native.reset()
-        layout.getSelectionPath(a, b, native)
-        native.offset(view.totalPaddingLeft - view.scrollX.toFloat(), view.totalPaddingTop - view.scrollY.toFloat())
-        path.addPath(native)
+        appendTextSelectionPath(view, a, b, path)
     }
     var cursor = from
     for (span in formulas) {
         val a = text!!.getSpanStart(span)
         val b = text.getSpanEnd(span)
         appendText(cursor, a)
-        val parts = formulaSelectionParts(view, span).filter { it.start < to && it.end > from }
-        if (parts.isEmpty()) appendText(maxOf(from, a), minOf(to, b))
-        else for (part in parts) path.addRect(part.bounds, Path.Direction.CW)
+        val row = formulaSelectionParts(view, span)
+        val parts = row.filter { it.start < to && it.end > from }
+        if (row.isEmpty()) appendText(maxOf(from, a), minOf(to, b))
+        else if (parts.isNotEmpty()) path.addRect(parts.minOf { it.bounds.left }, row.minOf { it.bounds.top },
+            parts.maxOf { it.bounds.right }, row.maxOf { it.bounds.bottom }, Path.Direction.CW)
         cursor = b
     }
     appendText(cursor, to)

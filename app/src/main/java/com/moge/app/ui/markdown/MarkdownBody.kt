@@ -487,12 +487,13 @@ internal fun renderMarkdownIfChanged(
     widthPx: Int,
     textColor: Int,
     linkColor: Int,
+    wrapFormulas: Boolean = true,
 ) {
     if (widthPx <= 0) return
-    val renderKey = "$content|$widthPx|$textColor|$linkColor"
+    val renderKey = "$content|$widthPx|$textColor|$linkColor|$wrapFormulas"
     val stamp = view.getTag(R.id.markdown_render_key) as? MarkdownRenderStamp
     if (stamp?.key == renderKey && stamp.renderedText == view.text.toString()) return
-    renderMarkdown(view, content, widthPx, textColor, linkColor)
+    renderMarkdown(view, content, widthPx, textColor, linkColor, wrapFormulas)
     view.setTag(R.id.markdown_render_key, MarkdownRenderStamp(renderKey, view.text.toString()))
 }
 
@@ -503,6 +504,7 @@ internal fun MarkdownChunk(
     selectable: Boolean = true,
     textAlignment: Int = android.view.View.TEXT_ALIGNMENT_GRAVITY,
     bold: Boolean = false,
+    wrapFormulas: Boolean = true,
 ) {
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -531,12 +533,12 @@ internal fun MarkdownChunk(
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         view.textAlignment = textAlignment
                         if (bold) view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
-                        renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
+                        renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas)
                     }
                 },
                 update = { view ->
                     // Also recover stale native text when an existing View reattaches.
-                    renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor)
+                    renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas)
                 },
             )
         }

@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.text.Spanned
 import com.moge.app.ui.markdown.FigurePathResolver
+import com.moge.app.data.image.QuestionPhotoFiles
 import io.noties.markwon.image.AsyncDrawableSpan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
@@ -41,6 +42,38 @@ class AnswerExportRendererTest {
         JLatexMathAndroid.init(context)
     }
     @After fun reset() { Dispatchers.resetMain() }
+
+    @Test fun `question photo export prints the current processed companion and falls back after a recrop`() = runTest {
+        val original = File(context.cacheDir, "export-processed-source.png")
+        fun photo(file: File, color: Int) {
+            val bitmap = Bitmap.createBitmap(160, 80, Bitmap.Config.ARGB_8888)
+            try {
+                bitmap.eraseColor(color)
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } finally { bitmap.recycle() }
+        }
+        photo(original, android.graphics.Color.RED)
+        val clean = QuestionPhotoFiles.output(original.path, requireNotNull(QuestionPhotoFiles.fingerprint(original.path)))
+        photo(clean, android.graphics.Color.GREEN)
+        try {
+            for ((recrop, expected) in listOf(false to android.graphics.Color.GREEN, true to android.graphics.Color.BLUE)) {
+                if (recrop) photo(original, expected)
+                val result = renderAnswerExport(context, AnswerExportContent("题目", "", questionPhotos = listOf(original.path),
+                    answerText = "解答"), ExportChoice.FULL, resolver) {}
+                try {
+                    val bitmap = BitmapFactory.decodeFile(result.pages.single().path)
+                    try {
+                        var found = false
+                        for (y in 0 until bitmap.height step 4) {
+                            if (bitmap.getPixel(bitmap.width / 2, y) == expected) { found = true; break }
+                        }
+                        assertTrue("Export must print the processed photo, or the new original when its companion is stale", found)
+                    } finally { bitmap.recycle() }
+                    assertTrue(result.warnings.isEmpty())
+                } finally { result.files.close(force = true) }
+            }
+        } finally { clean.delete(); original.delete() }
+    }
 
     @Test fun `screenshot numeric sequences are rendered as loaded formulas instead of literal dollars`() {
         val source = "题目按 \$00,10,11,01\$ 给度量，答案为 \$3,1,3,3\$；" +
