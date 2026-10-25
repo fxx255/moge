@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.moge.app.domain.ConversationName
 import com.moge.app.ui.components.excludePageSwipe
+import com.moge.app.ui.components.PaperHeaderIconButton
 import com.moge.app.ui.components.headerInputShield
 import com.moge.app.ui.theme.MogeTheme
 import kotlinx.coroutines.launch
@@ -104,7 +105,7 @@ internal fun ConversationTitleEditor(
                     .semantics { contentDescription = strings.text(R.string.ui_conversation_title_1_1_s_characters_a8bc3, ConversationName.MAX_CODE_POINTS) })
             val error = validation.exceptionOrNull()?.message ?: if (failed) strings.text(R.string.ui_title_not_saved_try_again_2317c) else null
             if (error != null) Text(error, style = MaterialTheme.typography.labelMedium, color = colors.error)
-            IconButton(onClick = ::save, enabled = !saving && validation.isSuccess,
+            PaperHeaderIconButton(onClick = ::save, enabled = !saving && validation.isSuccess,
                 modifier = Modifier.align(Alignment.End)) {
                 Icon(Icons.Outlined.Check, strings.text(R.string.ui_save_title_d582c), tint = colors.onBackground.copy(
                     alpha = if (!saving && validation.isSuccess) 1f else 0.38f))

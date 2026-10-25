@@ -30,7 +30,10 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.moge.app.ui.components.GridPaper
-import com.moge.app.ui.components.StackedPaperHeader
+import com.moge.app.ui.components.aboveMovingPages
+import com.moge.app.ui.components.PaperStripHeader
+import com.moge.app.ui.components.PaperHeaderMinHeight
+import com.moge.app.ui.components.PaperHeaderIconButton
 import com.moge.app.ui.components.headerInputShield
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.theme.MogeTheme
@@ -72,7 +75,7 @@ internal fun ConversationScaffold(
         onTitleEditingChange(false)
     }
     Box(Modifier.fillMaxSize()) {
-        GridPaper(Modifier.matchParentSize().then(pageMotion.readingModifier)) {}
+        GridPaper(Modifier.matchParentSize()) {}
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val editorMaxHeight = (maxHeight - 84.dp).coerceAtLeast(96.dp)
@@ -87,20 +90,21 @@ internal fun ConversationScaffold(
                         top = with(density) { headerPixels.toDp() } + 20.dp,
                         bottom = with(density) { footerPixels.toDp() } + 20.dp))
                 }
-                if (pageMotion.active) StackedPaperHeader(progress = { ribbon.progress.value },
+                if (pageMotion.active) PaperStripHeader(progress = { ribbon.progress.value },
                     modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                        .aboveMovingPages(pageMotion.switching, if (titleEditorVisible) 4f else 1f)
                         .zIndex(if (titleEditorVisible) 2f else 0f)
                         .then(if (titleEditorVisible) Modifier else Modifier.headerInputShield())
                         .onSizeChanged { headerPixels = it.height }) {
                     Column(Modifier.fillMaxWidth().testTag("conversation-header")
                         .semantics { conversationMode?.let { stateDescription = strings.text(R.string.ui_1_s_mode_3cfe2, strings.label(it)) } }
                         .animateContentSize(tween(if (motionEnabled) 200 else 0))) {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        Row(Modifier.fillMaxWidth().heightIn(min = PaperHeaderMinHeight)
                             .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (titleEditorVisible && onBack != null) Spacer(Modifier.width(48.dp))
-                            else if (onBack != null) IconButton(onClick = onBack) {
+                            else if (onBack != null) PaperHeaderIconButton(onClick = onBack) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, strings.text(R.string.ui_back_11d02))
                             } else Spacer(Modifier.width(12.dp))
                             (newConversationMode ?: conversationMode)?.let { mode ->
@@ -125,19 +129,20 @@ internal fun ConversationScaffold(
                 if (onDismissEditing != null) {
                     // Keep the composer above the scrim; old bubbles and navigation
                     // behind it must not receive taps while an input is being edited.
-                    Box(Modifier.matchParentSize().testTag("editing-background-scrim")
+                    Box(Modifier.matchParentSize().aboveMovingPages(pageMotion.switching, 2f).testTag("editing-background-scrim")
                         .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.48f))
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                             onClickLabel = strings.text(R.string.ui_cancel_editing_input_d041a), onClick = onDismissEditing))
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().testTag("conversation-composer")
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .aboveMovingPages(pageMotion.switching && pageMotion.active, 3f).testTag("conversation-composer")
                     .onSizeChanged { footerPixels = it.height }) {
                     if (pageMotion.active) footer()
                     else Spacer(Modifier.height(with(density) { footerPixels.toDp() }))
                 }
                 if (titleEditorVisible) {
                     // Consume the cancelling tap over messages, composer and empty header space.
-                    Box(Modifier.matchParentSize().zIndex(1f).testTag("title-editing-outside")
+                    Box(Modifier.matchParentSize().aboveMovingPages(pageMotion.switching, 3.5f).zIndex(1f).testTag("title-editing-outside")
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                             onClickLabel = strings.text(R.string.ui_cancel_editing_title_1684f), onClick = ::dismissTitle))
                 }

@@ -1,5 +1,7 @@
 package com.moge.app.ui.solve
 
+import androidx.compose.ui.graphics.graphicsLayer
+
 
 import com.moge.app.R
 import com.moge.app.ui.localization.rememberAppStrings
@@ -465,11 +467,15 @@ internal fun FollowUpBar(
     onPasteImages: (List<android.net.Uri>) -> Unit = {},
     onCancelEditing: () -> Unit = {},
     switchingPage: Boolean = false,
+    swipeDirection: Int = 0,
 ) {
     val strings = rememberAppStrings()
     val elevation by androidx.compose.animation.core.animateDpAsState(
         if (switchingPage && MogeTheme.motionEnabled) 14.dp else 8.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-shadow")
+    val drift by androidx.compose.animation.core.animateDpAsState(
+        if (switchingPage && MogeTheme.motionEnabled) 3.dp * swipeDirection.coerceIn(-1, 1) else 0.dp,
+        tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-drift")
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.editingQuestionId != null) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -487,7 +493,8 @@ internal fun FollowUpBar(
                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp).liveRegion())
         }
         Column(
-            Modifier.fillMaxWidth().testTag("composer-surface").shadow(elevation, RoundedCornerShape(32.dp))
+            Modifier.fillMaxWidth().testTag("composer-surface")
+                .graphicsLayer { translationX = drift.toPx() }.shadow(elevation, RoundedCornerShape(32.dp))
                 .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
         ) {
             Row(

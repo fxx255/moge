@@ -464,6 +464,9 @@ private fun looksLikeInlineMath(raw: String): Boolean {
     if ('\\' in value) return true
     if (value.any { it in "=<>^_{}()[]+-*/|!≤≥≠≈∞∈∉⊂⊆⊃⊇∪∩∑∏∫√±×÷→⇒∂" }) return true
     if (value.all { it.isDigit() || it == '.' }) return true
+    // Prime notation is mathematical even without an argument or operator.
+    // Match a single symbol so apostrophes in contractions stay literal.
+    if (Regex("""\p{L}['′″‴]+""").matches(value)) return true
     // Symbol lists ($P,Q$, $A,B$) and state sequences ($00,10,11,01$)
     // need no operator. Restrict each item to a number or one letter, so
     // ordinary word lists and prose between currency amounts stay literal.

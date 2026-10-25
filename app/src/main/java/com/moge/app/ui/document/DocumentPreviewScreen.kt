@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -39,6 +40,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.moge.app.data.document.DocumentAttachment
 import com.moge.app.data.document.DocumentIndex
 import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.paperHeaderPressColor
 import com.moge.app.ui.components.marginLine
 import com.moge.app.ui.settings.formatBytes
 import com.moge.app.ui.theme.MogeTheme
@@ -76,8 +78,12 @@ internal fun DocumentPreviewScreen(
         else -> state.index?.tables?.firstOrNull { it.id == state.locator }?.title
             ?: sections.getOrNull(state.selected)?.title.orEmpty()
     }
+    val openOriginalInteraction = remember { MutableInteractionSource() }
     PaperScaffold(title = strings.text(R.string.ui_document_preview_7621c), onBack = onClose, modifier = Modifier.testTag("document-preview"), actions = {
         OutlinedButton(onClick = onOpenOriginal, enabled = state.attachment != null,
+            interactionSource = openOriginalInteraction,
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = paperHeaderPressColor(openOriginalInteraction, state.attachment != null)),
             shape = MaterialTheme.shapes.large, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             modifier = Modifier.semantics { contentDescription = strings.text(R.string.ui_open_original_c0986) }) {
             Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp))

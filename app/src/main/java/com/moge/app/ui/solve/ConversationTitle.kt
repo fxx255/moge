@@ -18,23 +18,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.MarqueeSpacing
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.excludePageSwipe
+import com.moge.app.ui.components.HighlightedTitle
+import com.moge.app.ui.components.paperHeaderTitleStyle
+import com.moge.app.ui.components.paperHeaderPressColor
 import com.moge.app.ui.theme.MogeTheme
 
 private data class HeaderTitle(val text: String, val newMode: ConversationMode?)
@@ -57,13 +58,20 @@ internal fun ConversationTitle(
     val motion = MogeTheme.motionEnabled
     val initial = remember { HeaderTitle(text, newMode) }
     val target = HeaderTitle(text, newMode)
+    val interaction = remember { MutableInteractionSource() }
+    val pressBackground = Modifier.background(
+        paperHeaderPressColor(interaction, newMode == null || switchEnabled), MaterialTheme.shapes.small)
     val switch = if (newMode != null) Modifier.excludePageSwipe().testTag("conversation-mode-switch")
-        .clickable(enabled = switchEnabled, role = Role.Button,
+        .then(pressBackground)
+        .clickable(interactionSource = interaction, indication = null,
+            enabled = switchEnabled, role = Role.Button,
             onClickLabel = if (newMode == ConversationMode.SOLVE) strings.text(R.string.ui_switch_to_chat_1c3e0) else strings.text(R.string.ui_switch_to_solve_3e16b)) {
             onSelectMode(if (newMode == ConversationMode.SOLVE) ConversationMode.CHAT else ConversationMode.SOLVE)
         }.semantics { stateDescription = strings.text(R.string.ui_1_s_mode_3cfe2, strings.label(newMode)) }
     else if (onEditTitle != null) Modifier.excludePageSwipe().testTag("conversation-title")
-        .combinedClickable(onClick = {}, onLongClickLabel = strings.text(R.string.ui_edit_conversation_title_9c8af), onLongClick = onEditTitle)
+        .then(pressBackground)
+        .combinedClickable(interactionSource = interaction, indication = null,
+            onClick = {}, onLongClickLabel = strings.text(R.string.ui_edit_conversation_title_9c8af), onLongClick = onEditTitle)
     else Modifier
     Box(switch.heightIn(min = 44.dp), contentAlignment = Alignment.CenterStart) {
         AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
@@ -95,16 +103,13 @@ private fun WritingTitle(title: String, animate: Boolean) {
             reveal.animateTo(1f, tween(duration, easing = FastOutSlowInEasing))
         }
     }
-    Text(title, maxLines = 1, style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.onBackground,
-        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = (if (motion && revealed) Modifier.basicMarquee(
+    HighlightedTitle(title, maxLines = 1, style = paperHeaderTitleStyle(),
+        revealProgress = { reveal.value },
+        textModifier = if (motion && revealed) Modifier.basicMarquee(
             iterations = Int.MAX_VALUE,
             initialDelayMillis = 2_000,
             repeatDelayMillis = 2_000,
             spacing = MarqueeSpacing(36.dp),
             velocity = 18.dp,
-        ) else Modifier).drawWithContent {
-            clipRect(right = size.width * reveal.value.coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
-        }.semantics { heading() })
+        ) else Modifier)
 }

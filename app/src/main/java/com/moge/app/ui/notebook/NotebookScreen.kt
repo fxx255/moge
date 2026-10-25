@@ -102,6 +102,7 @@ internal fun NotebookContent(
         onRight = onReturnToConversation, rightLabel = strings.text(R.string.ui_back_to_conversation_185d6)) {
         PaperPageReveal(state.openEntryId) {
             PaperScaffold(
+                headerStyle = PaperHeaderStyle.StackedRight,
                 title = if (detail) state.detailEntry?.title ?: strings.text(R.string.ui_saved_item_b487b)
                     else if (state.selecting) strings.text(R.string.ui_1_s_selected_c321a, state.selectedIds.size) else strings.text(R.string.ui_my_notebook_7ec53),
                 onBack = back,
@@ -109,14 +110,14 @@ internal fun NotebookContent(
                 contentBehindHeader = detail,
                 actions = {
                     if (detail && state.detailEntry != null) {
-                        IconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
+                        PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
                             Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
                         }
-                        IconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
+                        PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
                             Icon(Icons.Outlined.Delete, strings.text(R.string.ui_remove_from_notebook_c3aca), tint = MaterialTheme.colorScheme.error)
                         }
                     } else if (!detail) {
-                        IconButton(onClick = { manageOpen = true }, enabled = !state.busy) {
+                        PaperHeaderIconButton(onClick = { manageOpen = true }, enabled = !state.busy) {
                             Icon(Icons.Outlined.FolderOpen, strings.text(R.string.ui_manage_categories_fed61))
                         }
                     }
@@ -127,10 +128,10 @@ internal fun NotebookContent(
                     exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
                     Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
+                        PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
                             Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
                         }
-                        IconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
+                        PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
                             Icon(Icons.Outlined.Delete, strings.text(R.string.ui_remove_from_notebook_c3aca), tint = MaterialTheme.colorScheme.error)
                         }
                     }

@@ -5,6 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownPreparationTest {
+    @Test fun primeSymbolsRenderWithoutTreatingContractionsCurrencyOrCodeAsMath() {
+        val source = "这里 \$f'\$ 与 \$f''\$ 的系数，以及 \$g′\$、\$y″\$。"
+        val expected = "这里 \$\$f'\$\$ 与 \$\$f''\$\$ 的系数，以及 \$\$g′\$\$、\$\$y″\$\$。"
+        assertEquals(expected, prepareReplyMarkdown(source))
+        assertEquals(expected, prepareReplyMarkdown(expected))
+        val literal = "`\$f'\$`\n\n```text\n\$f''\$\n```\n\n" +
+            "价格 \$5 到 \$10；\$don't\$；转义 \\\$f'\\\$。"
+        assertEquals(literal, prepareReplyMarkdown(literal))
+    }
+
     @Test fun escapedBreaksBeforeParenthesizedStepsBecomeParagraphsWithoutDamagingLatexOrCode() {
         val source = "所以二维条件密度用联合高斯 pdf，而不是用 erfc/Q 函数。\n\n" +
             "分步解答：\\n(1)\n\n\$\$\n" +

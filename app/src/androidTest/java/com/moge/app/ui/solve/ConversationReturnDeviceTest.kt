@@ -19,6 +19,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
+import com.moge.app.ui.components.PaperNavigationLayers
 import com.moge.app.ui.markdown.BaselineLatexSpan
 import com.moge.app.ui.theme.MogeTheme
 import org.junit.Assert.*
@@ -56,6 +57,7 @@ class ConversationReturnDeviceTest {
         compose.setContent { MogeTheme(Appearance.PAPER) {
             nav = rememberNavController()
             var direction by remember { mutableIntStateOf(1) }
+            PaperNavigationLayers {
             NavHost(nav, startDestination = "old", enterTransition = { EnterTransition.None },
                 exitTransition = { ExitTransition.None }, popEnterTransition = { EnterTransition.None },
                 popExitTransition = { ExitTransition.None }) {
@@ -69,7 +71,8 @@ class ConversationReturnDeviceTest {
                             onLeft = if (name == "new") ({ direction = -1; nav.popBackStack(); Unit }) else null) {
                             ConversationScaffold("随机过程", null, {}, pageMotion = motion, ribbonState = ribbon,
                                 newConversationMode = ConversationMode.SOLVE.takeIf { name == "new" }, footer = {
-                                FollowUpBar(state, {}, {}, {}, {}, {}, {}, {}, switchingPage = motion.switching)
+                                FollowUpBar(state, {}, {}, {}, {}, {}, {}, {}, switchingPage = motion.switching,
+                                    swipeDirection = motion.direction)
                             }) { padding ->
                                 SolveList(state, {}, {}, { _, _ -> }, {}, {}, initialViewport = initial,
                                     saveViewport = { if (name == "old") saved = it }, contentPadding = padding,
@@ -78,6 +81,7 @@ class ConversationReturnDeviceTest {
                         }
                     }
                 }
+            }
             }
         } }
         fun awaitMath() {
@@ -125,8 +129,13 @@ class ConversationReturnDeviceTest {
             compose.mainClock.advanceTimeBy(64)
             compose.onAllNodesWithTag("conversation-input").assertCountEquals(1)
             compose.onAllNodesWithTag("conversation-header").assertCountEquals(1)
-            assertEquals(composer, compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot)
-            compose.mainClock.advanceTimeBy(300)
+            val moving = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot
+            assertEquals(composer.top, moving.top, .1f)
+            assertEquals(composer.height, moving.height, .1f)
+            assertTrue("The composer only drifts slightly in the swipe direction",
+                moving.left - composer.left in 0f..(4f * compose.activity.resources.displayMetrics.density))
+            snapshot("conversation-switch-$it.png")
+            compose.mainClock.advanceTimeBy(440)
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()
             compose.onAllNodesWithTag("conversation-input").assertCountEquals(1)
@@ -134,6 +143,7 @@ class ConversationReturnDeviceTest {
             compose.onNodeWithTag("conversation-list").assertDoesNotExist()
             snapshot("conversation-new-$it.png")
             compose.onRoot().performTouchInput { swipeLeft(durationMillis = 180) }
+            compose.runOnIdle { assertEquals("Return swipe must navigate to the old page", "old", nav.currentDestination?.route) }
             awaitMath()
             snapshot("conversation-return-$it.png")
             assertEquals("Native formula after return $it, saved=$saved", originalTop.toFloat(), readingTop().toFloat(), 1f)

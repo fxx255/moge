@@ -30,9 +30,12 @@ class LocalizedText @Inject constructor(
     private val language = settings.settings.map { it.interfaceLanguage }.distinctUntilChanged()
         .stateIn(scope, SharingStarted.Eagerly, AppLanguage.SIMPLIFIED_CHINESE)
 
-    override fun text(@StringRes id: Int, vararg args: Any): String {
+    override fun text(@StringRes id: Int, vararg args: Any): String = text(language.value, id, *args)
+
+    /** State assembled from a settings emission must use that same language snapshot. */
+    fun text(language: AppLanguage, @StringRes id: Int, vararg args: Any): String {
         val configuration = Configuration(context.resources.configuration).apply {
-            setLocales(LocaleList(Locale.forLanguageTag(language.value.tag)))
+            setLocales(LocaleList(Locale.forLanguageTag(language.tag)))
         }
         val resources = context.createConfigurationContext(configuration).resources
         return if (args.isEmpty()) resources.getString(id) else resources.getString(id, *args)

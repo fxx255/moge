@@ -183,7 +183,12 @@ class SolveViewModel @Inject constructor(
             val generatingHere = active.isRunning && id != null && active.conversationId == id && path.any { it.id == active.answerMessageId }
             SolveUiState(
                 conversationId = id,
-                title = room.conversation?.title ?: ConversationRepository.PLACEHOLDER_TITLE,
+                title = room.conversation?.let { conversation ->
+                    // Keep the stored placeholder stable for automatic naming; localize its display only.
+                    if (conversation.title == PHOTO_PLACEHOLDER_TITLE && !conversation.titleUserEdited)
+                        localizedText.text(prefs.interfaceLanguage, R.string.ui_photo_question_770f1)
+                    else conversation.title
+                } ?: ConversationRepository.PLACEHOLDER_TITLE,
                 items = buildSolveItems(id, path, room.requests, active, room.messages),
                 input = local.input,
                 generating = generatingHere,

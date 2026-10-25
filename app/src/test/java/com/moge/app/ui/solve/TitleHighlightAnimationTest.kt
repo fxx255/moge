@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -44,8 +45,10 @@ class TitleHighlightAnimationTest {
         var theme by mutableStateOf(Appearance.CHALK)
         lateinit var view: View
         var background = 0
+        var markerOverhang = 0f
         compose.setContent { MogeTheme(theme) { CompositionLocalProvider(LocalPaperMotionEnabled provides true) {
             view = LocalView.current
+            markerOverhang = with(LocalDensity.current) { 2.dp.toPx() }
             background = androidx.compose.material3.MaterialTheme.colorScheme.background.toArgb()
             Box(Modifier.fillMaxSize().background(androidx.compose.material3.MaterialTheme.colorScheme.background).padding(32.dp)) {
                 ConversationTitle(title, mode)
@@ -95,6 +98,18 @@ class TitleHighlightAnimationTest {
                         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                     }
                     assertTrue("Title ink must be visible ($appearance, writing=$writing, trailing=$trailing)", inkPixels > 3)
+                    if (trailing) {
+                        // Both uneven marker ends must survive reveal and fade layers.
+                        listOf(textLeft - markerOverhang.toInt(),
+                            textLeft + bounds.width.toInt() + markerOverhang.toInt()).forEach { x ->
+                            val markerPixels = ((top + bounds.height * .55f).toInt() until
+                                (top + bounds.height * .9f).toInt()).count { y ->
+                                bitmap.getPixel(x, y) != background
+                            }
+                            assertTrue("Marker extends beyond both ends ($appearance, writing=$writing, x=$x)",
+                                markerPixels > 2)
+                        }
+                    }
                 } finally { bitmap.recycle() }
                 }
             }

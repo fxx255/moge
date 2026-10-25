@@ -54,6 +54,7 @@ import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.SolveMode
 import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.PaperHeaderStyle
 import com.moge.app.ui.components.paperCard
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.update.AppUpdateDialog
@@ -92,7 +93,8 @@ fun SettingsScreen(
     val orphanBytes by vm.orphanBytes.collectAsStateWithLifecycle()
     val dataBusy by vm.dataBusy.collectAsStateWithLifecycle()
 
-    PaperScaffold(title = strings.text(R.string.ui_settings_7debf), onBack = onBack) {
+    PaperScaffold(title = strings.text(R.string.ui_settings_7debf), onBack = onBack,
+        headerStyle = PaperHeaderStyle.Single) {
         Column(
             Modifier
                 .fillMaxWidth()

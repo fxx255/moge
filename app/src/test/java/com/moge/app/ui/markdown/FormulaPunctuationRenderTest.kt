@@ -29,6 +29,26 @@ class FormulaPunctuationRenderTest {
 
     @Before fun prepare() { LatexEngine.init(RuntimeEnvironment.getApplication()) }
 
+    @Test fun `derivative names in screenshot prose render as two inline formulas and remain copyable`() {
+        val source = "与你一致。这里 \$f'\$ 与 \$f''\$ 的系数刚好配成可降阶的形式。"
+        for (size in listOf(26f, 36f)) {
+            val view = createMarkdownTextView(RuntimeEnvironment.getApplication(), Color.BLACK, Color.YELLOW, fontSizePx = size)
+            try {
+                renderMarkdown(view, source, 400, Color.BLACK, Color.YELLOW)
+                val text = view.text as Spanned
+                val spans = text.getSpans(0, text.length, BaselineLatexSpan::class.java).sortedBy(text::getSpanStart)
+                assertEquals(2, spans.size)
+                assertFalse(text.toString(), text.contains('$'))
+                assertEquals(listOf("f'", "f''"), spans.map { it.drawable.destination })
+                spans.forEach { span ->
+                    val formula = span.drawable.destination
+                    assertEquals(formula, selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)))
+                    assertTrue(JLatexMathDrawable.builder(formula).textSize(size).padding(0).build().intrinsicWidth in 1..400)
+                }
+            } finally { AsyncDrawableScheduler.unschedule(view) }
+        }
+    }
+
     @Test fun `reported formulas keep separators on the previous row at normal and larger sizes`() {
         val formulas = listOf(
             "l=a+n_l,\\qquad n_l=\\frac{2}{T_s}\\int_0^{T_s} n_w(t)\\cos(2\\pi f_ct)dt,",

@@ -52,6 +52,7 @@ import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.ui.components.PaperScaffold
+import com.moge.app.ui.components.PaperHeaderStyle
 
 /**
  * 模型配置编辑页（整页，不用对话框：字段多，小屏上对话框滚不开）。
@@ -88,6 +89,7 @@ fun ModelEditorScreen(
     PaperScaffold(
         title = if (profile == null) strings.text(R.string.ui_add_model_532a6) else strings.text(R.string.ui_edit_model_29e31),
         onBack = onClose,
+        headerStyle = PaperHeaderStyle.Single,
     ) {
         Column(
             Modifier
@@ -208,8 +210,6 @@ fun ModelEditorScreen(
                         )
                     }
                 }
-                Hint(com.moge.app.data.llm.ModelGenerationParameters.reasoningStatus(baseUrl, model, effort,
-                    apiProtocol, editor.capabilities[model]))
             }
 
             SettingsSection(strings.text(R.string.ui_api_protocol_e56c5)) {

@@ -5,39 +5,59 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
 import com.moge.app.ui.theme.MogeTheme
+
+internal val PaperHeaderMinHeight = 60.dp
+
+@Composable
+internal fun paperHeaderTitleStyle(): TextStyle =
+    MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 28.sp)
+
+/** Settings use one strip; stacked pages expose the lower edge toward their navigation side. */
+enum class PaperHeaderStyle { Classic, Single, StackedLeft, StackedRight }
 
 /** A narrow paper band whose cut ends stay outside the screen, with a reversible underlay. */
 @Composable
-internal fun StackedPaperHeader(
+internal fun PaperStripHeader(
     progress: () -> Float,
     modifier: Modifier = Modifier,
+    underlayTilt: Float = 2f,
+    showUnderlay: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val paper = MogeTheme.paper
     val line = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
     val shadow = Color.Black.copy(alpha = if (paper.isChalk) 0.18f else 0.1f)
-    Box(modifier.padding(top = 12.dp)) {
-        Box(Modifier.matchParentSize().drawBehind {
+    Box(modifier.testTag("paper-strip-header").padding(top = 5.dp)) {
+        if (showUnderlay) Box(Modifier.matchParentSize().drawBehind {
             val overhang = 64.dp.toPx()
-            val top = 4.dp.toPx()
+            val extension = 2.dp.toPx()
+            val top = 4.dp.toPx() - extension
+            val height = size.height + 2 * extension
             val start = -overhang
             val end = size.width + overhang
-            rotate(-2f + 4f * progress().coerceIn(0f, 1f)) {
-                drawRect(paper.headerUnderlay, Offset(start, top), Size(end - start, size.height))
-                drawLine(line, Offset(start, top), Offset(end, top), 1.dp.toPx())
-                drawLine(line, Offset(start, top + size.height), Offset(end, top + size.height), 1.dp.toPx())
+            // Reveal a small upper corner while keeping the rest of the upper gap clear on wide screens.
+            clipRect(left = start, top = -extension, right = end, bottom = size.height + overhang) {
+                rotate(underlayTilt * (2f * progress().coerceIn(0f, 1f) - 1f)) {
+                    drawRect(paper.headerUnderlay, Offset(start, top), Size(end - start, height))
+                    drawLine(line, Offset(start, top), Offset(end, top), 1.dp.toPx())
+                    drawLine(line, Offset(start, top + height), Offset(end, top + height), 1.dp.toPx())
+                }
             }
         })
-        Box(Modifier.graphicsLayer { translationY = -4.dp.toPx() * progress().coerceIn(0f, 1f) }
+        Box(Modifier.graphicsLayer { translationY = -2.dp.toPx() * progress().coerceIn(0f, 1f) }
             .drawBehind {
                 val overhang = 64.dp.toPx()
                 val width = size.width + 2 * overhang

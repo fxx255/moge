@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
+import com.moge.app.ui.components.PaperHeaderIconButton
 import com.moge.app.ui.components.KeepConversationScreenOn
 import com.moge.app.ui.export.AnswerExportContent
 import com.moge.app.ui.export.AnswerExportDialog
@@ -182,7 +182,7 @@ fun SolveScreen(
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
                 onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing,
-                switchingPage = pageMotion.switching)
+                switchingPage = pageMotion.switching, swipeDirection = pageMotion.direction)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,
@@ -243,11 +243,11 @@ internal fun ConversationActions(
     val strings = rememberAppStrings()
     Row {
         if (existingConversation) {
-            IconButton(onClick = onNewConversation) { Icon(Icons.Outlined.AddComment, strings.text(R.string.ui_new_chat_1b7ab)) }
+            PaperHeaderIconButton(onClick = onNewConversation) { Icon(Icons.Outlined.AddComment, strings.text(R.string.ui_new_chat_1b7ab)) }
         } else {
-            IconButton(onClick = onOpenHistory) { Icon(Icons.Outlined.History, strings.text(R.string.ui_history_68387)) }
+            PaperHeaderIconButton(onClick = onOpenHistory) { Icon(Icons.Outlined.History, strings.text(R.string.ui_history_68387)) }
         }
-        IconButton(onClick = onOpenSettings) { Icon(Icons.Outlined.Settings, strings.text(R.string.ui_settings_7debf)) }
+        PaperHeaderIconButton(onClick = onOpenSettings) { Icon(Icons.Outlined.Settings, strings.text(R.string.ui_settings_7debf)) }
     }
 }
 

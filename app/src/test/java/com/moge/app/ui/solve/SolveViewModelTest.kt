@@ -12,6 +12,7 @@ import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.prefs.SettingsRepository
+import com.moge.app.data.prefs.AppLanguage
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.domain.FailureKind
 import com.moge.app.domain.ConversationMode
@@ -290,6 +291,48 @@ class SolveViewModelTest {
         assertEquals(listOf(document), RequestRepository.decodePathList(message.documentPaths))
         assertTrue(File(document).isFile)
         assertNull(drafts.load(state.conversationId))
+    }
+
+    @Test
+    fun `photo only placeholder follows interface language without changing stored or edited titles`() = runBlocking {
+        val preferences = MutableStateFlow(UserSettings(interfaceLanguage = AppLanguage.ENGLISH,
+            answerLanguage = AppLanguage.JAPANESE))
+        every { settings.settings } returns preferences
+        coEvery { settings.current() } coAnswers { preferences.value }
+        val page = vm(capture = CaptureBatch(listOf(photo()), SolveMode.DETAILED))
+        page.awaitState { it.canSend }
+        page.send()
+        val sent = page.awaitState { it.items.size == 2 && !it.submitting }
+        val id = sent.conversationId!!
+        assertEquals("Photo question", sent.title)
+        assertEquals("", conversations.messages(id).first { it.role == "user" }.content)
+
+        for ((language, expected) in listOf(
+            AppLanguage.SIMPLIFIED_CHINESE to "图片题目",
+            AppLanguage.TRADITIONAL_CHINESE to "圖片題目",
+            AppLanguage.JAPANESE to "写真の問題",
+            AppLanguage.ENGLISH to "Photo question",
+        )) {
+            preferences.value = preferences.value.copy(interfaceLanguage = language)
+            page.awaitState { it.title == expected }
+            assertEquals(ConversationRepository.PHOTO_PLACEHOLDER_TITLE, conversations.getConversation(id)!!.title)
+        }
+        preferences.value = preferences.value.copy(answerLanguage = AppLanguage.TRADITIONAL_CHINESE)
+        dispatcher.scheduler.runCurrent()
+        assertEquals("Photo question", page.uiState.value.title)
+
+        val answerId = sent.items.filterIsInstance<SolveItem.Answer>().single().id
+        db.requestDao().nameConversationFromAnswer(id, answerId, "Matrix multiplication")
+        page.awaitState { it.title == "Matrix multiplication" }
+        preferences.value = preferences.value.copy(interfaceLanguage = AppLanguage.JAPANESE)
+        dispatcher.scheduler.runCurrent()
+        assertEquals("Matrix multiplication", page.uiState.value.title)
+
+        assertTrue(page.renameTitle(ConversationRepository.PHOTO_PLACEHOLDER_TITLE))
+        page.awaitState { it.title == "图片题目" }
+        preferences.value = preferences.value.copy(interfaceLanguage = AppLanguage.ENGLISH)
+        dispatcher.scheduler.runCurrent()
+        assertEquals("图片题目", page.uiState.value.title)
     }
 
     @Test

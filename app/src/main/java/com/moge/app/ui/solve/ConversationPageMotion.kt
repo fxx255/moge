@@ -16,6 +16,7 @@ data class ConversationPageMotion(
     val readingModifier: Modifier = Modifier,
     val active: Boolean = true,
     val switching: Boolean = false,
+    val direction: Int = 0,
 )
 
 @Composable
@@ -32,5 +33,6 @@ internal fun AnimatedContentScope.conversationPageMotion(
         ),
         active = transition.targetState == EnterExitState.Visible,
         switching = animate && transition.currentState != transition.targetState,
+        direction = if (animate) direction else 0,
     )
 }

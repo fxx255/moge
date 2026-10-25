@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moge.app.ui.theme.MogeTheme
 
-/** 方格纸背景；滚动页面通过延迟读取的偏移让格子和纸上卡片一起移动。 */
+/** Standalone pages can scroll the grid; navigation owns a single stationary sheet. */
 fun Modifier.gridPaper(
     background: Color,
     line: Color,
@@ -61,7 +61,7 @@ fun GridPaper(
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
-        modifier = modifier.gridPaper(
+        modifier = if (hasNavigationPaper()) modifier else modifier.gridPaper(
             background = MaterialTheme.colorScheme.background,
             line = MogeTheme.paper.grid,
             offsetY = offsetY,
@@ -98,6 +98,7 @@ fun HighlightedTitle(
     style: TextStyle = MaterialTheme.typography.headlineMedium,
     maxLines: Int = Int.MAX_VALUE,
     revealProgress: () -> Float = { 1f },
+    textModifier: Modifier = Modifier,
 ) {
     // Fade/slide animations render into a layer bounded by this layout. Reserve
     // the highlighter's overhang inside it so its uneven ends survive the fade.
@@ -112,7 +113,7 @@ fun HighlightedTitle(
                 .drawWithContent {
                     if (revealProgress() >= 1f) drawContent()
                     else clipRect(right = size.width * revealProgress().coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
-                }.semantics { heading() },
+                }.then(textModifier).semantics { heading() },
         )
     }
 }
