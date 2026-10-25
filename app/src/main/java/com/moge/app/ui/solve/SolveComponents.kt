@@ -468,13 +468,15 @@ internal fun FollowUpBar(
     onCancelEditing: () -> Unit = {},
     switchingPage: Boolean = false,
     swipeDirection: Int = 0,
+    swipeProgress: (() -> Float)? = null,
 ) {
     val strings = rememberAppStrings()
+    val motionEnabled = MogeTheme.motionEnabled
     val elevation by androidx.compose.animation.core.animateDpAsState(
-        if (switchingPage && MogeTheme.motionEnabled) 14.dp else 8.dp,
+        if (switchingPage && swipeProgress == null && motionEnabled) 14.dp else 8.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-shadow")
     val drift by androidx.compose.animation.core.animateDpAsState(
-        if (switchingPage && MogeTheme.motionEnabled) 3.dp * swipeDirection.coerceIn(-1, 1) else 0.dp,
+        if (switchingPage && swipeProgress == null && motionEnabled) 3.dp * swipeDirection.coerceIn(-1, 1) else 0.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-drift")
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.editingQuestionId != null) {
@@ -494,7 +496,15 @@ internal fun FollowUpBar(
         }
         Column(
             Modifier.fillMaxWidth().testTag("composer-surface")
-                .graphicsLayer { translationX = drift.toPx() }.shadow(elevation, RoundedCornerShape(32.dp))
+                .graphicsLayer {
+                    val progress = swipeProgress?.invoke()
+                    val depth = if (progress != null && motionEnabled) {
+                        kotlin.math.sin(progress * kotlin.math.PI).toFloat().coerceAtLeast(0f)
+                    } else null
+                    translationX = if (depth != null) 3.dp.toPx() * swipeDirection * depth else drift.toPx()
+                    shadowElevation = if (depth != null) (8.dp.toPx() + 6.dp.toPx() * depth) else elevation.toPx()
+                    shape = RoundedCornerShape(32.dp)
+                }
                 .paperCard(MaterialTheme.colorScheme.surface, MogeTheme.paper.cardStroke, radius = 32.dp),
         ) {
             Row(

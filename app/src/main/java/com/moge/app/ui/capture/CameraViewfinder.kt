@@ -17,7 +17,6 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
@@ -27,11 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -228,27 +223,4 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
     }
 
     AndroidView(factory = { previewView }, modifier = modifier)
-}
-
-/** 四角扫描框：白色圆头短线，提示把题目放进框里。由取景页放在控件之间的空白区。 */
-@Composable
-fun ScanCorners(modifier: Modifier) {
-    Canvas(modifier) {
-        val inset = 28.dp.toPx()
-        val arm = 26.dp.toPx()
-        val stroke = 3.dp.toPx()
-        val color = Color.White.copy(alpha = 0.9f)
-        val l = inset
-        val t = inset
-        val r = size.width - inset
-        val b = size.height - inset
-        fun corner(x: Float, y: Float, dx: Float, dy: Float) {
-            drawLine(color, Offset(x, y), Offset(x + dx * arm, y), stroke, StrokeCap.Round)
-            drawLine(color, Offset(x, y), Offset(x, y + dy * arm), stroke, StrokeCap.Round)
-        }
-        corner(l, t, 1f, 1f)
-        corner(r, t, -1f, 1f)
-        corner(l, b, 1f, -1f)
-        corner(r, b, -1f, -1f)
-    }
 }

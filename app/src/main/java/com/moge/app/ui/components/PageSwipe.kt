@@ -13,6 +13,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -41,7 +42,7 @@ internal fun Modifier.excludePageSwipe(): Modifier = composed {
     }
 }
 
-/** Navigate on release after a short, single-finger horizontal gesture. */
+/** Lock horizontally without stealing scrolling, selection, or excluded child gestures. */
 @Composable
 internal fun PageSwipeSurface(
     enabled: Boolean = true,
@@ -57,6 +58,7 @@ internal fun PageSwipeSurface(
     val left by rememberUpdatedState(onLeft)
     val right by rememberUpdatedState(onRight)
     val active by rememberUpdatedState(enabled)
+    val interactive by rememberUpdatedState(LocalInteractivePageSwipe.current)
     val config = LocalViewConfiguration.current
     Box(modifier.fillMaxSize().onGloballyPositioned { rootOrigin = it.localToRoot(Offset.Zero) }
         .semantics {
@@ -72,10 +74,17 @@ internal fun PageSwipeSurface(
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 if (!active || exclusions.contains(rootOrigin + down.position)) return@awaitEachGesture
                 var horizontal = false
-                while (true) {
+                var tracking: InteractivePageSwipe? = null
+                var released = false
+                val velocity = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
+                try { while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     if (!active || event.changes.size != 1) break
                     val change = event.changes.single()
+                    // Compose represents Android ACTION_CANCEL as an already-consumed UP.
+                    // Check before consuming our own horizontal drag, or it looks like release.
+                    if (!change.pressed && change.isConsumed) break
+                    velocity.addPosition(change.uptimeMillis, change.position)
                     if (change.id != down.id) break
                     val delta = change.position - down.position
                     if (!horizontal) {
@@ -84,16 +93,27 @@ internal fun PageSwipeSurface(
                         if (abs(delta.x) > config.touchSlop * 2 && abs(delta.x) > abs(delta.y) * 1.5f) {
                             if ((delta.x < 0 && left == null) || (delta.x > 0 && right == null)) break
                             horizontal = true
+                            interactive?.let {
+                                if (!it.start(if (delta.x > 0) 1 else -1, size.width.toFloat())) break
+                                tracking = it
+                            }
                         }
                     }
-                    if (horizontal) change.consume()
+                    if (horizontal) {
+                        change.consume()
+                        tracking?.drag(delta.x)
+                    }
                     if (!change.pressed) {
-                        if (horizontal && abs(delta.x) >= threshold && abs(delta.x) > abs(delta.y) * 1.5f) {
+                        if (tracking != null) {
+                            tracking.release(velocity.calculateVelocity().x,
+                                cancelled = abs(delta.x) <= abs(delta.y) * 1.5f)
+                            released = true
+                        } else if (horizontal && abs(delta.x) >= threshold && abs(delta.x) > abs(delta.y) * 1.5f) {
                             if (delta.x < 0) left?.invoke() else right?.invoke()
                         }
                         break
                     }
-                }
+                } } finally { if (!released) tracking?.release(0f, cancelled = true) }
             }
         }) {
         CompositionLocalProvider(LocalSwipeExclusions provides exclusions, content = content)

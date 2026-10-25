@@ -12,7 +12,11 @@ import androidx.compose.ui.input.pointer.pointerInput
  */
 internal fun Modifier.headerInputShield(): Modifier = pointerInput(Unit) {
     awaitEachGesture {
-        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main).consume()
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
+        // A title long-press or button already owns this gesture. Consuming its
+        // later events here cancels the child's press detector on the Final pass.
+        if (down.isConsumed) return@awaitEachGesture
+        down.consume()
         do {
             val event = awaitPointerEvent(PointerEventPass.Main)
             event.changes.forEach { it.consume() }

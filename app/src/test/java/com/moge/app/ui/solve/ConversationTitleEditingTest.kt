@@ -25,6 +25,7 @@ import com.moge.app.data.prefs.Appearance
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.theme.LocalPaperMotionEnabled
 import com.moge.app.ui.theme.MogeTheme
+import com.moge.app.ui.components.PaperNavigationLayers
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.*
 import org.junit.Rule
@@ -55,7 +56,7 @@ class ConversationTitleEditingTest {
             override fun hide() { keyboardHidden++ }
         }
         lateinit var view: View
-        compose.setContent { MogeTheme(appearance) {
+        compose.setContent { MogeTheme(appearance) { PaperNavigationLayers {
             view = LocalView.current
             CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
                 ConversationScaffold(title, { backClicks++ }, conversationMode = ConversationMode.SOLVE,
@@ -69,9 +70,10 @@ class ConversationTitleEditingTest {
                     }
                 }
             }
-        } }
+        } } }
         val before = compose.onNodeWithTag("conversation-header").fetchSemanticsNode().boundsInRoot
         compose.onNodeWithTag("conversation-title").performTouchInput { longClick() }
+        assertTrue("Long press must open the title editor", editing)
         compose.onNodeWithTag("conversation-title-editor").assertIsFocused().performTextReplacement("我的英语阅读笔记")
         assertTrue(keyboardShown > 0)
         compose.onNodeWithContentDescription("设置").assertDoesNotExist()

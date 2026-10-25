@@ -89,7 +89,7 @@ fun SolveScreen(
 ) {
     val strings = rememberAppStrings()
     val state by vm.uiState.collectAsStateWithLifecycle()
-    KeepConversationScreenOn(state.keepScreenOnInConversation)
+    KeepConversationScreenOn(pageMotion.active && state.keepScreenOnInConversation)
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var exportContent by remember { mutableStateOf<AnswerExportContent?>(null) }
     var favorite by remember { mutableStateOf<FavoriteTarget?>(null) }
@@ -97,7 +97,7 @@ fun SolveScreen(
     var savedFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
     val observedId = state.conversationId ?: conversationId
     var editingTitle by rememberSaveable(observedId) { mutableStateOf(false) }
-    LaunchedEffect(observedId) { onConversationObserved(observedId) }
+    LaunchedEffect(observedId, pageMotion.active) { if (pageMotion.active) onConversationObserved(observedId) }
     LaunchedEffect(state.notice) {
         if (state.notice != strings.text(R.string.ui_saved_to_notebook_32992)) savedFavoriteId = null
     }
@@ -182,7 +182,8 @@ fun SolveScreen(
                 onOpenPendingPhoto = { index -> viewer = state.photos to index },
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
                 onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing,
-                switchingPage = pageMotion.switching, swipeDirection = pageMotion.direction)
+                switchingPage = pageMotion.switching, swipeDirection = pageMotion.direction,
+                swipeProgress = pageMotion.progress)
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,
@@ -280,7 +281,8 @@ internal fun SolveList(
     active: Boolean = true,
 ) {
     val scroll = rememberConversationListScroll(conversationId, state.items, initialViewport,
-        contentPadding, active, saveViewport, readBranchViewport, saveBranchViewport)
+        contentPadding, active, saveViewport, readBranchViewport, saveBranchViewport,
+        preview = com.moge.app.ui.components.LocalPaperPageMotion.current.swipeTarget)
     val listState = scroll.state
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current

@@ -77,7 +77,6 @@ import com.moge.app.ui.capture.CaptureBatch
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.ui.capture.ConfirmSheet
 import com.moge.app.ui.capture.LevelIndicator
-import com.moge.app.ui.capture.ScanCorners
 import com.moge.app.ui.capture.ViewfinderController
 import com.moge.app.ui.capture.cameraIconRotation
 import com.moge.app.ui.capture.rememberCameraIconRotation
@@ -186,7 +185,6 @@ fun HomeScreen(
                 // 裁剪时移除预览：DisposableEffect 解绑 CameraX 并停止方向监听，底层只留黑色背景。
                 if (cameraActive) {
                     CameraViewfinder(controller, Modifier.fillMaxSize())
-                    ScanCorners(Modifier.fillMaxSize().padding(top = 48.dp, bottom = 32.dp))
                     if (levelEnabled) LevelIndicator(Modifier.align(Alignment.Center))
                 }
             } else {

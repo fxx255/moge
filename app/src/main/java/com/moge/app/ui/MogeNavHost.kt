@@ -1,11 +1,6 @@
 package com.moge.app.ui
 
 import android.net.Uri
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,13 +8,12 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
-import com.moge.app.ui.theme.MogeTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
+import androidx.navigation.createGraph
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -31,12 +25,11 @@ import com.moge.app.ui.settings.SettingsScreen
 import com.moge.app.ui.solve.SolveScreen
 import com.moge.app.ui.solve.SolveViewModel
 import com.moge.app.ui.solve.ConversationRibbonState
-import com.moge.app.ui.solve.conversationPageMotion
+import com.moge.app.ui.solve.paperConversationPageMotion
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.update.AppUpdateNotice
-import com.moge.app.ui.components.paperPageEnter
-import com.moge.app.ui.components.paperPageExit
 import com.moge.app.ui.components.PaperNavigationLayers
+import androidx.navigation.compose.ComposeNavigator
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.filterNotNull
@@ -111,154 +104,150 @@ fun MogeNavHost(
     val navigation: ConversationNavigationViewModel = hiltViewModel()
     val previousConversation by navigation.previousConversationId.collectAsStateWithLifecycle()
     val conversationRibbon = remember { ConversationRibbonState() }
-    var swipeTransition by remember { mutableStateOf<SwipeTransition?>(null) }
     var openedCard by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val duration = if (MogeTheme.motionEnabled) 240 else 0
     LaunchedEffect(sharedRoute) {
         sharedRoute?.let {
             navigateToSharedDraft(nav, it)
             onSharedCaptureConsumed()
         }
     }
-    val ordinary: (String) -> Unit = { route -> swipeTransition = null; nav.navigate(route) { launchSingleTop = true } }
-    val back: () -> Unit = { swipeTransition = null; nav.popBackStack(); Unit }
-    val swipe: (Int, () -> Unit) -> Unit = { direction, navigate ->
-        swipeTransition = null
-        swipeTransition = navigateWithSwipe(nav, direction, navigate)
+    val ordinary: (String) -> Unit = { route ->
+        openedCard = null
+        nav.navigate(route) { launchSingleTop = true }
+    }
+    val back: () -> Unit = {
+        openedCard = openedCard?.takeIf {
+            nav.currentBackStackEntry?.id == it.second && nav.previousBackStackEntry?.id == it.first
+        }
+        nav.popBackStack(); Unit
+    }
+    val swipe: (Int, () -> Unit) -> Unit = { _, navigate ->
+        openedCard = null
+        navigate()
     }
     val newPage: (Int, ConversationMode?) -> Unit = { direction, mode ->
-        if (direction == 0) { swipeTransition = null; navigateToNewConversation(nav, mode) }
+        if (direction == 0) { openedCard = null; navigateToNewConversation(nav, mode) }
         else swipe(direction) { navigateToNewConversation(nav, mode) }
     }
     val resume: (Int) -> Unit = { gestureDirection ->
         val navigate = { previousConversation?.let { navigateToConversation(nav, it) } ?: navigateToNewConversation(nav) }
-        if (gestureDirection == 0) { swipeTransition = null; navigate() } else swipe(gestureDirection, navigate)
+        if (gestureDirection == 0) { openedCard = null; navigate() } else swipe(gestureDirection, navigate)
     }
     val openConversation: (String) -> Unit = { id ->
         val from = nav.currentBackStackEntry?.takeIf { it.destination.route == Routes.HISTORY }?.id
-        swipeTransition = null
         navigation.rememberConversation(id)
         navigateToConversation(nav, id)
         openedCard = from?.let { source -> nav.currentBackStackEntry?.id?.takeIf { it != source }?.let { source to it } }
     }
     val openNotebook: (String?) -> Unit = { id ->
-        swipeTransition = null
+        openedCard = null
         // A specific favorite uses a fresh route/VM so old filters cannot conceal it.
         nav.navigate(Routes.notebook(id)) { launchSingleTop = id == null }
     }
     AppUpdateNotice()
     PaperNavigationLayers {
-        NavHost(navController = nav, startDestination = Routes.solve(),
-            enterTransition = {
-                val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-                if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) EnterTransition.None
-                else if (direction != 0) slideInHorizontally(tween(duration)) { -direction * it }
-                else if (openedCard == (initialState.id to targetState.id)) paperPageEnter(true)
-                else EnterTransition.None
-            },
-            exitTransition = {
-                val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-                if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) ExitTransition.None
-                else if (direction != 0) slideOutHorizontally(tween(duration)) { direction * it }
-                else if (openedCard == (targetState.id to initialState.id)) paperPageExit(true)
-                else ExitTransition.None
-            },
-            popEnterTransition = {
-                val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-                if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) EnterTransition.None
-                else if (direction != 0) slideInHorizontally(tween(duration)) { -direction * it }
-                else if (openedCard == (initialState.id to targetState.id)) paperPageEnter(true)
-                else EnterTransition.None
-            },
-            popExitTransition = {
-                val direction = swipeTransition?.directionFor(initialState.id, targetState.id) ?: 0
-                if (duration == 0 || direction != 0 && swipeTransition?.stationaryComposer == true) ExitTransition.None
-                else if (direction != 0) slideOutHorizontally(tween(duration)) { direction * it }
-                else if (openedCard == (targetState.id to initialState.id)) paperPageExit(true)
-                else ExitTransition.None
-            }) {
-            composable(Routes.HOME_ROUTE, arguments = listOf(
-                navArgument(Routes.ARG_CAPTURE_MODE) { type = NavType.StringType; defaultValue = "SOLVE" },
-            )) {
-                HomeScreen(
-                    onOpenNotebook = back,
-                    onOpenSettings = { ordinary(Routes.SETTINGS) },
-                    onAskByText = back,
-                    onStartSolve = { batch ->
-                        nav.previousBackStackEntry?.savedStateHandle?.set(Routes.CAPTURE_RESULT, Routes.encodeCapture(batch))
-                        back()
-                    },
-                )
+        val graph = remember(nav) {
+            nav.createGraph(startDestination = Routes.solve()) {
+                composable(Routes.HOME_ROUTE, arguments = listOf(
+                    navArgument(Routes.ARG_CAPTURE_MODE) { type = NavType.StringType; defaultValue = "SOLVE" },
+                )) { }
+                composable(Routes.HISTORY) { }
+                composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
+                    navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
+                )) { }
+                composable(Routes.SETTINGS) { }
+                composable(Routes.SOLVE, arguments = listOf(
+                    navArgument(Routes.ARG_CONVERSATION_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument(Routes.ARG_CAPTURE) { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument(Routes.ARG_DRAFT_MODE) { type = NavType.StringType; nullable = true; defaultValue = null },
+                )) { }
             }
-            composable(Routes.HISTORY) {
-                HistoryScreen(onBack = back, onOpenConversation = openConversation,
-                    onLocateMessage = { id, message -> navigation.saveViewport(id, com.moge.app.ui.solve.ConversationViewport(message, 0, 0)) },
-                    onOpenNotebook = openNotebook, onNewConversation = { newPage(-1, null) })
-            }
-            composable(Routes.NOTEBOOK_ROUTE, arguments = listOf(
-                navArgument(Routes.ARG_NOTEBOOK_ENTRY_ID) { type = NavType.StringType; nullable = true; defaultValue = null },
-            )) {
-                NotebookScreen(onBack = back, onOpenConversation = openConversation,
-                    onReturnToConversation = { resume(1) })
-            }
-            composable(Routes.SETTINGS) {
-                SettingsScreen(onBack = back, onOpenNotebook = { openNotebook(null) })
-            }
-            composable(
-                route = Routes.SOLVE,
-                arguments = listOf(
-                    navArgument(Routes.ARG_CONVERSATION_ID) {
-                        type = NavType.StringType
-                        nullable = true
-                        defaultValue = null
-                    },
-                    navArgument(Routes.ARG_CAPTURE) {
-                        type = NavType.StringType
-                        nullable = true
-                        defaultValue = null
-                    },
-                    navArgument(Routes.ARG_DRAFT_MODE) {
-                        type = NavType.StringType
-                        nullable = true
-                        defaultValue = null
-                    },
-                ),
-            ) { entry ->
-                val vm: SolveViewModel = hiltViewModel(entry)
-                LaunchedEffect(entry, vm) { relayCaptureResults(entry.savedStateHandle, vm::onCaptureResult) }
-                LaunchedEffect(entry, vm) { relayNewConversationMode(entry.savedStateHandle, vm::requestNewConversationMode) }
-                val openNew: (Int) -> Unit = { direction ->
-                    vm.resolveConversationMode { mode ->
-                        if (nav.currentBackStackEntry == entry) newPage(direction, mode)
+        }
+        PaperNavHost(nav, graph, openedCard) { entry ->
+            when (entry.destination.route) {
+                Routes.HOME_ROUTE -> {
+                    HomeScreen(
+                        onOpenNotebook = back,
+                        onOpenSettings = { ordinary(Routes.SETTINGS) },
+                        onAskByText = back,
+                        onStartSolve = { batch ->
+                            nav.previousBackStackEntry?.savedStateHandle?.set(Routes.CAPTURE_RESULT, Routes.encodeCapture(batch))
+                            back()
+                        },
+                    )
+                }
+                Routes.HISTORY -> {
+                    PaperSwipeDestination(entry, target = { direction ->
+                        if (direction < 0) newConversationSwipeTarget(nav) else null
+                    }) {
+                        HistoryScreen(onBack = back, onOpenConversation = openConversation,
+                            onLocateMessage = { id, message -> navigation.saveViewport(id, com.moge.app.ui.solve.ConversationViewport(message, 0, 0)) },
+                            onOpenNotebook = openNotebook, onNewConversation = { newPage(-1, null) })
                     }
                 }
-                SolveScreen(
-                    ribbonState = conversationRibbon,
-                    pageMotion = conversationPageMotion(
-                        direction = swipeTransition?.takeIf { entry.id == it.from || entry.id == it.to }?.direction ?: 0,
-                        stationaryComposer = swipeTransition?.stationaryComposer == true,
-                    ),
-                    conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
-                    onBack = if (nav.previousBackStackEntry != null) back else null,
-                    onOpenSettings = { ordinary(Routes.SETTINGS) },
-                    onOpenHistory = { ordinary(Routes.HISTORY) },
-                    onOpenNotebook = { openNotebook(null) },
-                    onNewConversation = { openNew(0) },
-                    onTakePhoto = { vm.resolveConversationMode { mode -> ordinary(Routes.capture(mode)) } },
-                    vm = vm,
-                    onResumeConversation = previousConversation?.let { { resume(0) } },
-                    onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },
-                    onSwipeNotebook = { swipe(-1) { nav.navigate(Routes.notebook()) } },
-                    onSwipeNewConversation = { openNew(1) },
-                    onSwipeResumeConversation = previousConversation?.let { { resume(-1) } },
-                    readViewport = navigation::readViewport,
-                    saveViewport = navigation::saveViewport,
-                    onConversationObserved = { id ->
-                        entry.savedStateHandle[LOGICAL_CONVERSATION_ID] = id.orEmpty()
-                        navigation.rememberConversation(id)
-                    },
-                    onViewFavorite = { openNotebook(it) },
-                )
+                Routes.NOTEBOOK_ROUTE -> {
+                    PaperSwipeDestination(entry, target = { direction ->
+                        if (direction > 0) previousConversation?.let { conversationSwipeTarget(nav, it) }
+                            ?: newConversationSwipeTarget(nav) else null
+                    }) {
+                        NotebookScreen(onBack = back, onOpenConversation = openConversation,
+                            onReturnToConversation = { resume(1) })
+                    }
+                }
+                Routes.SETTINGS -> {
+                    SettingsScreen(onBack = back, onOpenNotebook = { openNotebook(null) })
+                }
+                Routes.SOLVE -> {
+                    val vm: SolveViewModel = hiltViewModel(entry)
+                    LaunchedEffect(entry, vm) { relayCaptureResults(entry.savedStateHandle, vm::onCaptureResult) }
+                    LaunchedEffect(entry, vm) { relayNewConversationMode(entry.savedStateHandle, vm::requestNewConversationMode) }
+                    val openNew: (Int) -> Unit = { direction ->
+                        vm.resolveConversationMode { mode ->
+                            if (nav.currentBackStackEntry == entry) newPage(direction, mode)
+                        }
+                    }
+                    PaperSwipeDestination(entry, target = { direction ->
+                        val existing = vm.uiState.value.conversationId != null || entry.logicalConversationId() != null
+                        when {
+                            existing && direction > 0 -> newConversationSwipeTarget(nav, vm.uiState.value.conversationMode)
+                            existing -> PaperSwipeTarget(Routes.notebook(), nav.previousBackStackEntry?.takeIf {
+                                it.destination.route == Routes.NOTEBOOK_ROUTE
+                            })
+                            direction > 0 -> PaperSwipeTarget(Routes.HISTORY, nav.previousBackStackEntry?.takeIf {
+                                it.destination.route == Routes.HISTORY
+                            })
+                            else -> previousConversation?.let { conversationSwipeTarget(nav, it) }
+                        }
+                    }) {
+                        SolveScreen(
+                            ribbonState = conversationRibbon,
+                            pageMotion = paperConversationPageMotion(),
+                            conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
+                            onBack = back.takeIf {
+                                nav.navigatorProvider.getNavigator<ComposeNavigator>("composable").backStack.value
+                                    .indexOfFirst { it.id == entry.id } > 0
+                            },
+                            onOpenSettings = { ordinary(Routes.SETTINGS) },
+                            onOpenHistory = { ordinary(Routes.HISTORY) },
+                            onOpenNotebook = { openNotebook(null) },
+                            onNewConversation = { openNew(0) },
+                            onTakePhoto = { vm.resolveConversationMode { mode -> ordinary(Routes.capture(mode)) } },
+                            vm = vm,
+                            onResumeConversation = previousConversation?.let { { resume(0) } },
+                            onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },
+                            onSwipeNotebook = { swipe(-1) { nav.navigate(Routes.notebook()) } },
+                            onSwipeNewConversation = { openNew(1) },
+                            onSwipeResumeConversation = previousConversation?.let { { resume(-1) } },
+                            readViewport = navigation::readViewport,
+                            saveViewport = navigation::saveViewport,
+                            onConversationObserved = { id ->
+                                entry.savedStateHandle[LOGICAL_CONVERSATION_ID] = id.orEmpty()
+                                navigation.rememberConversation(id)
+                            },
+                            onViewFavorite = { openNotebook(it) },
+                        )
+                    }
+                }
             }
         }
     }

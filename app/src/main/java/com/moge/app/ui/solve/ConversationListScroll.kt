@@ -22,6 +22,7 @@ private fun LazyListState.readingViewport(): ConversationViewport? {
 /** Frame-by-frame bookkeeping must not invalidate the message composition. */
 private class ViewportRecord(var reading: ConversationViewport?) {
     var persisted: Pair<String, ConversationViewport>? = null
+    var wasActive = false
 }
 
 @Composable
@@ -34,6 +35,7 @@ internal fun rememberConversationListScroll(
     saveViewport: (ConversationViewport) -> Unit,
     readBranchViewport: (String) -> ConversationViewport?,
     saveBranchViewport: (String, ConversationViewport) -> Unit,
+    preview: Boolean = false,
 ): ConversationListScroll {
     val ids = items.map { it.id }
     // Start at the reading anchor, avoiding a throwaway layout/render of the first long answer.
@@ -57,10 +59,13 @@ internal fun rememberConversationListScroll(
     val branch = items.filterIsInstance<SolveItem.Question>().lastOrNull()?.id.orEmpty()
     val currentBranch by rememberUpdatedState(branch)
     val currentActive by rememberUpdatedState(active)
+    val visible = active || preview
+    val currentVisible by rememberUpdatedState(visible)
     val currentIds by rememberUpdatedState(ids)
+    SideEffect { if (active) record.wasActive = true }
 
     fun persist() {
-        if (!restored || pendingVersion != null) return
+        if (!record.wasActive || !restored || pendingVersion != null) return
         record.reading?.let {
             val value = currentBranch to it
             if (record.persisted != value) {
@@ -73,8 +78,8 @@ internal fun rememberConversationListScroll(
     suspend fun restore(anchor: ConversationViewport?, fallbackIndex: Int) {
         list.scrollToItem(anchor?.indexIn(ids) ?: fallbackIndex, anchor?.offset ?: 0)
     }
-    LaunchedEffect(conversationId, ids, contentPadding, active) {
-        if (ids.isEmpty() || !active) return@LaunchedEffect
+    LaunchedEffect(conversationId, ids, contentPadding, visible) {
+        if (ids.isEmpty() || !visible) return@LaunchedEffect
         val questions = items.filterIsInstance<SolveItem.Question>().map { it.id }
         if (!restored) {
             // Floating controls must report their insets before a short list can be clamped.
@@ -89,20 +94,20 @@ internal fun rememberConversationListScroll(
             pendingVersion = null
         } else if (questionIds != null && questions.any { it !in questionIds.orEmpty() }) {
             pin = null
-            list.animateScrollToItem(ids.lastIndex)
+            if (active) list.animateScrollToItem(ids.lastIndex) else list.scrollToItem(ids.lastIndex)
         } else if (pin != null) {
             restore(pin, ids.lastIndex)
         }
         questionIds = questions
     }
-    LaunchedEffect(list, conversationId, restored, active) {
-        if (!restored || !active) return@LaunchedEffect
+    LaunchedEffect(list, conversationId, restored, visible) {
+        if (!restored || !visible) return@LaunchedEffect
         var previousSizes: List<Pair<Any, Int>>? = null
         snapshotFlow {
             Triple(list.layoutInfo.visibleItemsInfo.map { Triple(it.key, it.offset, it.size) },
                 list.isScrollInProgress, contentPadding)
         }.collect { (visible, scrolling, _) ->
-            if (!currentActive || pendingVersion != null || currentIds.isEmpty()) return@collect
+            if (!currentVisible || pendingVersion != null || currentIds.isEmpty()) return@collect
             if (scrolling) pin = null
             val sizes = visible.map { it.first to it.third }
             val anchor = pin
@@ -117,9 +122,9 @@ internal fun rememberConversationListScroll(
                 }
             }
             previousSizes = sizes
-            record.reading = pin ?: list.readingViewport() ?: record.reading
+            if (currentActive) record.reading = pin ?: list.readingViewport() ?: record.reading
             // Keep frame-by-frame positions in memory; Bundle copies happen only at rest/exit.
-            if (!scrolling) persist()
+            if (!scrolling && currentActive) persist()
         }
     }
     LaunchedEffect(active) { if (!active) persist() }

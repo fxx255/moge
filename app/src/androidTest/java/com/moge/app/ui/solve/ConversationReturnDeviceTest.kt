@@ -11,7 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
+import androidx.navigation.createGraph
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +19,15 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
+import com.moge.app.ui.PaperNavHost
+import com.moge.app.ui.PaperSwipeDestination
+import com.moge.app.ui.PaperSwipeTarget
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toPixelMap
 import com.moge.app.ui.components.PaperNavigationLayers
 import com.moge.app.ui.markdown.BaselineLatexSpan
 import com.moge.app.ui.theme.MogeTheme
@@ -56,23 +65,28 @@ class ConversationReturnDeviceTest {
         lateinit var nav: NavHostController
         compose.setContent { MogeTheme(Appearance.PAPER) {
             nav = rememberNavController()
-            var direction by remember { mutableIntStateOf(1) }
             PaperNavigationLayers {
-            NavHost(nav, startDestination = "old", enterTransition = { EnterTransition.None },
-                exitTransition = { ExitTransition.None }, popEnterTransition = { EnterTransition.None },
-                popExitTransition = { ExitTransition.None }) {
-                listOf("old", "new").forEach { name ->
-                    composable(name) {
-                        val motion = conversationPageMotion(direction, stationaryComposer = true)
+            val graph = remember(nav) { nav.createGraph(startDestination = "old") {
+                composable("old") { }; composable("new") { }
+            } }
+            PaperNavHost(nav, graph, null) { entry ->
+                val name = entry.destination.route!!
+                PaperSwipeDestination(entry, target = { direction ->
+                    if (name == "old" && direction > 0) PaperSwipeTarget("new")
+                    else if (name == "new" && direction < 0) PaperSwipeTarget("old", nav.previousBackStackEntry)
+                    else null
+                }) {
+                        val motion = paperConversationPageMotion()
                         val state = SolveUiState(conversationId = "c".takeIf { name == "old" },
                             items = if (name == "old") items else emptyList())
                         val initial = remember { saved }
-                        PageSwipeSurface(onRight = if (name == "old") ({ direction = 1; nav.navigate("new") }) else null,
-                            onLeft = if (name == "new") ({ direction = -1; nav.popBackStack(); Unit }) else null) {
+                        PageSwipeSurface(onRight = if (name == "old") ({ nav.navigate("new") }) else null,
+                            onLeft = if (name == "new") ({ nav.popBackStack(); Unit }) else null,
+                            modifier = Modifier.testTag("interactive-$name")) {
                             ConversationScaffold("随机过程", null, {}, pageMotion = motion, ribbonState = ribbon,
                                 newConversationMode = ConversationMode.SOLVE.takeIf { name == "new" }, footer = {
                                 FollowUpBar(state, {}, {}, {}, {}, {}, {}, {}, switchingPage = motion.switching,
-                                    swipeDirection = motion.direction)
+                                    swipeDirection = motion.direction, swipeProgress = motion.progress)
                             }) { padding ->
                                 SolveList(state, {}, {}, { _, _ -> }, {}, {}, initialViewport = initial,
                                     saveViewport = { if (name == "old") saved = it }, contentPadding = padding,
@@ -80,7 +94,6 @@ class ConversationReturnDeviceTest {
                             }
                         }
                     }
-                }
             }
             }
         } }
@@ -111,6 +124,7 @@ class ConversationReturnDeviceTest {
             return location[1]
         }
         fun snapshot(name: String) {
+            compose.waitForIdle()
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
                 try {
@@ -125,7 +139,21 @@ class ConversationReturnDeviceTest {
         snapshot("conversation-before.png")
         repeat(5) {
             compose.mainClock.autoAdvance = false
-            compose.onNodeWithTag("conversation-list").performTouchInput { swipeRight(durationMillis = 180) }
+            compose.onNodeWithTag("interactive-old").performTouchInput {
+                down(Offset(width * .15f, height * .5f))
+                moveBy(Offset(width * .5f, 0f), delayMillis = 350)
+            }
+            compose.mainClock.advanceTimeBy(32)
+            // A held half-drag must not turn into an automatic timed page replacement.
+            val half = compose.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot
+            assertEquals(compose.activity.resources.displayMetrics.widthPixels / 2f, half.left, 2f)
+            val pixels = compose.onRoot().captureToImage().toPixelMap()
+            assertNotEquals("The old white answer sheet must leave the left half during a drag",
+                Color.White.toArgb(), pixels[40, (pixels.height * .3f).toInt()].toArgb())
+            snapshot("interactive-half-$it.png")
+            compose.mainClock.advanceTimeBy(160)
+            assertEquals(half, compose.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot)
+            compose.onNodeWithTag("interactive-old").performTouchInput { advanceEventTime(150); up() }
             compose.mainClock.advanceTimeBy(64)
             compose.onAllNodesWithTag("conversation-input").assertCountEquals(1)
             compose.onAllNodesWithTag("conversation-header").assertCountEquals(1)
@@ -135,7 +163,7 @@ class ConversationReturnDeviceTest {
             assertTrue("The composer only drifts slightly in the swipe direction",
                 moving.left - composer.left in 0f..(4f * compose.activity.resources.displayMetrics.density))
             snapshot("conversation-switch-$it.png")
-            compose.mainClock.advanceTimeBy(440)
+            compose.mainClock.advanceTimeBy(800)
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()
             compose.onAllNodesWithTag("conversation-input").assertCountEquals(1)
