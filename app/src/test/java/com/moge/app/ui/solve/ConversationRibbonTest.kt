@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.theme.LocalPaperMotionEnabled
 import com.moge.app.ui.theme.MogeTheme
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -106,7 +107,21 @@ class ConversationRibbonTest {
         compose.runOnIdle { existing = true }
         compose.mainClock.advanceTimeBy(32)
         compose.waitForIdle()
+        // Subcomposed title changes apply their effects after layout. Flush that
+        // frame as well while the test clock is paused, without running a tween.
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
         assertEquals(1f, ribbon.progress.value, 0f)
         compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun `disabled ribbon motion snaps to every destination without an animation frame`() = runTest {
+        val ribbon = ConversationRibbonState(true)
+        repeat(6) { index ->
+            val existing = index % 2 != 0
+            ribbon.show(existing, motionEnabled = false)
+            assertEquals(if (existing) 1f else 0f, ribbon.progress.value, 0f)
+            assertFalse(ribbon.progress.isRunning)
+        }
     }
 }

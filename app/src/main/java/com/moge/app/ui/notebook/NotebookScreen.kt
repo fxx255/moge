@@ -132,7 +132,7 @@ internal fun NotebookContent(
                                 onOpenConversation, Modifier.fillMaxSize().nestedScroll(detailScroll), contentPadding = pageInsets)
                         } ?: NotebookPlaceholder(strings.text(R.string.ui_loading_saved_item_or_it_has_been_removed_4715a), strings.text(R.string.ui_retry_e2d53), onRetry, Modifier.fillMaxSize())
                     } else FloatingPaperToolbar(Modifier.fillMaxSize(), topInset = pageInsets.calculateTopPadding(), toolbar = {
-                        AnimatedVisibility(state.selecting,
+                        AnimatedVisibility(state.selecting && !drag.held,
                             enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
                             exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
                             Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),

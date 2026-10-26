@@ -149,7 +149,7 @@ internal fun HistoryContent(
         ) { pageInsets ->
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 FloatingPaperToolbar(Modifier.fillMaxSize(), topInset = pageInsets.calculateTopPadding(), toolbar = {
-                    AnimatedVisibility(state.selecting,
+                    AnimatedVisibility(state.selecting && !drag.held,
                         enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
                         exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
                         Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
