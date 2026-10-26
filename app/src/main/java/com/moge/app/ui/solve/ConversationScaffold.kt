@@ -20,10 +20,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -61,8 +66,10 @@ internal fun ConversationScaffold(
     val strings = rememberAppStrings()
     val density = LocalDensity.current
     var footerPixels by remember { mutableIntStateOf(0) }
+    val view = LocalView.current
+    var footerExitDistance by remember { mutableFloatStateOf(view.height.toFloat()) }
     val navigationPaper = LocalPaperNavigationScope.current
-    val contentFooterPixels = if (pageMotion.active && footerPixels > 0) footerPixels
+    val contentFooterPixels = if (pageMotion.composerActive && footerPixels > 0) footerPixels
         else navigationPaper?.composerHeight ?: footerPixels
     var savingTitle by remember(editingTitle) { mutableStateOf(false) }
     val titleEditorVisible = editingTitle && onRenameTitle != null
@@ -142,14 +149,25 @@ internal fun ConversationScaffold(
                             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                                 onClickLabel = strings.text(R.string.ui_cancel_editing_input_d041a), onClick = onDismissEditing))
                     }
-                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .aboveMovingPages(pageMotion.active, 3f).testTag("conversation-composer")
-                        .onSizeChanged {
-                            footerPixels = it.height
-                            if (pageMotion.active) navigationPaper?.composerHeight = it.height
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .aboveMovingPages(pageMotion.composerActive, 3f)
+                        .onGloballyPositioned {
+                            // Include the safe-area/IME gap and shadow, so even a tall
+                            // attachment tray clears the window before its page leaves.
+                            footerExitDistance = it.findRootCoordinates().size.height - it.positionInRoot().y +
+                                with(density) { 16.dp.toPx() }
                         }) {
-                        if (pageMotion.active) footer()
-                        else Spacer(Modifier.height(with(density) { footerPixels.toDp() }))
+                        // Measure and record from the stationary parent; transforming
+                        // that parent would feed its displaced position back into the distance.
+                        Column(Modifier.fillMaxWidth().graphicsLayer {
+                            translationY = footerExitDistance * pageMotion.composerExitFraction().coerceIn(0f, 1f)
+                        }.testTag("conversation-composer").onSizeChanged {
+                            footerPixels = it.height
+                            if (pageMotion.composerActive) navigationPaper?.composerHeight = it.height
+                        }) {
+                            if (pageMotion.composerActive) footer()
+                            else Spacer(Modifier.height(with(density) { footerPixels.toDp() }))
+                        }
                     }
                     if (titleEditorVisible) {
                         // Consume the cancelling tap over messages, composer and empty header space.

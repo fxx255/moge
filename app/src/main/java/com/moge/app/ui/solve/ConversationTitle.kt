@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.excludePageSwipe
 import com.moge.app.ui.components.HighlightedTitle
+import com.moge.app.ui.components.LocalPaperPageMotion
 import com.moge.app.ui.components.paperHeaderTitleStyle
 import com.moge.app.ui.components.paperHeaderPressColor
 import com.moge.app.ui.theme.MogeTheme
@@ -56,8 +57,17 @@ internal fun ConversationTitle(
         null -> title
     }
     val motion = MogeTheme.motionEnabled
-    val initial = remember { HeaderTitle(text, newMode) }
+    val page = LocalPaperPageMotion.current
+    val animateChanges = motion && page.active && !page.switching
     val target = HeaderTitle(text, newMode)
+    var previous by remember { mutableStateOf(target) }
+    // Loading a saved page is not a new title being written. Capture this decision
+    // per title, so making an incoming page active cannot restart its reveal.
+    val writeTitle = remember(target) {
+        animateChanges && target != previous &&
+            (previous.newMode != null || previous.text.isNotBlank())
+    }
+    SideEffect { previous = target }
     val interaction = remember { MutableInteractionSource() }
     val pressBackground = Modifier.background(
         paperHeaderPressColor(interaction, newMode == null || switchEnabled), MaterialTheme.shapes.small)
@@ -74,39 +84,43 @@ internal fun ConversationTitle(
             onClick = {}, onLongClickLabel = strings.text(R.string.ui_edit_conversation_title_9c8af), onLongClick = onEditTitle)
     else Modifier
     Box(switch.heightIn(min = 44.dp), contentAlignment = Alignment.CenterStart) {
-        AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
-            val duration = if (motion) 240 else 0
-            if (initialState.newMode != null && targetState.newMode != null) {
+        if (newMode == null) {
+            // A saved title has one stable layout, including while its data loads.
+            // AnimatedContent would briefly measure the empty outgoing title and
+            // clip the incoming marquee even with a zero-duration transition.
+            WritingTitle(text, animate = writeTitle, animateChanges = animateChanges, scroll = page.active)
+        } else {
+            AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
+                val duration = if (animateChanges) 240 else 0
                 (fadeIn(tween(duration)) + slideInVertically(tween(duration, easing = FastOutSlowInEasing)) { it / 4 })
-                    .togetherWith(fadeOut(tween(if (motion) 120 else 0)) +
+                    .togetherWith(fadeOut(tween(if (animateChanges) 120 else 0)) +
                         slideOutVertically(tween(duration, easing = FastOutSlowInEasing)) { -it / 4 })
                     .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(duration) }))
-            } else {
-                fadeIn(tween(if (motion) 120 else 0)).togetherWith(fadeOut(tween(if (motion) 100 else 0)))
-                    .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(duration) }))
+            }, label = "conversation-title") { shown ->
+                WritingTitle(shown.text, animate = false, animateChanges = animateChanges, scroll = page.active)
             }
-        }, label = "conversation-title") { shown ->
-            WritingTitle(shown.text, animate = shown.newMode == null && shown != initial)
         }
     }
 }
 
 /** Reveal the title ink without moving header actions. */
 @Composable
-private fun WritingTitle(title: String, animate: Boolean) {
+private fun WritingTitle(title: String, animate: Boolean, animateChanges: Boolean, scroll: Boolean) {
     val motion = MogeTheme.motionEnabled
-    val reveal = remember(title, animate, motion) { Animatable(if (animate && motion) 0f else 1f) }
+    val reveal = remember(title) { Animatable(if (animate && animateChanges) 0f else 1f) }
     val revealed by remember(reveal) { derivedStateOf { reveal.value >= 1f } }
-    LaunchedEffect(reveal) {
-        if (animate && motion) {
+    LaunchedEffect(reveal, animateChanges) {
+        if (animateChanges) {
             val duration = (title.codePointCount(0, title.length) * 26).coerceIn(180, 600)
             reveal.animateTo(1f, tween(duration, easing = FastOutSlowInEasing))
-        }
+        } else reveal.snapTo(1f)
     }
     HighlightedTitle(title, maxLines = 1, style = paperHeaderTitleStyle(),
         revealProgress = { reveal.value },
-        textModifier = if (motion && revealed) Modifier.basicMarquee(
-            iterations = Int.MAX_VALUE,
+        // Keep the same viewport while revealing and dragging. An inactive page
+        // starts at its leading text; its marquee begins only after navigation.
+        textModifier = if (motion) Modifier.basicMarquee(
+            iterations = if (revealed && scroll) Int.MAX_VALUE else 0,
             initialDelayMillis = 2_000,
             repeatDelayMillis = 2_000,
             spacing = MarqueeSpacing(36.dp),

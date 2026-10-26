@@ -26,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 
@@ -41,6 +42,7 @@ fun PaperScaffold(
     backgroundOffsetY: () -> Float = { 0f },
     contentBehindHeader: Boolean = false,
     headerStyle: PaperHeaderStyle = PaperHeaderStyle.Classic,
+    headerContentGap: Dp = PaperHeaderContentGap,
     actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.(PaddingValues) -> Unit,
 ) {
@@ -85,7 +87,7 @@ fun PaperScaffold(
                     } else drawContent()
                 }) {
                     val gap = if (contentBehindHeader || headerStyle == PaperHeaderStyle.StackedLeft ||
-                        headerStyle == PaperHeaderStyle.StackedRight) PaperHeaderContentGap else 0.dp
+                        headerStyle == PaperHeaderStyle.StackedRight) headerContentGap else 0.dp
                     if (contentBehindHeader) content(PaddingValues(top = headerHeight + gap))
                     else {
                         Spacer(Modifier.height(headerHeight + gap))

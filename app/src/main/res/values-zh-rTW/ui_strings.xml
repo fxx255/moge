@@ -624,4 +624,6 @@
     <string name="ui_no_images_to_share_6a8fe">"沒有可分享的圖片"</string>
     <string name="ui_moge_solution_e50f1">"墨格解答"</string>
     <string name="ui_share_images_7996a">"分享圖片"</string>
+    <string name="ui_figure_generating">圖片正在生成…</string>
+    <string name="ui_camera_focus_and_meter">點選對焦並調整曝光，雙指縮放</string>
 </resources>

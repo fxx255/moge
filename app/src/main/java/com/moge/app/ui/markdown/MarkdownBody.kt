@@ -1,9 +1,5 @@
 package com.moge.app.ui.markdown
 
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.util.Log
-import android.widget.TextView
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,185 +14,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.moge.app.ui.theme.LocalAppTypeface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.R
 import com.moge.app.data.llm.isPlaceholderReply
 import com.moge.app.data.parse.findFigureAnchors
-import com.moge.app.data.parse.prepareReplyMarkdown
-import com.moge.app.data.parse.wrapLongFormulas
-import io.noties.markwon.Markwon
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-
-/**
- * Stable, throttled rendering for an answer that is still arriving.
- *
- * Markwon and JLatexMath need a complete Markdown/LaTeX span before they can
- * measure it. Feeding the whole answer to Markwon for every token makes an
- * unfinished formula acquire a new height repeatedly, which moves the rest of
- * the chat while the answer is being generated. The tokenizer therefore keeps
- * the unfinished suffix as plain text and only hands closed blocks to the
- * normal Markdown renderer. A small ticker limits AndroidView/Markwon updates
- * to at most one batch roughly every 80 ms while preserving the final full
- * rendering path once streaming ends.
- */
-@Composable
-internal fun StreamingMarkdownBody(content: String) {
-    val tokenizer = remember { StreamingMarkdownTokenizer() }
-    val latestContent = rememberUpdatedState(content)
-    var snapshot by remember { mutableStateOf(tokenizer.update(content)) }
-    var renderedContent by remember { mutableStateOf(content) }
-
-    LaunchedEffect(tokenizer) {
-        while (isActive) {
-            val nextContent = latestContent.value
-            if (nextContent != renderedContent) {
-                snapshot = tokenizer.update(nextContent)
-                renderedContent = nextContent
-            }
-            delay(STREAMING_MARKDOWN_TICK_MS)
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        snapshot.blocks.forEach { block ->
-            key("stream-block-${block.id}") {
-                MarkdownAnswer(block.text)
-            }
-        }
-        if (snapshot.tail.isNotEmpty()) {
-            key("stream-tail-${snapshot.tailId}") {
-                var maxTailHeightPx by remember { mutableIntStateOf(0) }
-                val density = LocalDensity.current
-                Box(
-                    modifier = Modifier
-                        .heightIn(min = with(density) { maxTailHeightPx.toDp() })
-                        .onSizeChanged { maxTailHeightPx = maxOf(maxTailHeightPx, it.height) },
-                ) {
-                    // The same TextView remains mounted while the paragraph
-                    // grows. Closed formulas and bold spans are parsed once, then subsequent
-                    // source text is appended as plain text to the cached
-                    // Spanned; opening another formula cannot make the first
-                    // one disappear or schedule it for a fresh parse.
-                    StreamingMarkdownChunk(snapshot)
-                }
-            }
-        }
-    }
-}
-
-private const val STREAMING_MARKDOWN_TICK_MS = 80L
-
-private data class StreamingMarkdownRenderCache(
-    val tailId: Long,
-    val prefixLength: Int,
-    val widthPx: Int,
-    val textColor: Int,
-    val linkColor: Int,
-    val renderedPrefix: Spanned,
-)
-
-@Composable
-internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot) {
-    val selectionScrollHost = LocalSelectionScrollHost.current
-    val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-    val linkColor = MaterialTheme.colorScheme.primary.toArgb()
-    val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
-    val bodyTypeface = LocalAppTypeface.current
-    val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
-    val fontSizePx = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
-            AndroidView(
-                modifier = Modifier.fillMaxWidth().clipToBounds(),
-                factory = { context ->
-                    createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
-                        selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
-                        // LazyColumn can measure a View before its first attached update.
-                        renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
-                    }
-                },
-                update = { view ->
-                    renderStreamingMarkdown(view, snapshot, widthPx, textColor, linkColor)
-                },
-            )
-        }
-    }
-}
-
-/** Reuse already parsed formula and bold spans while appending the still-growing suffix. */
-internal fun renderStreamingMarkdown(
-    view: TextView,
-    snapshot: StreamingMarkdownSnapshot,
-    widthPx: Int,
-    textColor: Int,
-    linkColor: Int,
-) {
-    rememberMarkdownRenderSource(view, snapshot.tail, widthPx)
-    view.setTextColor(textColor)
-    view.setLinkTextColor(linkColor)
-    val prefixLength = (snapshot.renderedPrefixEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length)
-    if (prefixLength == 0 || widthPx <= 0) {
-        // Before the first formula or bold span closes, keep the same TextView
-        // and leave the unfinished source literal.
-        view.text = snapshot.tail
-        view.setTag(R.id.streaming_markdown_cache, null)
-        return
-    }
-    val old = view.getTag(R.id.streaming_markdown_cache) as? StreamingMarkdownRenderCache
-    val cached = old?.takeIf {
-        it.tailId == snapshot.tailId && it.prefixLength == prefixLength &&
-            it.widthPx == widthPx && it.textColor == textColor && it.linkColor == linkColor
-    }
-    val prefix = cached?.renderedPrefix ?: runCatching {
-        val source = snapshot.tail.substring(0, prefixLength)
-        val prepared = wrapLongFormulas(
-            prepareReplyMarkdown(source),
-            formulaMaxWidthPx(view, widthPx),
-            formulaWidthMeasurer(view),
-        )
-        (view.tag as Markwon).toMarkdown(prepared)
-    }.onFailure { error ->
-        Log.e(RENDER_LOG_TAG, "streaming prefix render failed, fallback to plain text", error)
-        appendRenderErrorLog(view.context, snapshot.tail, error)
-    }.getOrNull()
-    if (prefix == null) {
-        view.text = snapshot.tail
-        view.setTag(R.id.streaming_markdown_cache, null)
-        return
-    }
-    if (cached == null) {
-        view.setTag(R.id.streaming_markdown_cache,
-            StreamingMarkdownRenderCache(snapshot.tailId, prefixLength, widthPx,
-                textColor, linkColor, prefix))
-    }
-    val combined = SpannableStringBuilder(prefix)
-        .append(snapshot.tail.substring(prefixLength))
-    runCatching {
-        (view.tag as Markwon).setParsedMarkdown(view, combined)
-        view.scrollTo(0, 0)
-    }.onFailure { error ->
-        Log.e(RENDER_LOG_TAG, "streaming prefix display failed, fallback to plain text", error)
-        appendRenderErrorLog(view.context, snapshot.tail, error)
-        view.text = snapshot.tail
-        view.setTag(R.id.streaming_markdown_cache, null)
-    }
-}
 
 internal fun isReplyPlaceholder(content: String): Boolean =
     isPlaceholderReply(content)
@@ -267,7 +95,7 @@ internal fun splitMarkdownTableBlocks(markdown: String): List<MarkdownChunkSpec>
             continue
         }
         val header = lines.getOrNull(i + 1)
-        if ('|' in line && header != null && isTableSeparator(header)) {
+        if ('|' in line && header != null && isMarkdownTableSeparator(header)) {
             flushText()
             val table = StringBuilder().append(line).append('\n').append(header).append('\n')
             var j = i + 2
@@ -284,17 +112,6 @@ internal fun splitMarkdownTableBlocks(markdown: String): List<MarkdownChunkSpec>
     }
     flushText()
     return chunks
-}
-
-/** Markdown 表格的分隔行：`| --- | :--: |` 这类。 */
-private fun isTableSeparator(line: String): Boolean {
-    val trimmed = line.trim()
-    if ('-' !in trimmed) return false
-    val cells = trimmed.trim('|').split('|')
-    return cells.isNotEmpty() && cells.all { cell ->
-        val token = cell.trim()
-        token.isNotEmpty() && token.all { it == '-' || it == ':' } && '-' in token
-    }
 }
 
 /**
@@ -386,12 +203,11 @@ internal data class FigureSegment(val text: String, val figureIndex: Int?)
  * `figureCount` 是包含失败图片的槽位数；没有对应槽位时留下可读提示。
  * 同一张图只在首次引用处显示，后续行内引用转为「图 n」。
  */
-internal fun splitFigureSegments(content: String, figureCount: Int): List<FigureSegment> {
+internal fun splitFigureSegments(content: String, figureCount: Int, seen: MutableSet<String> = mutableSetOf()): List<FigureSegment> {
     val anchors = findFigureAnchors(content)
     if (anchors.isEmpty()) return listOf(FigureSegment(content, null))
 
     val segments = mutableListOf<FigureSegment>()
-    val seen = mutableSetOf<String>()
     val text = StringBuilder()
     val pendingInline = mutableListOf<Int>()
     var cursor = 0
@@ -488,12 +304,13 @@ internal fun renderMarkdownIfChanged(
     textColor: Int,
     linkColor: Int,
     wrapFormulas: Boolean = true,
+    stableLayout: Boolean = false,
 ) {
     if (widthPx <= 0) return
-    val renderKey = "$content|$widthPx|$textColor|$linkColor|$wrapFormulas"
+    val renderKey = "$content|$widthPx|$textColor|$linkColor|$wrapFormulas|$stableLayout"
     val stamp = view.getTag(R.id.markdown_render_key) as? MarkdownRenderStamp
     if (stamp?.key == renderKey && stamp.renderedText == view.text.toString()) return
-    renderMarkdown(view, content, widthPx, textColor, linkColor, wrapFormulas)
+    renderMarkdown(view, content, widthPx, textColor, linkColor, wrapFormulas, stableLayout)
     view.setTag(R.id.markdown_render_key, MarkdownRenderStamp(renderKey, view.text.toString()))
 }
 
@@ -505,6 +322,7 @@ internal fun MarkdownChunk(
     textAlignment: Int = android.view.View.TEXT_ALIGNMENT_GRAVITY,
     bold: Boolean = false,
     wrapFormulas: Boolean = true,
+    stableLayout: Boolean = false,
 ) {
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -533,12 +351,12 @@ internal fun MarkdownChunk(
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         view.textAlignment = textAlignment
                         if (bold) view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
-                        renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas)
+                        renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas, stableLayout)
                     }
                 },
                 update = { view ->
                     // Also recover stale native text when an existing View reattaches.
-                    renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas)
+                    renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas, stableLayout)
                 },
             )
         }

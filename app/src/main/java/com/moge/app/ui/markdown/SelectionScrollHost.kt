@@ -20,6 +20,7 @@ internal class SelectionScrollHost(
 ) {
     var viewport = RectF()
     private var owner: MarkdownSelectionController? = null
+    internal val selection: MarkdownSelectionController? get() = owner
     private var job: Job? = null
 
     fun claim(controller: MarkdownSelectionController) {

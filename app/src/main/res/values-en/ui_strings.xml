@@ -624,4 +624,6 @@
     <string name="ui_no_images_to_share_6a8fe">"No images to share"</string>
     <string name="ui_moge_solution_e50f1">"Moge solution"</string>
     <string name="ui_share_images_7996a">"Share images"</string>
+    <string name="ui_figure_generating">Generating image…</string>
+    <string name="ui_camera_focus_and_meter">Tap to focus and adjust exposure, pinch to zoom</string>
 </resources>

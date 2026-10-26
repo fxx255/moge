@@ -16,6 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -40,11 +44,13 @@ import androidx.compose.ui.zIndex
 import com.moge.app.core.LatexEngine
 import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.ui.components.excludePageSwipe
+import com.moge.app.ui.theme.MogeTheme
+import kotlinx.coroutines.delay
 import kotlin.math.ceil
 
 /** Native Markdown cells share column widths, while each row measures its tallest wrapped cell. */
 @Composable
-internal fun MarkdownTableBlock(source: String) {
+internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, catchingUp: Boolean = false) {
     val table = remember(source) { parseMarkdownTable(prepareReplyMarkdown(source)) }
     if (table == null) {
         MarkdownChunk(source, fixedWidthPx = null)
@@ -66,6 +72,7 @@ internal fun MarkdownTableBlock(source: String) {
     val inset = with(density) { padding.roundToPx() } + ceil(textSize * 0.25f).toInt()
     val colors = MaterialTheme.colorScheme
     val border = colors.outlineVariant
+    val animate = animateRows && MogeTheme.motionEnabled
     BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds().zIndex(FIGURE_Z_INDEX).testTag("markdown-table")) {
         val widths = remember(table, constraints.maxWidth, textSize, inset, bodyTypeface) {
             tableColumnWidthsPx(table, constraints.maxWidth, textSize, inset, paint::measureText, measureFormula)
@@ -77,8 +84,16 @@ internal fun MarkdownTableBlock(source: String) {
                 .semantics { collectionInfo = CollectionInfo(rows.size, table.columns) }) {
                 rows.forEachIndexed { rowIndex, row ->
                     key(rowIndex) {
+                        val ink = remember { Animatable(if (animate) 0f else 1f) }
+                        LaunchedEffect(animate, catchingUp) {
+                            if (!animate) ink.snapTo(1f)
+                            else {
+                                delay(if (catchingUp) 0 else (rowIndex * 45L).coerceAtMost(240))
+                                ink.animateTo(1f, tween(if (catchingUp) 90 else 130))
+                            }
+                        }
                         val fill = colors.onSurface.copy(alpha = if (rowIndex == 0) 0.08f else if (rowIndex % 2 == 0) 0.04f else 0f)
-                        TableRow(widths, border, fill, Modifier.testTag("markdown-table-row-$rowIndex")) {
+                        TableRow(widths, border, fill, Modifier.graphicsLayer { alpha = ink.value }.testTag("markdown-table-row-$rowIndex")) {
                             row.forEachIndexed { column, cell ->
                                 Box(Modifier.testTag("markdown-table-cell-$rowIndex-$column")
                                     .semantics { collectionItemInfo = CollectionItemInfo(rowIndex, 1, column, 1) }
@@ -86,7 +101,7 @@ internal fun MarkdownTableBlock(source: String) {
                                     // Column measurement already reserves each formula's full width.
                                     // Prose wrapping would subtract another body margin and promote
                                     // a fitting equation into several tall, centered display blocks.
-                                    MarkdownChunk(cell, fixedWidthPx = null, bold = rowIndex == 0, wrapFormulas = false,
+                                    MarkdownChunk(cell, fixedWidthPx = null, bold = rowIndex == 0, wrapFormulas = false, stableLayout = true,
                                         textAlignment = when (table.alignments[column]) {
                                             TableColumnAlignment.Start -> View.TEXT_ALIGNMENT_TEXT_START
                                             TableColumnAlignment.Center -> View.TEXT_ALIGNMENT_CENTER

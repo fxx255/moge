@@ -289,6 +289,13 @@ class CropViewportStateTest {
             val insideMargin = state.framing
             compose.mainClock.advanceTimeBy(400)
             compose.runOnIdle { assertEquals("A small overshoot must not zoom even during a hold", insideMargin, state.framing) }
+            area.performTouchInput { moveTo(Offset(width * 1.025f, handle.y), delayMillis = 32) }
+            val nearZoom = state.zoom
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle {
+                assertTrue("A 2.5% outward pull should already reveal content with the reduced margin", state.zoom < nearZoom)
+            }
+            val gentleReduction = nearZoom / state.zoom
             area.performTouchInput { moveTo(Offset(width * 1.08f, handle.y), delayMillis = 32) }
             val before = pixels()
             val zoom = state.zoom
@@ -297,6 +304,7 @@ class CropViewportStateTest {
             compose.runOnIdle {
                 val now = pixels()
                 assertTrue("A stationary outward hold must keep revealing content", state.zoom < zoom && now.width > before.width)
+                assertTrue("Pulling farther should reveal content faster", zoom / state.zoom > gentleReduction)
                 assertEquals(before.left, now.left)
                 assertEquals(before.top, now.top)
                 assertEquals(before.top + before.height, now.top + now.height)

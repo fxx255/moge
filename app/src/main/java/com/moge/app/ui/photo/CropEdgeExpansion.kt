@@ -6,8 +6,8 @@ import androidx.compose.ui.unit.IntSize
 import kotlin.math.exp
 
 // Reaching the viewport edge is still a normal resize. Require a deliberate
-// extra pull of three percent on that axis before revealing hidden photo pixels.
-internal const val CROP_EDGE_OVERSHOOT_FRACTION = .03f
+// extra pull of 2.1 percent on that axis before revealing hidden photo pixels.
+internal const val CROP_EDGE_OVERSHOOT_FRACTION = .021f
 
 internal val CropDragMode.isResize: Boolean get() = this != CropDragMode.PAN_IMAGE && this != CropDragMode.MOVE_CROP
 private val CropDragMode.left: Boolean get() = this == CropDragMode.LEFT_EDGE || this == CropDragMode.TOP_LEFT || this == CropDragMode.BOTTOM_LEFT
@@ -41,22 +41,25 @@ internal fun expandCropAtEdge(
     val full = displayedImageRect(image, viewport, current.zoom, current.imageOffset)
     // Use the unclamped handle target, not its last visible position. The dead
     // zone is stable across frames, and pulling back into it stops zooming.
-    fun pressure(overshoot: Float, axisSize: Int) =
-        ((overshoot - axisSize * CROP_EDGE_OVERSHOOT_FRACTION) / zoomRampDistance).coerceIn(0f, 1f)
+    fun speed(overshoot: Float, axisSize: Int): Float {
+        val pull = ((overshoot - axisSize * CROP_EDGE_OVERSHOOT_FRACTION) / zoomRampDistance).coerceIn(0f, 2f)
+        // Keep the gentle onset; a further ramp adds at most 40% to the former top speed.
+        return .28f * pull.coerceAtMost(1f) * (1f + .4f * (pull - 1f).coerceAtLeast(0f))
+    }
     // Stop at the real image boundary, even if a finger keeps pulling out of the viewport.
     val horizontal = when {
-        mode.left && crop.left > full.left + .01f && target.x <= crop.left + .5f -> pressure(-target.x, viewport.width)
-        mode.right && crop.right < full.right - .01f && target.x >= crop.right - .5f -> pressure(target.x - viewport.width, viewport.width)
+        mode.left && crop.left > full.left + .01f && target.x <= crop.left + .5f -> speed(-target.x, viewport.width)
+        mode.right && crop.right < full.right - .01f && target.x >= crop.right - .5f -> speed(target.x - viewport.width, viewport.width)
         else -> 0f
     }
     val vertical = when {
-        mode.top && crop.top > full.top + .01f && target.y <= crop.top + .5f -> pressure(-target.y, viewport.height)
-        mode.bottom && crop.bottom < full.bottom - .01f && target.y >= crop.bottom - .5f -> pressure(target.y - viewport.height, viewport.height)
+        mode.top && crop.top > full.top + .01f && target.y <= crop.top + .5f -> speed(-target.y, viewport.height)
+        mode.bottom && crop.bottom < full.bottom - .01f && target.y >= crop.bottom - .5f -> speed(target.y - viewport.height, viewport.height)
         else -> 0f
     }
-    val strength = maxOf(horizontal, vertical)
-    if (strength == 0f) return current
-    val factor = exp(-.28f * strength * elapsedSeconds.coerceAtMost(.05f))
+    val rate = maxOf(horizontal, vertical)
+    if (rate == 0f) return current
+    val factor = exp(-rate * elapsedSeconds.coerceAtMost(.05f))
     val pivot = Offset(
         when { mode.left -> crop.right; mode.right -> crop.left; else -> crop.center.x },
         when { mode.top -> crop.bottom; mode.bottom -> crop.top; else -> crop.center.y },

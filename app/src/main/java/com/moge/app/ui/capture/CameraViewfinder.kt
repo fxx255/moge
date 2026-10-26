@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.View
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -17,6 +18,7 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
@@ -26,12 +28,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.moge.app.ui.localization.rememberAppStrings
 import java.io.File
 
 /**
@@ -107,6 +113,10 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember(context) { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } }
+    val metering = remember(previewView) { CameraTapMetering(ContextCompat.getMainExecutor(context)) }
+    val zoom = remember(previewView) { CameraPreviewZoom(ContextCompat.getMainExecutor(context)) }
+    val strings = rememberAppStrings()
+    val focusLabel = strings.text(R.string.ui_camera_focus_and_meter)
 
     DisposableEffect(lifecycleOwner, previewView, controller) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -116,6 +126,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         var provider: ProcessCameraProvider? = null
         var preview: Preview? = null
         var capture: ImageCapture? = null
+        var camera: Camera? = null
         var sensorRotation: Int? = null
         var targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
         controller.targetRotation = targetRotation
@@ -123,6 +134,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
 
         fun updateRotation(rotation: Int) {
             if (disposed || rotation == targetRotation) return
+            metering.reset()
             targetRotation = rotation
             controller.targetRotation = rotation
             preview?.targetRotation = rotation
@@ -159,7 +171,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                     updateDisplayRotation()
                     startOrientation()
                 }
-                Lifecycle.Event.ON_PAUSE -> stopOrientation()
+                Lifecycle.Event.ON_PAUSE -> { stopOrientation(); metering.reset(); zoom.reset() }
                 else -> Unit
             }
         }
@@ -199,7 +211,9 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                     .setTargetRotation(targetRotation)
                     .setFlashMode(if (controller.torchOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF)
                     .build().also { capture = it }
-                cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, boundPreview, boundCapture)
+                camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, boundPreview, boundCapture)
+                    .also(metering::attach)
+                    .also(zoom::attach)
                 controller.imageCapture = boundCapture
                 controller.ready = true
             }.onFailure {
@@ -213,6 +227,8 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
             stopOrientation()
             displayManager.unregisterDisplayListener(displayListener)
             previewView.removeOnAttachStateChangeListener(attachListener)
+            metering.detach(camera)
+            zoom.detach(camera)
             if (controller.imageCapture === capture) {
                 controller.imageCapture = null
                 controller.ready = false
@@ -222,5 +238,21 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         }
     }
 
-    AndroidView(factory = { previewView }, modifier = modifier)
+    DisposableEffect(previewView, metering, zoom, focusLabel, lifecycleOwner, controller) {
+        fun canControlCamera() = controller.ready && !controller.busy && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        val uninstall = installCameraPreviewGestures(previewView, focusLabel,
+            onTap = { position ->
+                if (canControlCamera()) metering.focusAt(previewView.meteringPointFactory, position)
+            },
+            onZoomStart = {
+                if (canControlCamera()) { metering.reset(); zoom.beginGesture() }
+            },
+            onZoom = { factor -> if (canControlCamera()) zoom.scaleBy(factor) },
+        )
+        onDispose { uninstall() }
+    }
+    Box(modifier.clipToBounds().onSizeChanged { metering.reset() }) {
+        AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize().testTag("camera-preview"))
+        CameraFocusIndicator(metering.target, metering::dismiss, Modifier.matchParentSize())
+    }
 }

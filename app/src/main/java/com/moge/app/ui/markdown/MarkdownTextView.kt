@@ -73,6 +73,7 @@ internal fun createMarkdownTextView(
     selectionScrollHost: SelectionScrollHost? = null,
     selectionSurfaceColor: Int = android.graphics.Color.WHITE,
     bodyTypeface: android.graphics.Typeface = android.graphics.Typeface.DEFAULT,
+    inkReveal: StreamingInkReveal? = null,
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         init {
@@ -117,11 +118,14 @@ internal fun createMarkdownTextView(
             formulaOffsetForPosition(this, x, y) ?: super.getOffsetForPosition(x, y)
 
         override fun onDraw(canvas: Canvas) {
+            val saved = canvas.save()
+            inkReveal?.clip(canvas, this)
             if (hasSelection()) {
                 markdownSelectionPath(this, selectionStart, selectionEnd, selectedPath)
                 canvas.drawPath(selectedPath, selectedPaint)
             }
             super.onDraw(canvas)
+            canvas.restoreToCount(saved)
         }
 
         override fun requestRectangleOnScreen(rectangle: Rect, immediate: Boolean): Boolean {
@@ -132,6 +136,7 @@ internal fun createMarkdownTextView(
         }
 
         override fun onDetachedFromWindow() {
+            inkReveal?.finish(this)
             conversationSelection?.finish()
             super.onDetachedFromWindow()
         }
@@ -358,6 +363,7 @@ internal fun renderMarkdown(
     textColor: Int,
     linkColor: Int,
     wrapFormulas: Boolean = true,
+    stableLayout: Boolean = false,
 ) {
     if (widthPx <= 0) return
     rememberMarkdownRenderSource(view, content, widthPx)
@@ -370,7 +376,12 @@ internal fun renderMarkdown(
         formulaWidthMeasurer(view),
     ) else prepared
     runCatching {
-        (view.tag as Markwon).setMarkdown(view, rendered)
+        val markwon = view.tag as Markwon
+        if (stableLayout) {
+            val parsed = markwon.toMarkdown(rendered)
+            readyLatex(view, parsed, widthPx, textColor, content)
+            markwon.setParsedMarkdown(view, parsed)
+        } else markwon.setMarkdown(view, rendered)
         // 重渲染后复位内部滚动：LinkMovementMethod 继承自 ScrollingMovementMethod，
         // 内容比框高的瞬间用户能把文字拖出偏移，重新渲染时必须清零，
         // 否则新内容会带着旧的滚动偏移显示（头尾被挡的观感来源之一）。

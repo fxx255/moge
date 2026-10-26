@@ -125,7 +125,7 @@ class MarkdownBoldRenderTest {
     }
 
     @Test
-    fun `流式加粗包裹公式时保留两种样式且后续半截公式保持原样`() {
+    fun `流式加粗包裹公式时保留两种样式且后续半截公式暂不显示`() {
         val view = createMarkdownTextView(ctx, 0xFF000000.toInt(), 0xFF0000FF.toInt(), selectable = false)
         val source = "**系数 \$2t\$**，后续 \$x+"
         renderStreamingMarkdown(view, StreamingMarkdownTokenizer().update(source), 600, 0xFF000000.toInt(), 0xFF0000FF.toInt())
@@ -136,7 +136,7 @@ class MarkdownBoldRenderTest {
         assertTrue(text.getSpanStart(bold) <= text.getSpanStart(formula))
         assertTrue(text.getSpanEnd(bold) >= text.getSpanEnd(formula))
         assertTrue(text.contains("，后续"))
-        assertTrue(text.endsWith("\$x+"))
+        assertTrue(text.endsWith("，后续 "))
         assertTrue(!text.contains("**"))
     }
 

@@ -107,7 +107,8 @@ internal fun NotebookContent(
                     else if (state.selecting) strings.text(R.string.ui_1_s_selected_c321a, state.selectedIds.size) else strings.text(R.string.ui_my_notebook_7ec53),
                 onBack = back,
                 backgroundOffsetY = { if (detail) detailScroll.offsetY else paperScroll.offsetY },
-                contentBehindHeader = detail,
+                contentBehindHeader = true,
+                headerContentGap = if (detail) PaperHeaderContentGap else PaperHeaderContentGap / 2,
                 actions = {
                     if (detail && state.detailEntry != null) {
                         PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
@@ -123,19 +124,6 @@ internal fun NotebookContent(
                     }
                 },
             ) { pageInsets ->
-                AnimatedVisibility(state.selecting && !detail,
-                    enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
-                    exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
-                    Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
-                            Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
-                        }
-                        PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
-                            Icon(Icons.Outlined.Delete, strings.text(R.string.ui_remove_from_notebook_c3aca), tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (detail) {
                         state.detailEntry?.let { entry ->
@@ -143,7 +131,20 @@ internal fun NotebookContent(
                                 state.categories.firstOrNull { it.id == entry.categoryId }?.name ?: strings.text(R.string.ui_uncategorized_b28f1),
                                 onOpenConversation, Modifier.fillMaxSize().nestedScroll(detailScroll), contentPadding = pageInsets)
                         } ?: NotebookPlaceholder(strings.text(R.string.ui_loading_saved_item_or_it_has_been_removed_4715a), strings.text(R.string.ui_retry_e2d53), onRetry, Modifier.fillMaxSize())
-                    } else FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
+                    } else FloatingPaperToolbar(Modifier.fillMaxSize(), topInset = pageInsets.calculateTopPadding(), toolbar = {
+                        AnimatedVisibility(state.selecting,
+                            enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
+                            exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
+                            Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
+                                    Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
+                                }
+                                PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy && !drag.held) {
+                                    Icon(Icons.Outlined.Delete, strings.text(R.string.ui_remove_from_notebook_c3aca), tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
                         PaperSearchPanel(
                             query = state.query, onQuery = onQuery, hint = strings.text(R.string.ui_search_saved_titles_questions_or_answers_43689), enabled = !state.busy,
                             filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),

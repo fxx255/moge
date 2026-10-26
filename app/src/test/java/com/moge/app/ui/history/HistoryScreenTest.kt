@@ -48,6 +48,14 @@ class HistoryScreenTest {
         }
     }
 
+    @Test fun `history reading viewport extends behind the paper while filters remain inset`() {
+        render()
+        val header = compose.onNodeWithTag("paper-strip-header").fetchSemanticsNode().boundsInRoot
+        val grid = compose.onNode(hasScrollToIndexAction()).fetchSemanticsNode().boundsInRoot
+        assertEquals("Cards scroll all the way to the front paper", header.top, grid.top, .1f)
+        assertTrue(compose.onNodeWithTag("paper-search-panel").fetchSemanticsNode().boundsInRoot.top > header.bottom)
+    }
+
     @Test fun `tap opens existing question and long press enters selection with rename validation`() {
         render()
         compose.onNodeWithText("数学题").performClick()

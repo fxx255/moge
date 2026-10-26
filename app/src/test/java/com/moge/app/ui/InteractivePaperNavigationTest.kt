@@ -70,7 +70,7 @@ class InteractivePaperNavigationTest {
                     composable("old") { }; composable("new") { }
                 } }
                 PaperNavigationLayers {
-                    PaperNavHost(nav, graph, null) { entry ->
+                    PaperNavHost(nav, graph, null, hasComposer = { true }) { entry ->
                         val name = entry.destination.route!!
                         val draft = remember(entry) { ViewModelProvider(entry, factory)[Draft::class.java] }
                         SideEffect { owners[name] = entry; models[name] = draft }

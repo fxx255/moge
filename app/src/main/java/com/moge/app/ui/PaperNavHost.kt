@@ -41,6 +41,7 @@ internal fun PaperNavHost(
     nav: NavHostController,
     graph: NavGraph,
     openedCard: Pair<String, String>?,
+    hasComposer: (NavBackStackEntry) -> Boolean = { false },
     content: @Composable (NavBackStackEntry) -> Unit,
 ) {
     val owner = checkNotNull(LocalViewModelStoreOwner.current)
@@ -73,6 +74,8 @@ internal fun PaperNavHost(
     val backStack by navigator.backStack.collectAsState()
     val current = nav.currentBackStackEntry ?: backStack.lastOrNull()
     val session = swipe.session
+    val sourceHasComposer = session?.let { hasComposer(it.source) } == true
+    val targetHasComposer = session?.let { hasComposer(it.target) } == true
     val finishing = swipe.finishing
     SideEffect { paper?.dragFraction = session?.let { { it.progress } } }
     // Keep at most one neighbour that still belongs to Navigation. Returning to a
@@ -138,6 +141,15 @@ internal fun PaperNavHost(
                     switching = inSwipe,
                     swipeDirection = session?.direction ?: 0,
                     swipeProgress = { if (inSwipe) session?.progress ?: 0f else 0f },
+                    // When only one page has an input, keep that real input mounted
+                    // throughout the drag, including an incoming conversation preview.
+                    composerActive = if (inSwipe && sourceHasComposer != targetHasComposer)
+                        hasComposer(entry) else active,
+                    composerExitFraction = {
+                        if (inSwipe && sourceHasComposer != targetHasComposer) {
+                            if (sourceHasComposer) session!!.progress else 1f - session!!.progress
+                        } else 0f
+                    },
                 )) {
                     Box(Modifier.fillMaxSize().then(if (parkedOnly) Modifier.clearAndSetSemantics { } else Modifier)) {
                         entry.LocalOwnersProvider(savedState) { content(entry) }

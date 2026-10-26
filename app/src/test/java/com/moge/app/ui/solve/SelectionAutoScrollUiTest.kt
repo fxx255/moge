@@ -9,6 +9,10 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.markdown.markdownSelectionController
 import com.moge.app.ui.markdown.selectionEndpoint
@@ -61,6 +65,36 @@ class SelectionAutoScrollUiTest {
         val root = compose.activity.findViewById<ViewGroup>(android.R.id.content)
         val position = IntArray(2).also { root.getLocationOnScreen(it) }
         return position[1] + if (bottom) root.height - 18f else 18f
+    }
+
+    @Test fun `table selection dismisses on another cell or surrounding paper but survives a browsing drag`() {
+        val table = "| 项目 | 描述 |\n|---|---|\n| PSK | 用于比较调制方式的长文字说明，保持横向滚动空间 |\n| QAM | 另一行 |"
+        compose.setContent { MogeTheme {
+            SolveList(SolveUiState(conversationId = "table", items = listOf(
+                SolveItem.Answer("table-answer", AnswerState.COMPLETED, table))), {}, {}, { _, _ -> }, {}, {})
+        } }
+        compose.waitForIdle()
+        lateinit var cell: TextView
+        fun begin() = compose.runOnIdle {
+            cell = views(compose.activity.window.decorView).single { it.text.toString() == "PSK" }
+            requireNotNull(markdownSelectionController(cell)).begin(0, 3)
+            assertTrue(cell.hasSelection())
+        }
+        begin()
+        compose.onNodeWithTag("markdown-table-cell-2-0").performTouchInput { click() }
+        compose.runOnIdle {
+            assertFalse("A different native cell must dismiss the old range", cell.hasSelection())
+            assertFalse(requireNotNull(markdownSelectionController(cell)).selecting)
+        }
+        begin()
+        compose.onNodeWithTag("conversation-list").performTouchInput { click(androidx.compose.ui.geometry.Offset(2f, height * .8f)) }
+        compose.runOnIdle { assertFalse("The table's surrounding paper must dismiss selection", cell.hasSelection()) }
+        begin()
+        compose.onNodeWithTag("markdown-table-scroll").performTouchInput { swipeLeft(durationMillis = 400) }
+        compose.runOnIdle {
+            assertTrue("Browsing movement must not be mistaken for an outside tap", requireNotNull(markdownSelectionController(cell)).selecting)
+            requireNotNull(markdownSelectionController(cell)).finish()
+        }
     }
 
     @Test fun `stationary end handle scrolls down extends selection and stops immediately on release`() {

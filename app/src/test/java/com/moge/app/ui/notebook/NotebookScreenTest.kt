@@ -71,6 +71,14 @@ class NotebookScreenTest {
         compose.onNodeWithText("新建分类").assertIsDisplayed()
         compose.onNodeWithContentDescription("改名 待复习").assertIsDisplayed()
     }
+
+    @Test fun `notebook reading viewport extends behind the title paper`() {
+        render()
+        val header = compose.onNodeWithTag("paper-strip-header").fetchSemanticsNode().boundsInRoot
+        val list = compose.onNode(hasScrollToIndexAction()).fetchSemanticsNode().boundsInRoot
+        assertEquals(header.top, list.top, .1f)
+        assertTrue(compose.onNodeWithTag("paper-search-panel").fetchSemanticsNode().boundsInRoot.top > header.bottom)
+    }
     @Test fun `removing favorites requires confirmation that preserves history`() {
         render()
         compose.onNodeWithText("收藏一").performTouchInput { longClick() }

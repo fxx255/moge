@@ -133,6 +133,8 @@ internal fun HistoryContent(
         onLeft = onNewConversation, leftLabel = strings.text(R.string.ui_go_to_new_chat_44a4e)) {
         PaperScaffold(
             headerStyle = PaperHeaderStyle.StackedLeft,
+            contentBehindHeader = true,
+            headerContentGap = PaperHeaderContentGap / 2,
             title = if (state.selecting) strings.text(R.string.ui_1_s_selected_70403, state.selectedIds.size) else strings.text(R.string.ui_history_68387),
             backgroundOffsetY = { paperScroll.offsetY },
             onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
@@ -144,29 +146,29 @@ internal fun HistoryContent(
                     PaperHeaderIconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, strings.text(R.string.ui_manage_categories_fed61)) }
                 }
             },
-        ) {
-            AnimatedVisibility(state.selecting,
-                enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
-                exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
-                Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01)) }
-                    PaperHeaderIconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
-                        Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1cd80))
-                    }
-                    PaperHeaderIconButton(onClick = onCollect, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.Outlined.BookmarkBorder, strings.text(R.string.ui_save_latest_solution_to_notebook_1571c))
-                    }
-                    PaperHeaderIconButton(onClick = onPin, enabled = state.selectedIds.size == 1 && !state.busy) {
-                        Icon(Icons.Outlined.PushPin, strings.text(R.string.ui_pin_or_unpin_00b2c))
-                    }
-                    PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
-                        Icon(Icons.Outlined.Delete, strings.text(R.string.ui_delete_selected_conversations_7375d), tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
+        ) { pageInsets ->
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                FloatingPaperToolbar(Modifier.fillMaxSize(), toolbar = {
+                FloatingPaperToolbar(Modifier.fillMaxSize(), topInset = pageInsets.calculateTopPadding(), toolbar = {
+                    AnimatedVisibility(state.selecting,
+                        enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
+                        exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
+                        Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01)) }
+                            PaperHeaderIconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
+                                Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1cd80))
+                            }
+                            PaperHeaderIconButton(onClick = onCollect, enabled = !state.busy && !drag.held) {
+                                Icon(Icons.Outlined.BookmarkBorder, strings.text(R.string.ui_save_latest_solution_to_notebook_1571c))
+                            }
+                            PaperHeaderIconButton(onClick = onPin, enabled = state.selectedIds.size == 1 && !state.busy) {
+                                Icon(Icons.Outlined.PushPin, strings.text(R.string.ui_pin_or_unpin_00b2c))
+                            }
+                            PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
+                                Icon(Icons.Outlined.Delete, strings.text(R.string.ui_delete_selected_conversations_7375d), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
                     PaperSearchPanel(
                         query = state.query, onQuery = onQuery, hint = strings.text(R.string.ui_search_titles_messages_or_recognized_text_52b39), enabled = !state.busy,
                         filtersModifier = Modifier.paperCategoryActivation(drag).testTag("history-category-filters"),

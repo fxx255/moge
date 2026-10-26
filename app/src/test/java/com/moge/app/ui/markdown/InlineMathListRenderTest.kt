@@ -49,7 +49,7 @@ class InlineMathListRenderTest {
             val tokenizer = StreamingMarkdownTokenizer()
             val prefix = "存在可逆矩阵 \$P,Q"
             renderStreamingMarkdown(view, tokenizer.update(prefix), 600, Color.WHITE, Color.YELLOW)
-            assertTrue("An unfinished formula must stay literal", view.text.endsWith("\$P,Q"))
+            assertEquals("An unfinished formula must stay in the receive buffer", "存在可逆矩阵 ", view.text.toString())
             val source = "$prefix\$，只需比较 \$A,B\$ 的秩。"
             renderStreamingMarkdown(view, tokenizer.update(source), 600, Color.WHITE, Color.YELLOW)
             val text = view.text as Spanned

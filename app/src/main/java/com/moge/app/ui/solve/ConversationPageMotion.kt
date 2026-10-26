@@ -12,20 +12,23 @@ import androidx.compose.ui.Modifier
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.components.LocalPaperPageMotion
 
-/** Reading layers animate independently; the target page alone owns the stationary composer. */
+/** Reading layers and the single live composer follow their own navigation transforms. */
 data class ConversationPageMotion(
     val readingModifier: Modifier = Modifier,
     val active: Boolean = true,
     val switching: Boolean = false,
     val direction: Int = 0,
     val progress: (() -> Float)? = null,
+    val composerActive: Boolean = active,
+    val composerExitFraction: () -> Float = { 0f },
 )
 
 @Composable
 internal fun paperConversationPageMotion(): ConversationPageMotion {
     val page = LocalPaperPageMotion.current
     return ConversationPageMotion(page.readingModifier, page.active, page.switching,
-        page.swipeDirection, page.swipeProgress.takeIf { page.switching })
+        page.swipeDirection, page.swipeProgress.takeIf { page.switching },
+        page.composerActive, page.composerExitFraction)
 }
 
 @Composable

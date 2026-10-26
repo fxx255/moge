@@ -246,27 +246,24 @@ internal fun AnswerSheet(
             val summary = if (item.state == AnswerState.COMPLETED && (!foldable || expanded)) {
                 replaceFigureAnchors(item.finalAnswer) { strings.text(R.string.ui_figure_1_s_a25b7, it.numberText.trimStart('0').ifEmpty { "0" }) }
             } else item.finalAnswer
-            AnswerMarkdownBody(summary, item.figurePaths, onOpenImages, appendUnreferencedImages = false)
+            StreamingMarkdownBody(summary, streaming = generating, imagePaths = item.figurePaths,
+                appendUnreferencedImages = false, onImageClick = onOpenImages)
         }
         if (foldable && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
             PaperExplanationFold(expanded, onToggle = { expanded = !expanded }) {
-                if (item.state == AnswerState.COMPLETED) {
-                    AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-                } else if (item.text.isEmpty()) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
-                else StreamingMarkdownBody(item.text)
+                if (item.text.isEmpty()) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
+                else StreamingMarkdownBody(item.text, streaming = generating, imagePaths = item.figurePaths, onImageClick = onOpenImages)
             }
             if (generating && !expanded) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
-        } else when (item.state) {
-            AnswerState.COMPLETED -> AnswerMarkdownBody(item.text, item.figurePaths, onOpenImages)
-            AnswerState.PREPARING -> GeneratingHint(if (item.reasoning.isNotBlank()) strings.text(R.string.ui_thinking_4cc57)
-                else if (conversationMode == ConversationMode.CHAT) strings.text(R.string.ui_preparing_57233) else strings.text(R.string.ui_reading_question_fa9b9))
-            AnswerState.STREAMING -> when {
-                answerFirst && !hasAnswer -> GeneratingHint(strings.text(R.string.ui_generating_answer_1ee41))
-                item.text.isEmpty() -> GeneratingHint(strings.text(R.string.ui_thinking_4cc57))
-                else -> StreamingMarkdownBody(item.text)
-            }
-            AnswerState.FAILED, AnswerState.STOPPED ->
-                if (item.text.isNotBlank()) StreamingMarkdownBody(item.text)
+        } else if ((item.text.isNotBlank() || item.figurePaths.isNotEmpty()) && !(generating && answerFirst && !hasAnswer)) {
+            StreamingMarkdownBody(item.text, streaming = generating, imagePaths = item.figurePaths, onImageClick = onOpenImages)
+        } else if (generating) {
+            GeneratingHint(when {
+                answerFirst && !hasAnswer -> strings.text(R.string.ui_generating_answer_1ee41)
+                item.state == AnswerState.STREAMING || item.reasoning.isNotBlank() -> strings.text(R.string.ui_thinking_4cc57)
+                conversationMode == ConversationMode.CHAT -> strings.text(R.string.ui_preparing_57233)
+                else -> strings.text(R.string.ui_reading_question_fa9b9)
+            })
         }
         AnswerFooter(item, onRetry, onRegenerate, actionsEnabled, onShare, onSave, onResume)
     }

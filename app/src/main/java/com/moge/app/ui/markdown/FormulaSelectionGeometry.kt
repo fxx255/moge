@@ -100,14 +100,21 @@ internal fun formulaPartForPosition(view: TextView, x: Float, y: Float): Formula
 /** Shared by the answer and lens, so highlights and handles always use the same formula boxes. */
 internal fun markdownSelectionPath(view: TextView, start: Int, end: Int, path: Path) {
     path.reset()
-    if (view.layout == null) return
+    val layout = view.layout ?: return
     val text = view.text as? Spanned
     val from = minOf(start, end).coerceIn(0, view.text.length)
     val to = maxOf(start, end).coerceIn(0, view.text.length)
     val formulas = text?.getSpans(from, to, BaselineLatexSpan::class.java).orEmpty()
         .filter { text!!.getSpanStart(it) < to && text.getSpanEnd(it) > from }.sortedBy { text!!.getSpanStart(it) }
+    val rows = mutableMapOf<Int, SelectionHighlightRow>()
     fun appendText(a: Int, b: Int) {
-        appendTextSelectionPath(view, a, b, path)
+        if (a >= b) return
+        for (line in layout.getLineForOffset(a)..layout.getLineForOffset(b)) {
+            val segment = Path()
+            appendTextSelectionPath(view, maxOf(a, layout.getLineStart(line)),
+                minOf(b, layout.getLineEnd(line)), segment)
+            if (!segment.isEmpty) rows.getOrPut(line) { SelectionHighlightRow() }.text.addPath(segment)
+        }
     }
     var cursor = from
     for (span in formulas) {
@@ -117,9 +124,30 @@ internal fun markdownSelectionPath(view: TextView, start: Int, end: Int, path: P
         val row = formulaSelectionParts(view, span)
         val parts = row.filter { it.start < to && it.end > from }
         if (row.isEmpty()) appendText(maxOf(from, a), minOf(to, b))
-        else if (parts.isNotEmpty()) path.addRect(parts.minOf { it.bounds.left }, row.minOf { it.bounds.top },
-            parts.maxOf { it.bounds.right }, row.maxOf { it.bounds.bottom }, Path.Direction.CW)
+        else if (parts.isNotEmpty()) {
+            val bounds = RectF(parts.minOf { it.bounds.left }, row.minOf { it.bounds.top },
+                parts.maxOf { it.bounds.right }, row.maxOf { it.bounds.bottom })
+            rows.getOrPut(layout.getLineForOffset(a)) { SelectionHighlightRow() }.formula.union(bounds)
+        }
         cursor = b
     }
     appendText(cursor, to)
+    rows.forEach { (line, row) ->
+        if (row.formula.isEmpty) path.addPath(row.text)
+        else {
+            // Inline math and its neighboring prose are one selected reading row.
+            // Fill their internal spaces at a common height, while formula-only
+            // rows retain their tight ink bounds and unpainted display margins.
+            val bounds = RectF(row.formula)
+            if (!row.text.isEmpty) bounds.union(RectF().also { row.text.computeBounds(it, true) })
+            bounds.left = maxOf(bounds.left, view.totalPaddingLeft - view.scrollX + layout.getParagraphLeft(line).toFloat())
+            bounds.right = minOf(bounds.right, view.totalPaddingLeft - view.scrollX + layout.getParagraphRight(line).toFloat())
+            path.addRect(bounds, Path.Direction.CW)
+        }
+    }
+}
+
+private class SelectionHighlightRow {
+    val text = Path()
+    val formula = RectF()
 }

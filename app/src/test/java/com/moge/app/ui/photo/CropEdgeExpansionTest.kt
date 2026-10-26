@@ -5,6 +5,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
 import org.junit.Assert.*
 import org.junit.Test
+import kotlin.math.exp
+import kotlin.math.ln
 
 class CropEdgeExpansionTest {
     private val image = IntSize(4000, 4000)
@@ -40,17 +42,17 @@ class CropEdgeExpansionTest {
         }
     }
 
-    @Test fun `all handles wait for three percent overshoot and stop again inside the margin`() {
+    @Test fun `all handles use a thirty percent smaller margin and stop again when pulled back`() {
         val wideViewport = IntSize(1000, 600)
         val current = CropFraming(2f, Offset.Zero, Rect(0f, 0f, 1000f, 600f))
         for (mode in CropDragMode.entries.filter { it.isResize }) {
-            for (fraction in listOf(-.02f, 0f, .029f, .03f)) {
+            for (fraction in listOf(-.02f, 0f, .02f, .021f)) {
                 val target = outsideTarget(mode, current.cropRect, fraction)
                 assertEquals("$mode must allow ordinary resizing and the full margin", current,
                     expandCropAtEdge(current, image, wideViewport, mode, target, .03f, 50f, 24f))
             }
             val justOutside = expandCropAtEdge(current, image, wideViewport, mode,
-                outsideTarget(mode, current.cropRect, .031f), .03f, 50f, 24f)
+                outsideTarget(mode, current.cropRect, .022f), .03f, 50f, 24f)
             val furtherOutside = expandCropAtEdge(current, image, wideViewport, mode,
                 outsideTarget(mode, current.cropRect, .06f), .03f, 50f, 24f)
             assertTrue("$mode starts gently after the threshold", justOutside.zoom < current.zoom)
@@ -59,6 +61,25 @@ class CropEdgeExpansionTest {
                 expandCropAtEdge(justOutside, image, wideViewport, mode,
                     outsideTarget(mode, current.cropRect, .02f), .03f, 50f, 24f))
         }
+    }
+
+    @Test fun `farther pulls add a modest capped speed increase and stay independent of frame rate`() {
+        val current = CropFraming(2f, Offset.Zero, Rect(0f, 0f, 1000f, 1000f))
+        fun expanded(distance: Float, dt: Float) = expandCropAtEdge(current, image, viewport, CropDragMode.RIGHT_EDGE,
+            Offset(1000f + distance, 500f), dt, 50f, 24f)
+        val near = expanded(46f, .03f)
+        val regular = expanded(71f, .03f)
+        val far = expanded(96f, .03f)
+        val furthest = expanded(121f, .03f)
+        assertTrue(near.zoom > regular.zoom && regular.zoom > far.zoom && far.zoom > furthest.zoom)
+        assertEquals(furthest, expanded(200f, .03f))
+        val maximumRate = -ln(furthest.zoom / current.zoom) / .03f
+        assertEquals("The top speed only increases forty percent from the old .28/s rate", .28f * 1.4f, maximumRate, .0001f)
+        assertTrue("A new 2.5% pull must already expand, below the old 3% threshold", expanded(25f, .03f).zoom < current.zoom)
+        val sixty = expanded(200f, 1f / 60f)
+        val oneTwenty = expanded(200f, 1f / 120f)
+        assertEquals(sixty.zoom / current.zoom, (oneTwenty.zoom / current.zoom) * (oneTwenty.zoom / current.zoom), .00001f)
+        assertEquals(current.zoom * exp(-.392f * .05f), expanded(200f, 1f).zoom, .0001f)
     }
 
     @Test fun `holding at the source boundary or away from the viewport edge does not shrink`() {

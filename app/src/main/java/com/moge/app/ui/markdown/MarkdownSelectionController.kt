@@ -211,6 +211,12 @@ internal class MarkdownSelectionController(
         return paintedSelection.setPath(selectionPath, selectionClip)
     }
 
+    internal fun containsSelection(screenX: Float, screenY: Float): Boolean {
+        if (!active || !hasVisibleRange(view.selectionStart, view.selectionEnd)) return false
+        view.getLocationOnScreen(location)
+        return paintedSelection.contains((screenX - location[0]).toInt(), (screenY - location[1]).toInt())
+    }
+
     private fun endpoint(start: Boolean): Pair<Float, Float> {
         val offset = (if (start) minOf(view.selectionStart, view.selectionEnd)
             else maxOf(view.selectionStart, view.selectionEnd)).coerceIn(0, view.text.length)

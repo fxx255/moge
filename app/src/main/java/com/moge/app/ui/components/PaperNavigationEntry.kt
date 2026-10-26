@@ -26,6 +26,8 @@ internal class PaperPageMotion(
     val switching: Boolean = false,
     val swipeDirection: Int = 0,
     val swipeProgress: () -> Float = { 0f },
+    val composerActive: Boolean = active,
+    val composerExitFraction: () -> Float = { 0f },
 )
 
 internal val LocalPaperPageMotion = staticCompositionLocalOf { PaperPageMotion() }

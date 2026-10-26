@@ -163,7 +163,7 @@ fun MogeNavHost(
                 )) { }
             }
         }
-        PaperNavHost(nav, graph, openedCard) { entry ->
+        PaperNavHost(nav, graph, openedCard, hasComposer = { it.destination.route == Routes.SOLVE }) { entry ->
             when (entry.destination.route) {
                 Routes.HOME_ROUTE -> {
                     HomeScreen(

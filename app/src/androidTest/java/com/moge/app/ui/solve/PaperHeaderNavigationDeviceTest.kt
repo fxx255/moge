@@ -59,7 +59,9 @@ class PaperHeaderNavigationDeviceTest {
                 val graph = remember(nav) { nav.createGraph(startDestination = "conversation") {
                     listOf("conversation", "old", "history", "notebook", "settings").forEach { composable(it) { } }
                 } }
-                PaperNavHost(nav, graph, null) { entry ->
+                PaperNavHost(nav, graph, null, hasComposer = {
+                    it.destination.route == "conversation" || it.destination.route == "old"
+                }) { entry ->
                     val name = entry.destination.route!!
                     val left = when(name) { "history" -> "conversation"; "conversation" -> "old"; "old" -> "notebook"; else -> null }
                     val right = when(name) { "conversation" -> "history"; "old" -> "conversation"; "notebook" -> "old"; else -> null }
@@ -73,7 +75,11 @@ class PaperHeaderNavigationDeviceTest {
                         PageSwipeSurface(onLeft = left?.let { { nav.navigate(it) } },
                             onRight = right?.let { { nav.navigate(it) } }, modifier = Modifier.testTag("drag-$name")) {
                             val motion = paperConversationPageMotion()
-                            ConversationScaffold("矩阵计算", null, {}, footer = { Text("继续提问") },
+                            ConversationScaffold("满秩分解求矩阵的高次幂与线性相关关系", null, {}, footer = {
+                                FollowUpBar(SolveUiState(input = "尚未发送的草稿"), {}, {}, {}, {}, {}, {}, {},
+                                    switchingPage = motion.switching, swipeDirection = motion.direction,
+                                    swipeProgress = motion.progress)
+                            },
                                 pageMotion = motion, ribbonState = ribbon,
                                 newConversationMode = ConversationMode.SOLVE.takeIf { name == "conversation" }) {
                                 Box(Modifier.fillMaxSize().background(Color.Red))
@@ -109,6 +115,9 @@ class PaperHeaderNavigationDeviceTest {
         compose.waitForIdle()
         val initial = compose.onNodeWithTag("paper-strip-header").fetchSemanticsNode().boundsInRoot
         val density = compose.activity.resources.displayMetrics.density
+        // Moving long titles cross the left edge. Sample the blank upper band,
+        // where glyph antialiasing cannot be mistaken for transparent paper.
+        val paperSampleY = (initial.top + (PaperHeaderTopGap.value + 2f) * density).toInt()
         listOf(Appearance.PAPER, Appearance.CHALK).forEach { theme ->
             compose.runOnIdle { appearance = theme }
             // Slow actual drags through all four horizontally adjacent pages.
@@ -116,17 +125,50 @@ class PaperHeaderNavigationDeviceTest {
                 val source = nav.currentDestination?.route!!
                 val direction = if ((source == "conversation" && destination == "history") ||
                     (source == "notebook" && destination == "old") || (source == "old" && destination == "conversation")) 1 else -1
+                val sourceHasInput = source == "conversation" || source == "old"
+                val targetHasInput = destination == "conversation" || destination == "old"
+                val restTop = if (sourceHasInput) compose.onNodeWithTag("composer-surface")
+                    .fetchSemanticsNode().positionInRoot.y else null
                 compose.onRoot().performTouchInput {
                     down(Offset(if (direction > 0) width * .2f else width * .8f, height * .55f))
                     moveBy(Offset(width * .5f * direction, 0f), delayMillis = 350)
                 }
                 compose.waitForIdle()
+                val halfTop = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().positionInRoot.y
+                if (restTop != null) {
+                    if (targetHasInput) assertEquals("Conversation swaps keep the input level", restTop, halfTop, .1f)
+                    else assertTrue("The input lowers while dragging to a list", halfTop > restTop + 1f)
+                }
                 val half = compose.onRoot().captureToImage().toPixelMap()
-                assertEquals("Shared paper stays opaque during a held drag", front, half[2, initial.center.y.toInt()].toArgb())
+                if (front != half[2, paperSampleY].toArgb()) {
+                    snapshot("header-opacity-$source-$destination-${theme.name.lowercase()}.png")
+                }
+                assertEquals("Shared paper stays opaque during $source → $destination ($theme, y=$paperSampleY)",
+                    front, half[2, paperSampleY].toArgb())
+                if (source == "conversation" && destination == "old") {
+                    compose.mainClock.advanceTimeBy(800)
+                    val held = compose.onRoot().captureToImage().toPixelMap()
+                    for (y in (initial.top + 10 * density).toInt() until (initial.bottom - 10 * density).toInt()) {
+                        for (x in 0 until half.width) {
+                            assertEquals("Incoming old title must not keep writing or scrolling ($theme, $x, $y)",
+                                half[x, y], held[x, y])
+                        }
+                    }
+                    snapshot("old-title-held-${theme.name.lowercase()}.png")
+                }
+                if (sourceHasInput && !targetHasInput && restTop != null) {
+                    val sourceX = (half.width * if (direction > 0) .75f else .25f).toInt()
+                    assertEquals("Input ink clears its old location while the finger is held", Color.Red.toArgb(),
+                        half[sourceX, (restTop + 12 * density).toInt()].toArgb())
+                }
                 if (index == 0 || index == 3) snapshot("drag-half-$source-${theme.name.lowercase()}.png")
                 compose.onRoot().performTouchInput { advanceEventTime(150); up() }
                 compose.waitForIdle()
                 compose.runOnIdle { assertEquals(destination, nav.currentDestination?.route) }
+                if (targetHasInput && !sourceHasInput) {
+                    assertTrue("Returning from a list raises the input", compose.onNodeWithTag("composer-surface")
+                        .fetchSemanticsNode().positionInRoot.y < halfTop - 1f)
+                } else if (!targetHasInput) compose.onNodeWithTag("composer-surface").assertDoesNotExist()
             }
             repeat(2) { cycle ->
                 listOf("history", "notebook", "settings", "conversation").forEach { page ->
@@ -139,7 +181,7 @@ class PaperHeaderNavigationDeviceTest {
                             assertEquals(initial.width, it.boundsInRoot.width, .1f)
                         }
                         val pixels = compose.onRoot().captureToImage().toPixelMap()
-                        assertEquals("No transparent header frame on $page", front, pixels[2, initial.center.y.toInt()].toArgb())
+                        assertEquals("No transparent header frame on $page", front, pixels[2, paperSampleY].toArgb())
                         if (cycle == 0 && frame == 1) snapshot("header-$page-${theme.name.lowercase()}-transition.png")
                         compose.mainClock.advanceTimeBy(48)
                     }
@@ -149,7 +191,7 @@ class PaperHeaderNavigationDeviceTest {
                     if (page == "history" || page == "notebook") {
                         val header = compose.onNodeWithTag("paper-strip-header").fetchSemanticsNode().boundsInRoot
                         val search = compose.onNodeWithTag("paper-search-panel").fetchSemanticsNode().boundsInRoot
-                        assertTrue("Filters have a visible gap below the underlay", search.top - header.bottom >= 16 * density)
+                        assertEquals("The category gap is halved", 10 * density, search.top - header.bottom, 1f)
                     }
                     if (cycle == 0) snapshot("header-$page-${theme.name.lowercase()}.png")
                 }

@@ -169,6 +169,12 @@ class MarkdownTableShareDeviceTest {
             point = location[0] + caret.x to location[1] + caret.centerY
         }
         longPress(point.first, point.second)
+        compose.onNodeWithTag("markdown-table-cell-2-0").performTouchInput { click() }
+        compose.runOnUiThread {
+            assertFalse("A tap in another cell dismisses the active table selection", wordHost.hasSelection())
+            assertFalse(requireNotNull(markdownSelectionController(wordHost)).selecting)
+        }
+        longPress(point.first, point.second)
         compose.runOnUiThread {
             assertTrue(requireNotNull(markdownSelectionController(wordHost)).selecting)
             wordHost.onTextContextMenuItem(android.R.id.copy)

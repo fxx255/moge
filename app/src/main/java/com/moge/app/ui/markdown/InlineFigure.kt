@@ -74,6 +74,7 @@ internal fun InlineFigure(
     path: String,
     onClick: () -> Unit,
     number: Int? = null,
+    placeholderHeight: androidx.compose.ui.unit.Dp = 110.dp,
 ) {
     val strings = rememberAppStrings()
     val dark = MogeTheme.paper.isChalk
@@ -105,6 +106,7 @@ internal fun InlineFigure(
                 text = if (decodeAttempt < DECODE_RETRY_MAX) strings.text(R.string.ui_loading_chart_64b19) else strings.text(R.string.ui_chart_unavailable_a3291),
                 label = label,
                 onClick = onClick,
+                height = placeholderHeight,
             )
         } else {
             FigureImage(figure, label, onClick)
@@ -122,12 +124,12 @@ internal fun InlineFigure(
 private class LoadedFigure(val path: String, val bitmap: Bitmap)
 
 @Composable
-private fun FigurePlaceholder(text: String, label: String, onClick: () -> Unit) {
+private fun FigurePlaceholder(text: String, label: String, onClick: () -> Unit, height: androidx.compose.ui.unit.Dp) {
     val strings = rememberAppStrings()
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(110.dp)
+            .height(height)
             .clip(MaterialTheme.shapes.small)
             .background(MogeTheme.paper.scratch)
             .clickable(onClickLabel = strings.text(R.string.ui_view_1_s_98c1c, label)) { onClick() },

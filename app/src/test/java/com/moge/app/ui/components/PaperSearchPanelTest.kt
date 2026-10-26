@@ -47,6 +47,38 @@ class PaperSearchPanelTest {
     @Test fun `large chalk filters reveal the clicked card at either edge with minimal scrolling`() = revealFilter(Appearance.CHALK, 1.8f)
     @Test fun `paper sheet hides the top content sliver while leaving the list visible below`() = verifySeam(Appearance.PAPER)
     @Test fun `chalk sheet hides the top content sliver while leaving the list visible below`() = verifySeam(Appearance.CHALK)
+    @Test fun `history cards pass over the underlay beneath the front strip`() =
+        verifyHeaderPassage(Appearance.PAPER, PaperHeaderStyle.StackedLeft)
+    @Test fun `notebook cards pass over the underlay beneath the front strip`() =
+        verifyHeaderPassage(Appearance.CHALK, PaperHeaderStyle.StackedRight)
+
+    private fun verifyHeaderPassage(appearance: Appearance, style: PaperHeaderStyle) {
+        lateinit var view: View
+        compose.setContent { MogeTheme(appearance) { PaperNavigationLayers {
+            view = LocalView.current
+            PaperScaffold("标题", {}, headerStyle = style, contentBehindHeader = true,
+                headerContentGap = PaperHeaderContentGap / 2) { insets ->
+                FloatingPaperToolbar(Modifier.fillMaxSize(), topInset = insets.calculateTopPadding(), toolbar = {
+                    PaperSearchPanel("", {}, "搜索", true) { PaperCategoryFilter(true, {}, "全部", true) }
+                }) { Box(Modifier.fillMaxSize().background(Color.Magenta)) }
+            }
+        } } }
+        val header = compose.onNodeWithTag("paper-strip-header").fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("paper-search-panel").fetchSemanticsNode().boundsInRoot
+        val scale = view.resources.displayMetrics.density
+        assertEquals("The category sheet gap is halved", 10 * scale, panel.top - header.bottom, 1f)
+        compose.runOnIdle {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            try {
+                view.draw(Canvas(bitmap))
+                val x = (8 * scale).roundToInt()
+                assertEquals("Cards cover the lower sheet's exposed edge", android.graphics.Color.MAGENTA,
+                    bitmap.getPixel(x, (header.bottom + 6 * scale).roundToInt()))
+                assertTrue("The front paper covers the same cards", bitmap.getPixel(x, header.center.y.roundToInt()) != android.graphics.Color.MAGENTA)
+                assertTrue("The gap above the paper stays clear", bitmap.getPixel(x, 1) != android.graphics.Color.MAGENTA)
+            } finally { bitmap.recycle() }
+        }
+    }
 
     @Test fun `floating toolbar decoration can extend above the content viewport`() {
         lateinit var view: View

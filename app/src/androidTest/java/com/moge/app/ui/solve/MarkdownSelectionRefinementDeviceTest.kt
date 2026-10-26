@@ -64,10 +64,14 @@ class MarkdownSelectionRefinementDeviceTest {
         instrumentation.runOnMainSync { }
     }
 
-    @Test fun nestedFormulaLongPressHandleDragAndCopyWorkInBothThemes() {
+    @Test fun nestedFormulaLongPressHandleDragAndCopyWorkInBothThemes() = verifyFormula(false)
+    @Test fun framedFormulaLongPressHandleDragAndCopyWorkInBothThemes() = verifyFormula(true)
+
+    private fun verifyFormula(framed: Boolean) {
         val appearance = mutableStateOf(Appearance.PAPER)
         val fraction = "\\frac{\\pi f}{B}"
-        val formula = "N_0\\left[1+\\cos\\left($fraction\\right)\\right]"
+        val inner = "N_0\\left[1+\\cos\\left($fraction\\right)\\right]"
+        val formula = if (framed) "\\boxed{$inner}" else inner
         compose.setContent { MogeTheme(appearance.value) {
             SolveList(SolveUiState(conversationId = "test", items = listOf(
                 SolveItem.Answer("answer", AnswerState.COMPLETED, "\$\$\n$formula\n\$\$"))),
@@ -113,7 +117,7 @@ class MarkdownSelectionRefinementDeviceTest {
                     assertEquals(fraction, selectedMarkdownText(view.text, view.selectionStart, view.selectionEnd))
                 }
                 awaitFrame(view)
-                snapshot("nested-formula-selection-$theme.png")
+                snapshot("${if (framed) "framed" else "nested"}-formula-selection-$theme.png")
                 var target = 0f to 0f
                 instrumentation.runOnMainSync {
                     view.onTextContextMenuItem(android.R.id.copy)
@@ -146,7 +150,7 @@ class MarkdownSelectionRefinementDeviceTest {
                     ru.noties.jlatexmath.JLatexMathDrawable.builder(selected).textSize(view.textSize).build()
                 }
                 awaitFrame(view)
-                snapshot("nested-formula-drag-$theme.png")
+                snapshot("${if (framed) "framed" else "nested"}-formula-drag-$theme.png")
             } finally { instrumentation.runOnMainSync { markdownSelectionController(view)?.finish() } }
         }
     }

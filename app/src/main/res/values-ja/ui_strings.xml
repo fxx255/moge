@@ -624,4 +624,6 @@
     <string name="ui_no_images_to_share_6a8fe">"共有する画像がありません"</string>
     <string name="ui_moge_solution_e50f1">"墨格の解答"</string>
     <string name="ui_share_images_7996a">"画像を共有"</string>
+    <string name="ui_figure_generating">画像を生成中…</string>
+    <string name="ui_camera_focus_and_meter">タップしてピントと露出を調整、ピンチでズーム</string>
 </resources>

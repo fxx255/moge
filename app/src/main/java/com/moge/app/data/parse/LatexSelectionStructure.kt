@@ -1,6 +1,6 @@
 package com.moge.app.data.parse
 
-/** Scalable fences retain their TeX pairing while exposing the math items inside them. */
+/** Fences and frames retain their TeX layout while exposing the math items inside them. */
 internal data class LatexSelectionNode(
     val range: LatexSelectionToken,
     val group: FormulaGroup? = null,
@@ -17,7 +17,8 @@ internal fun latexSelectionStructure(source: String): List<LatexSelectionNode> {
     fun nodes(from: Int, to: Int, depth: Int): List<LatexSelectionNode> {
         val fragment = source.substring(from, to)
         val groups = if (depth < 32) formulaGroups(fragment).filter {
-            it.kind == FormulaGroupKind.Delimiter && fragment.startsWith("\\left", it.start)
+            it.kind == FormulaGroupKind.Frame ||
+                it.kind == FormulaGroupKind.Delimiter && fragment.startsWith("\\left", it.start)
         } else emptyList()
         return atomicLatexSelectionTokens(fragment).map { token ->
             val range = LatexSelectionToken(from + token.start, from + token.end)
@@ -42,6 +43,12 @@ internal fun selectedLatexSource(source: String, from: Int, to: Int): String {
             if (node.range.start >= to || node.range.end <= from) continue
             val group = node.group
             if (group == null) append(source, node.range.start, node.range.end)
+            else if (group.kind == FormulaGroupKind.Frame) {
+                // A partial copy is useful math on its own; never emit an unmatched
+                // \boxed{ opener or an orphan closing brace.
+                if (from <= node.range.start && to >= node.range.end) append(source, node.range.start, node.range.end)
+                else append(selected(node.children))
+            }
             else {
                 val opening = from < group.bodyStart
                 val closing = to > group.bodyEnd

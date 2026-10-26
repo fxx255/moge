@@ -5,6 +5,7 @@ import android.graphics.RectF
 import com.moge.app.data.parse.LatexSelectionToken
 import com.moge.app.data.parse.LatexSelectionNode
 import com.moge.app.data.parse.latexSelectionStructure
+import com.moge.app.data.parse.FormulaGroupKind
 import org.scilab.forge.jlatexmath.Atom
 import org.scilab.forge.jlatexmath.Box
 import org.scilab.forge.jlatexmath.MacroInfo
@@ -55,6 +56,9 @@ internal fun measureLatexSelection(source: String, textSize: Float): LatexSelect
     fun items(node: SelectionProbeNode): List<LatexSelectionItem> {
         val bounds = collector[node.id] ?: return emptyList()
         val group = node.source.group ?: return listOf(LatexSelectionItem(node.source.range, bounds))
+        // A frame is decoration, not a selectable empty opener/closer. Its real
+        // box still sizes the probe; only the visible math supplies grab targets.
+        if (group.kind == FormulaGroupKind.Frame) return node.children.flatMap { items(it) }
         val inner = node.children.mapNotNull { collector[it.id] }
         if (inner.isEmpty()) return emptyList()
         // The engine sizes the brackets around the already annotated children.

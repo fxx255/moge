@@ -6,6 +6,92 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingMarkdownTokenizerTest {
+    private fun visible(snapshot: StreamingMarkdownSnapshot): String = snapshot.tail.take(
+        (snapshot.visibleEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length))
+
+    @Test fun `each open math syntax stays buffered until its closing delimiter arrives`() {
+        for ((open, close) in listOf("$" to "$", "$$" to "$$", "\\(" to "\\)", "\\[" to "\\]")) {
+            val tokenizer = StreamingMarkdownTokenizer()
+            val before = "由条件可得 "
+            val source = before + open + "\\frac{x+1}{y}" + close
+            val closingStart = source.length - close.length
+            for (length in before.length + 1..source.length) {
+                val state = tokenizer.update(source.take(length))
+                if (length < source.length) {
+                    assertEquals("Must not expose partial math at $length: $source", before, visible(state))
+                    assertTrue(state.waiting)
+                } else {
+                    assertEquals(source, visible(state))
+                    assertTrue(state.renderedPrefixEnd > closingStart)
+                }
+            }
+        }
+    }
+
+    @Test fun `emphasis links and image anchors never expose incomplete protocol syntax`() {
+        for (suffix in listOf("**重点", "*斜体", "__重点", "`code", "[链接](https://example", "[[FIGURE:12")) {
+            val state = StreamingMarkdownTokenizer().update("说明：$suffix")
+            assertEquals(suffix, "说明：", visible(state))
+            assertTrue(state.waiting)
+        }
+        val complete = StreamingMarkdownTokenizer().update("说明：[[FIGURE:12]]，继续")
+        assertEquals("说明：[[FIGURE:12]]，继续", visible(complete))
+    }
+
+    @Test fun `table rows stay buffered so a later wide formula cannot resize visible columns`() {
+        val tokenizer = StreamingMarkdownTokenizer()
+        val lead = "测量结果：\n\n"
+        val table = "| 类型 | 数值 |\n| --- | --- |\n| SNR | ${'$'}\\frac{P}{N_0B}${'$'} |\n| P | 较长的数据 |"
+        for (length in 1..table.length) {
+            val state = tokenizer.update(lead + table.take(length))
+            assertEquals(listOf("测量结果："), state.blocks.map { it.text })
+            assertEquals("", visible(state))
+        }
+        val closed = tokenizer.update(lead + table + "\n\n结论")
+        assertEquals(table, closed.blocks.last().text)
+        assertEquals("结论", visible(closed))
+    }
+
+    @Test fun `a stop or failure flushes all received text even when syntax remains unfinished`() {
+        for (body in listOf("解释 ${'$'}\\frac{x", "| A | B |\n| --- | --- |\n| 一半", "```kotlin\nval x = 1", "[[FIGURE:1")) {
+            val tokenizer = StreamingMarkdownTokenizer()
+            assertTrue(tokenizer.update(body).waiting)
+            val stopped = tokenizer.update(body, flush = true)
+            assertEquals(body, (stopped.blocks.map { it.text } + visible(stopped)).filter { it.isNotEmpty() }.joinToString("\n\n"))
+            assertTrue(!stopped.waiting)
+        }
+    }
+
+    @Test fun `a paragraph keeps its source identity when committed and when the stream finishes`() {
+        val tokenizer = StreamingMarkdownTokenizer()
+        val body = "结果 ${'$'}A^{10}${'$'}。"
+        val first = tokenizer.update(body)
+        val committed = tokenizer.update("$body\n\n继续")
+        assertEquals(first.tailId, committed.blocks.first().id)
+        val finished = tokenizer.update("$body\n\n继续", flush = true)
+        assertEquals(committed.blocks, finished.blocks.take(committed.blocks.size))
+        assertEquals(committed.tailId, finished.blocks.last().id)
+    }
+
+    @Test fun `code and escaped pipes cannot start a pending table or figure`() {
+        for (source in listOf("概率 ${'$'}P_{0|1}${'$'}，继续", "反斜杠 \\| 只是文字", "`[[FIGURE:1]]` 后续")) {
+            assertEquals(source, visible(StreamingMarkdownTokenizer().update(source)))
+        }
+    }
+
+    @Test fun `completion trimming trailing whitespace retains committed source identities`() {
+        val tokenizer = StreamingMarkdownTokenizer()
+        val growing = tokenizer.update("结果 ${'$'}A${'$'}\n\n")
+        val done = tokenizer.update("结果 ${'$'}A${'$'}", flush = true)
+        assertEquals(growing.blocks.single().id, done.blocks.single().id)
+    }
+
+    @Test fun `a complete ordinary line after the table closes it without requiring a blank paragraph`() {
+        val table = "| A | B |\n| --- | --- |\n| 1 | 2 |"
+        val state = StreamingMarkdownTokenizer().update("$table\n结论已经明确。\n继续解释")
+        assertEquals(table, state.blocks.single().text)
+        assertEquals("结论已经明确。\n继续解释", visible(state))
+    }
     @Test fun `closed bold advances the rendered prefix without committing a growing paragraph`() {
         val tokenizer = StreamingMarkdownTokenizer()
         val prefix = "6. **on**: 固定搭配 **effects on sth.**"
@@ -20,8 +106,8 @@ class StreamingMarkdownTokenizerTest {
     @Test fun `literal or incomplete asterisks never create a render boundary`() {
         for (source in listOf(
             "这是 **未闭合", "这是 ** 带空格 **", """这是 \*\*转义\*\*""",
-            "`**代码**`", "`` ` **代码** ``", "```text\n**代码**\n```",
-            "`\$notMath **代码**`", "**未闭合\n\n后续 **也未闭合",
+            "`**代码", "`` ` **代码", "```text\n**代码**",
+            "`\$notMath **代码", "**未闭合\n\n后续 **也未闭合",
             "| 短语 |\n| --- |\n| **effects on sth.** |",
         )) {
             val snapshot = StreamingMarkdownTokenizer().update(source)
@@ -32,8 +118,8 @@ class StreamingMarkdownTokenizerTest {
     @Test fun `bold spanning math can close without exposing the next incomplete formula`() {
         val source = "**系数 \$2t\$**，后续 \$x+"
         val snapshot = StreamingMarkdownTokenizer().update(source)
-        assertEquals("**系数 \$2t\$**，后续 ", source.substring(0, snapshot.renderedPrefixEnd))
-        assertEquals("\$x+", source.substring(snapshot.renderedPrefixEnd))
+        assertEquals("**系数 \$2t\$**", source.substring(0, snapshot.renderedPrefixEnd))
+        assertEquals("**系数 \$2t\$**，后续 ", visible(snapshot))
     }
 
     @Test fun `conditional bar inside a closed formula is not a table separator`() {
@@ -163,6 +249,7 @@ class StreamingMarkdownTokenizerTest {
 
         assertEquals("first $" + "a" + "$, then $" + "b", snapshot.tail)
         assertTrue(snapshot.renderedPrefixEnd > 0)
-        assertEquals("first \$a\$, then ", snapshot.tail.substring(0, snapshot.renderedPrefixEnd))
+        assertEquals("first \$a\$", snapshot.tail.substring(0, snapshot.renderedPrefixEnd))
+        assertEquals("first \$a\$, then ", visible(snapshot))
     }
 }

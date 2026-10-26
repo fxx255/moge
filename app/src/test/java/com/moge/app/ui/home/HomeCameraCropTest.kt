@@ -4,7 +4,9 @@ import android.Manifest
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.camera.core.Camera
+import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.lifecycle.MutableLiveData
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -44,7 +46,9 @@ class HomeCameraCropTest {
         mockkObject(ProcessCameraProvider.Companion)
         future = SettableFuture.create<ProcessCameraProvider>().apply { set(provider) }
         every { ProcessCameraProvider.getInstance(any()) } answers { future }
-        every { provider.bindToLifecycle(any(), any(), any(), any()) } returns mockk<Camera>(relaxed = true)
+        val camera = mockk<Camera>(relaxed = true)
+        every { camera.cameraInfo.zoomState } returns MutableLiveData<ZoomState>()
+        every { provider.bindToLifecycle(any(), any(), any(), any()) } returns camera
         every { vm.state } returns state
         every { vm.onRetake() } answers {
             state.value = state.value.copy(cropQueue = state.value.cropQueue.drop(1))

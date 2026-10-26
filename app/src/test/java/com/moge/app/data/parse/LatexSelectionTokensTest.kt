@@ -47,4 +47,17 @@ class LatexSelectionTokensTest {
     @Test fun `empty parentheses retain their visible copyable delimiter pair`() {
         assertEquals(listOf("f", "\\left( \\right)", "+", "x"), parts("f\\left( \\right)+x"))
     }
+
+    @Test fun `boxed equations expose inner math and partial copies omit the frame`() {
+        val matrix = "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}"
+        for (command in listOf("boxed", "fbox")) {
+            val source = "\\$command{A^{10}=$matrix}"
+            assertEquals(listOf("\\$command{", "A^{10}", "=", matrix, "}"), parts(source))
+            val start = source.indexOf("A^{10}")
+            assertEquals("A^{10}", selectedLatexSource(source, start, start + 6))
+            assertEquals("A^{10}=", selectedLatexSource(source, 0, source.indexOf(matrix)))
+            assertEquals(matrix, selectedLatexSource(source, source.indexOf(matrix), source.length))
+            assertEquals(source, selectedLatexSource(source, 0, source.length))
+        }
+    }
 }

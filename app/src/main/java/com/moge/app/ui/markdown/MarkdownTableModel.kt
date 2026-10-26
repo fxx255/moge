@@ -2,6 +2,10 @@ package com.moge.app.ui.markdown
 
 internal enum class TableColumnAlignment { Start, Center, End }
 
+internal fun isMarkdownTableSeparator(line: String): Boolean = tableCells(line).all {
+    Regex(":?-+:?").matches(it)
+}
+
 internal data class MarkdownTable(val headers: List<String>, val rows: List<List<String>>,
     val alignments: List<TableColumnAlignment> = List(headers.size) { TableColumnAlignment.Start },
 ) {
@@ -39,7 +43,7 @@ internal fun parseMarkdownTable(source: String): MarkdownTable? {
     val lines = source.lineSequence().filter { it.isNotBlank() }.toList()
     if (lines.size < 2) return null
     val separators = tableCells(lines[1])
-    if (separators.any { !Regex(":?-+:?").matches(it) }) return null
+    if (!isMarkdownTableSeparator(lines[1])) return null
     val header = tableCells(lines[0])
     val rows = lines.drop(2).map(::tableCells)
     val count = maxOf(header.size, separators.size, rows.maxOfOrNull { it.size } ?: 0)

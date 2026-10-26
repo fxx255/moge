@@ -62,6 +62,7 @@ import com.moge.app.ui.photo.PhotoCropDialog
 import com.moge.app.ui.viewer.PhotoViewer
 import com.moge.app.ui.markdown.LocalSelectionScrollHost
 import com.moge.app.ui.markdown.SelectionScrollHost
+import com.moge.app.ui.markdown.dismissMarkdownSelectionOnOutsideTap
 import kotlinx.coroutines.delay
 
 /** 首页与历史会话共用的文字/图像对话页。拍照只回传附件，不自动发送。 */
@@ -301,6 +302,7 @@ internal fun SolveList(
     }
     CompositionLocalProvider(LocalSelectionScrollHost provides selectionScrollHost) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("conversation-list")
+            .dismissMarkdownSelectionOnOutsideTap(selectionScrollHost)
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
                 val screen = IntArray(2)

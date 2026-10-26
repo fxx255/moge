@@ -127,6 +127,53 @@ class SelectionHighlightGeometryTest {
         assertEquals(firstInk.bounds.left, requireNotNull(selectionEndpoint(view, text.getSpanStart(span), true)).x, .1f)
     }
 
+    @Test fun `prose and inline formulas share one unbroken selection band on each reading line`() {
+        for (size in listOf(32f, 44f)) for (chalk in listOf(false, true)) {
+            val view = render("由第二个分量得 ${'$'}-k_2=0${'$'}，再由第一个分量得 ${'$'}k_1+k_2=0${'$'}，因此 ${'$'}k_1=k_2=0${'$'}。", size, chalk)
+            val region = painted(view, 0, view.text.length)
+            for (line in 0 until view.layout.lineCount) {
+                val lineSpans = spans(view).filter { view.layout.getLineForOffset((view.text as Spanned).getSpanStart(it)) == line }
+                if (lineSpans.isEmpty()) continue
+                val top = view.totalPaddingTop + view.layout.getLineTop(line) + 2
+                val bottom = view.totalPaddingTop + view.layout.getLineBottom(line) - 2
+                val leadingFormula = lineSpans.firstOrNull {
+                    (view.text as Spanned).getSpanStart(it) == view.layout.getLineStart(line)
+                }
+                // A wrapped line may begin with a centered formula placeholder.
+                // Its empty leading gutter is deliberately outside the selection.
+                val start = leadingFormula?.let { formulaSelectionParts(view, it).minOf { part -> part.bounds.left } }
+                    ?: (view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineStart(line)))
+                val end = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(view.layout.getLineVisibleEnd(line))
+                for (x in start.toInt() + 2 until end.toInt() - 2) {
+                    assertTrue("Mixed row must have no gaps above math ($size, $line, $x)", region.contains(x, top))
+                    assertTrue("Mixed row must have no gaps below math ($size, $line, $x)", region.contains(x, bottom))
+                }
+            }
+            snapshot(view, "mixed-text-formulas-${size.toInt()}-$chalk", chalk)
+        }
+    }
+
+    @Test fun `framed matrix equation exposes its variable separately and retains the real frame layout`() {
+        val source = "\\boxed{A^{10}=\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}}"
+        val view = render("${'$'}${'$'}$source${'$'}${'$'}")
+        val span = spans(view).single()
+        val text = view.text as Spannable
+        val part = formulaSelectionParts(view, span).single { selectedMarkdownText(text, it.start, it.end) == "A^{10}" }
+        assertTrue("The frame must not create empty copy targets", formulaSelectionParts(view, span).all {
+            selectedMarkdownText(text, it.start, it.end).isNotBlank()
+        })
+        Selection.setSelection(text, part.start, part.end)
+        assertEquals("A^{10}", selectedMarkdownText(text, view.selectionStart, view.selectionEnd))
+        assertEquals(part.start, view.getOffsetForPosition(part.bounds.left + 1, part.bounds.centerY()))
+        assertEquals(part.end, view.getOffsetForPosition(part.bounds.right - 1, part.bounds.centerY()))
+        assertEquals(source, selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)))
+        val original = JLatexMathDrawable.builder(source).textSize(view.textSize).padding(0).build()
+        val measured = requireNotNull(com.moge.app.core.measureLatexSelection(source, view.textSize))
+        assertEquals(original.intrinsicWidth, measured.width)
+        assertEquals(original.intrinsicHeight, measured.height)
+        snapshot(view, "framed-matrix-partial", false, selectAll = false)
+    }
+
     private fun snapshot(view: TextView, name: String, chalk: Boolean, selectAll: Boolean = true) {
         if (selectAll) Selection.setSelection(view.text as Spannable, 0, view.text.length)
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
