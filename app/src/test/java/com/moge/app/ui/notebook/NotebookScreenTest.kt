@@ -135,7 +135,7 @@ class NotebookScreenTest {
         assertEquals("source", sourceOpened)
     }
 
-    @Test fun `notebook scrolls behind stationary filters instead of clipping below them`() {
+    @Test fun `notebook scrolls behind filters that settle at their original anchor`() {
         state.value = state.value.copy(entries = (0..15).map { entry("item$it", "收藏 $it") })
         render()
         val filters = compose.onNodeWithTag("notebook-category-filters").fetchSemanticsNode().boundsInRoot
@@ -143,8 +143,12 @@ class NotebookScreenTest {
         assertTrue(list.fetchSemanticsNode().boundsInRoot.top < filters.top)
         assertTrue(compose.onNodeWithTag("notebook-card-item0").fetchSemanticsNode().boundsInRoot.top > filters.bottom)
         list.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 120f) }
+        compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
-        assertEquals(filters, compose.onNodeWithTag("notebook-category-filters").fetchSemanticsNode().boundsInRoot)
+        val settled = compose.onNodeWithTag("notebook-category-filters").fetchSemanticsNode().boundsInRoot
+        assertEquals(filters.left, settled.left, .01f)
+        assertEquals(filters.top, settled.top, .01f)
+        assertEquals(filters.bottom, settled.bottom, .01f)
         assertTrue(compose.onNodeWithTag("notebook-card-item0").fetchSemanticsNode().boundsInRoot.top < filters.bottom)
     }
 }

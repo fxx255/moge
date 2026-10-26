@@ -55,8 +55,7 @@ internal class SelectionMagnifier(
         }
         // A caret next to '=' still needs the complete equation row, including
         // neighboring fractions, with the same height as its selection highlight.
-        val row = formulaSelectionEndpoint(source, selectionOffset, start, wholeRow = true)
-            ?: selectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
+        val row = magnifierSelectionEndpoint(source, selectionOffset, start) ?: run { dismiss(); return }
         sampledRow = row
         sourcePoint = row.x to row.centerY
         val width = minOf(152f * density, viewport.width()).toInt().coerceAtLeast(1)

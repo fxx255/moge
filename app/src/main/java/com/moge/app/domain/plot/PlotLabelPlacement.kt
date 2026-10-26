@@ -2,6 +2,7 @@ package com.moge.app.domain.plot
 
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.hypot
 
 data class LabelRect(val left: Float, val top: Float, val right: Float, val bottom: Float) {
     val width get() = right - left
@@ -72,39 +73,71 @@ private fun isLabelPositionFree(
     return occupied.none(padded::overlaps) && lines.none(padded::intersects)
 }
 
-/** Deterministic nearest free position; null requests a margin callout instead of an overlapping label. */
+/** Prefer the nearest free edge of a label, including positions directly beside its point. */
 fun placePlotLabel(anchorX: Float, anchorY: Float, width: Float, height: Float,
-    bounds: LabelRect, occupied: List<LabelRect>, lines: List<LabelObstacleLine>, gap: Float): LabelRect? {
+    bounds: LabelRect, occupied: List<LabelRect>, lines: List<LabelObstacleLine>, gap: Float,
+    anchorRadius: Float = 0f, maxDistance: Float = Float.POSITIVE_INFINITY): LabelRect? {
     if (width > bounds.width || height > bounds.height) return null
+    fun boxAt(x: Float, y: Float): LabelRect {
+        val left = x.coerceIn(bounds.left, bounds.right - width)
+        val top = y.coerceIn(bounds.top, bounds.bottom - height)
+        return LabelRect(left, top, left + width, top + height)
+    }
+    fun distance(box: LabelRect) = hypot(anchorX - anchorX.coerceIn(box.left, box.right),
+        anchorY - anchorY.coerceIn(box.top, box.bottom))
+    fun score(box: LabelRect): Float {
+        val centerX = (box.left + box.right) / 2 - anchorX
+        val centerY = (box.top + box.bottom) / 2 - anchorY
+        val edge = distance(box)
+        return edge * edge + (centerX * centerX + centerY * centerY) * .01f
+    }
+    fun nearest(candidates: List<LabelRect>) = candidates.distinct()
+        .filter { distance(it) <= maxDistance }
+        .sortedBy(::score)
+        .firstOrNull { isLabelPositionFree(it, occupied, lines, gap * .35f) }
+
+    val candidates = mutableListOf<LabelRect>()
     for (ring in 0..6) {
-        val offset = gap + ring * (height + gap)
-        val candidates = listOf(
-            anchorX + offset to anchorY - height - offset,
-            anchorX - width - offset to anchorY - height - offset,
-            anchorX + offset to anchorY + offset,
-            anchorX - width - offset to anchorY + offset,
+        val offset = anchorRadius + gap + ring * (height + gap) / 2
+        val diagonal = offset * .70710677f
+        candidates += listOf(
             anchorX - width / 2 to anchorY - height - offset,
             anchorX - width / 2 to anchorY + offset,
-        )
-        for ((x, y) in candidates) {
-            val box = LabelRect(x.coerceIn(bounds.left, bounds.right - width),
-                y.coerceIn(bounds.top, bounds.bottom - height),
-                x.coerceIn(bounds.left, bounds.right - width) + width,
-                y.coerceIn(bounds.top, bounds.bottom - height) + height)
-            if (isLabelPositionFree(box, occupied, lines, gap * .35f)) return box
-        }
+            anchorX + offset to anchorY - height / 2,
+            anchorX - width - offset to anchorY - height / 2,
+            anchorX + diagonal to anchorY - height - diagonal,
+            anchorX - width - diagonal to anchorY - height - diagonal,
+            anchorX + diagonal to anchorY + diagonal,
+            anchorX - width - diagonal to anchorY + diagonal,
+        ).map { (x, y) -> boxAt(x, y) }
     }
-    val step = height + gap
-    val grid = mutableListOf<Pair<Float, Float>>()
-    var y = bounds.top
-    while (y + height <= bounds.bottom) {
-        var x = bounds.left
-        while (x + width <= bounds.right) { grid += x to y; x += maxOf(step, width / 2) }
+    nearest(candidates)?.let { return it }
+
+    // A crowded point only searches its neighbourhood. Other annotations may
+    // still use the rest of the plot when no local position is available.
+    val step = if (maxDistance.isFinite()) maxOf(1f, minOf(gap, height / 5)) else height + gap
+    val grid = mutableListOf<LabelRect>()
+    var y = maxOf(bounds.top, anchorY - maxDistance - height)
+    val bottom = minOf(bounds.bottom - height, anchorY + maxDistance)
+    while (y <= bottom) {
+        var x = maxOf(bounds.left, anchorX - maxDistance - width)
+        val right = minOf(bounds.right - width, anchorX + maxDistance)
+        val stepX = if (maxDistance.isFinite()) step else maxOf(step / 2, width / 4)
+        while (x <= right) { grid += boxAt(x, y); x += stepX }
         y += step
     }
-    for ((x, y) in grid.sortedBy { (it.first - anchorX) * (it.first - anchorX) + (it.second - anchorY) * (it.second - anchorY) }) {
-        val box = LabelRect(x, y, x + width, y + height)
-        if (isLabelPositionFree(box, occupied, lines, gap * .35f)) return box
-    }
-    return null
+    return nearest(grid)
+}
+
+/** Connect the visible point edge to the nearest text edge, never to the text centre. */
+fun plotLabelLeader(anchorX: Float, anchorY: Float, box: LabelRect,
+    anchorRadius: Float, gap: Float, minLength: Float): LabelObstacleLine? {
+    val dx = anchorX.coerceIn(box.left, box.right) - anchorX
+    val dy = anchorY.coerceIn(box.top, box.bottom) - anchorY
+    val distance = hypot(dx, dy)
+    val start = anchorRadius + gap
+    val end = distance - gap
+    if (distance == 0f || end - start <= minLength) return null
+    return LabelObstacleLine(anchorX + dx / distance * start, anchorY + dy / distance * start,
+        anchorX + dx / distance * end, anchorY + dy / distance * end)
 }

@@ -20,17 +20,19 @@ import kotlinx.coroutines.delay
 
 /** A brief tap marker, rather than a permanent framing guide or a promise of successful AF. */
 @Composable
-internal fun CameraFocusIndicator(target: CameraMeteringTarget?, onFinished: (Long) -> Unit, modifier: Modifier = Modifier) {
+internal fun CameraFocusIndicator(target: CameraMeteringTarget?, onFinished: (Long) -> Unit,
+    modifier: Modifier = Modifier, hold: Boolean = false, timeoutMillis: Long = 1_100) {
     val motion = MogeTheme.motionEnabled
     val alpha = remember { Animatable(1f) }
     val scale = remember { Animatable(1f) }
     val finish by rememberUpdatedState(onFinished)
-    LaunchedEffect(target?.id, motion) {
+    LaunchedEffect(target?.id, motion, hold, timeoutMillis) {
         val current = target ?: return@LaunchedEffect
         alpha.snapTo(1f)
-        scale.snapTo(if (motion) 1.18f else 1f)
+        scale.snapTo(if (motion && !hold) 1.18f else 1f)
         if (motion) scale.animateTo(1f, tween(150))
-        delay(1_100)
+        if (hold) return@LaunchedEffect
+        delay(timeoutMillis)
         if (motion) alpha.animateTo(0f, tween(200))
         finish(current.id)
     }

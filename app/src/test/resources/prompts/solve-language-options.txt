@@ -19,7 +19,7 @@
     - 序列可选 style:"line|dashed|dotted|dashdot|marker|line_marker"，依次为实线、虚线、点线、点划线、散点、折线带点；width:0.75~5，opacity:0.05~1。稠密函数采样通常用线型，marker/line_marker 优先配少量明确的 points。
     - 颜色可用 colorIndex:0~11（蓝、金、绿、粉、紫、橙、青、黄绿、棕、红、浅蓝、灰）或 color:"#RRGGBB"。未指定时各序列自动分色；同一物理量保持同色，不同曲线同时用颜色与线型区分。深色底图应选明亮可辨识的颜色。
     - 散点可选 markerShape:"circle|open_circle|square|diamond|triangle|cross"，markerSize:2~8。实心/空心圆可用于区分端点是否取到，曲线和点的图层高于坐标轴。
-    - 星座图/欧氏几何图必须设置 equalAspect:true，横纵坐标同单位、同物理比例；一个点一个 marker 序列时 label 会直接标在该点附近。先核对题设的对称性、点名、最小距离和全部点坐标，正文和图必须使用同一组数据。
+    - 星座图/欧氏几何图必须设置 equalAspect:true，横纵坐标同单位、同物理比例；一个点一个 marker 序列时 label 会直接标在该点附近。星座点及需要强调的点使用实心 circle，以颜色区分，不用空心圆强调；open_circle 只表示函数端点不包含等数学语义。先核对题设的对称性、点名、最小距离和全部点坐标，正文和图必须使用同一组数据。
     - 等概星座、各向同性 AWGN 的最小距离判决域请使用 voronoi，不要手写斜率、矩形带或三角形阴影：{"title":"判决域","x":{"min":-2,"max":2},"y":{"min":-2,"max":2},"legend":false,"equalAspect":true,"voronoi":{"sites":[{"x":1,"y":1,"label":"s₁"},{"x":-1,"y":1,"label":"s₂"},{"x":-1,"y":-1,"label":"s₃"},{"x":1,"y":-1,"label":"s₄"}],"highlight":[0]}}。上例是完整四点星座的字段示范，实际必须填入题目的全部星座点；highlight 为从 0 开始的目标点索引：单点用 [0]，多点用 [0,2,5]；需要全部点的判决域时使用 allRegions:true（也支持 highlight:"all"）。仅画星座点时省略 highlight 和 allRegions。按题目要求选择单点、多点或全部；无论选择哪些点，sites 始终包含全部竞争点。不同目标域与对应点自动配色。客户端对全部点计算半平面交集，边界与阴影同源；无界区域仅在视窗边缘裁剪，视窗边缘不是判决边界。不要再为同一判决域添加手算的 shades/markAreas/边界 series。非等概或非各向同性噪声不得使用此几何规则。
     - 标记线 markLines:[{"x":5,"label":"f_c"}]（也支持 y）；矩形带 markAreas:[{"x0":4,"x1":6,"y0":0,"y1":2,"label":"B","colorIndex":1,"opacity":0.15,"pattern":"solid"}]。省略 y0/y1 时覆盖完整绘图区高度。
     - 区域阴影用独立 shades 数组，不改变曲线数据。例如曲线与 x 轴间面积："shades":[{"x0":0,"x1":2,"upper":"x^2","lower":"0","colorIndex":0,"opacity":0.2,"pattern":"hatched","label":"积分区域"}]。两曲线之间替换 upper/lower（均使用 expr 的安全表达式语法），不要用整条竖带代替曲边区域。

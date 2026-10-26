@@ -5,6 +5,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownPreparationTest {
+    @Test fun standaloneEscapedBreakBeforeFormulaOrAtParagraphEndDoesNotLeakIntoProse() {
+        val paragraph = "又在 \$\$\\theta\\in[0,\\frac{\\pi}{4}]\$\$ 上，\$\$\\sqrt2\\cos\\theta\\ge 1\$\$，" +
+            "所以每个方向都要在 \$\$r=1\$\$ 处拆开绝对值："
+        for (suffix in listOf("\\n\n\n\$\$I\$\$", "\\n\$\$I\$\$", "\\n")) {
+            val prepared = prepareReplyMarkdown(paragraph + suffix)
+            assertEquals(paragraph + suffix.replace("\\n", "\n"), prepared)
+            assertEquals(prepared, prepareReplyMarkdown(prepared))
+        }
+    }
+
+    @Test fun standaloneEscapedBreakRepairPreservesTexCommandsAndCode() {
+        val protected = "`\\n`\n```text\n\\n\n```\n\n" +
+            "    \\n\n\n\t\\n\n\n" +
+            "\$\$\\nu+\\nabla f+\\neq+\\notin+\\text{\\n}\$\$\n\n" +
+            "\\\\n\n\n命令 \\nu 和 \\nabla。"
+        assertEquals(protected, prepareReplyMarkdown(protected))
+    }
+
     @Test fun primeSymbolsRenderWithoutTreatingContractionsCurrencyOrCodeAsMath() {
         val source = "这里 \$f'\$ 与 \$f''\$ 的系数，以及 \$g′\$、\$y″\$。"
         val expected = "这里 \$\$f'\$\$ 与 \$\$f''\$\$ 的系数，以及 \$\$g′\$\$、\$\$y″\$\$。"

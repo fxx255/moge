@@ -6,6 +6,7 @@ import com.moge.app.ui.localization.rememberAppStrings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -38,6 +39,8 @@ internal fun CategoryCard(
     modifier: Modifier = Modifier,
     handleModifier: Modifier = Modifier,
     floating: Boolean = false,
+    showHandle: Boolean = true,
+    selected: Boolean = false,
     editingValue: TextFieldValue? = null,
     creating: Boolean = false,
     onEditChange: (TextFieldValue) -> Unit = {},
@@ -55,7 +58,8 @@ internal fun CategoryCard(
             keyboard?.show()
         }
     }
-    CategoryPaperSurface(modifier, floating = floating) {
+    CategoryPaperSurface(modifier.semantics { if (selected) this.selected = true }, floating = floating,
+        selected = selected.takeIf { it }) {
         Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (editingValue != null) {
@@ -74,7 +78,7 @@ internal fun CategoryCard(
             } else {
                 Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
                 IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1_s_829f6, name)) }
-                Box(handleModifier.size(48.dp).semantics {
+                if (showHandle) Box(handleModifier.size(48.dp).semantics {
                     contentDescription = strings.text(R.string.ui_hold_to_drag_1_s_637c3, name)
                     role = Role.Button
                     stateDescription = strings.text(R.string.ui_hold_and_drag_to_reorder_or_drag_down_to_delete_7d1ed)
@@ -98,15 +102,21 @@ internal fun CategoryPaperSurface(
     modifier: Modifier = Modifier,
     floating: Boolean = false,
     onClick: (() -> Unit)? = null,
+    selected: Boolean? = null,
+    enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val paper = MaterialTheme.colorScheme.background
     val rule = MogeTheme.paper.grid
-    val tap = if (onClick == null) Modifier else Modifier.clickable(role = Role.Button, onClick = onClick)
+    val tap = when {
+        onClick == null -> Modifier
+        selected != null -> Modifier.selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        else -> Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+    }
     Surface(modifier.fillMaxWidth(),
         shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = if (selected == true) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (selected == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         shadowElevation = if (floating) 12.dp else 2.dp) {
         Box(Modifier.fillMaxWidth().heightIn(min = 76.dp).then(tap).drawBehind {
             for (fraction in listOf(0.28f, 0.72f)) {

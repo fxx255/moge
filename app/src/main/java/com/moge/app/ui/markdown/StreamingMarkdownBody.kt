@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -17,15 +15,12 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.R
 import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.data.parse.wrapLongFormulas
-import com.moge.app.ui.localization.rememberAppStrings
 import com.moge.app.ui.theme.LocalAppTypeface
 import com.moge.app.ui.theme.MogeTheme
 import io.noties.markwon.Markwon
@@ -97,12 +92,6 @@ internal fun StreamingMarkdownBody(
                     }
                 }
             }
-        if (streaming && snapshot.waiting) {
-            val strings = rememberAppStrings()
-            val modifier = Modifier.size(16.dp).semantics { contentDescription = strings.text(R.string.ui_generating_5f576) }
-            if (motion) CircularProgressIndicator(modifier = modifier, strokeWidth = 2.dp)
-            else CircularProgressIndicator(progress = { .65f }, modifier = modifier, strokeWidth = 2.dp)
-        }
         if (!streaming && appendUnreferencedImages) imagePaths.forEachIndexed { index, path ->
             if ((index + 1).toString() !in seen) key("unreferenced-$index") {
                 StreamingFigureSlot(index, path, false) {

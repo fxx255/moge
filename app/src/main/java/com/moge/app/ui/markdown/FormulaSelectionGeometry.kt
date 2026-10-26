@@ -29,25 +29,22 @@ internal fun formulaSelectionParts(view: TextView, span: BaselineLatexSpan): Lis
     if (measured.width <= 0 || measured.height <= 0) return emptyList()
     val start = text.getSpanStart(span)
     val line = layout.getLineForOffset(start)
-    val bounds = span.drawable.bounds
-    val scale = minOf(1f, bounds.width().toFloat() / result.intrinsicWidth.coerceAtLeast(1),
-        bounds.height().toFloat() / result.intrinsicHeight.coerceAtLeast(1))
-    val insets = result.icon().insets
-    val contentWidth = result.intrinsicWidth - insets.left - insets.right
-    val contentHeight = result.intrinsicHeight - insets.top - insets.bottom
+    val geometry = latexDrawableGeometry(result)
+    val scale = geometry.scale
+    val content = geometry.content
     val x = view.totalPaddingLeft - view.scrollX + layout.getPrimaryHorizontal(start) +
-        (bounds.width() - (result.intrinsicWidth * scale).roundToInt()) / 2 + insets.left * scale
+        content.left
     val y = view.totalPaddingTop - view.scrollY + layout.getLineBaseline(line) - span.baselineOffset(view.paint) +
-        (bounds.height() - (result.intrinsicHeight * scale).roundToInt()) / 2 + insets.top * scale
+        content.top
     val offsets = formulaTokenOffsets(text, span).toMap()
     val parts = measured.items.mapNotNull { item ->
         val range = offsets[item.source] ?: return@mapNotNull null
         val box = item.bounds
         FormulaSelectionPart(range.start, range.end, RectF(
-            x + box.left * contentWidth * scale / measured.width,
-            y + box.top * contentHeight * scale / measured.height,
-            x + box.right * contentWidth * scale / measured.width,
-            y + box.bottom * contentHeight * scale / measured.height,
+            x + box.left * content.width() / measured.width,
+            y + box.top * content.height() / measured.height,
+            x + box.right * content.width() / measured.width,
+            y + box.bottom * content.height() / measured.height,
         ).apply {
             // Android's TeX glyphs extend slightly beyond the engine's nominal
             // ascent/depth (notably degree marks). Keep that ink in the highlight

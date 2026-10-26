@@ -37,6 +37,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import com.moge.app.ui.localization.rememberAppStrings
 import java.io.File
 
@@ -112,9 +113,11 @@ internal fun cameraTargetRotation(orientation: Int): Int? = when (orientation) {
 fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val previewView = remember(context) { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } }
     val metering = remember(previewView) { CameraTapMetering(ContextCompat.getMainExecutor(context)) }
     val zoom = remember(previewView) { CameraPreviewZoom(ContextCompat.getMainExecutor(context)) }
+    val exposure = remember(previewView) { CameraExposureControl(ContextCompat.getMainExecutor(context)) }
     val strings = rememberAppStrings()
     val focusLabel = strings.text(R.string.ui_camera_focus_and_meter)
 
@@ -168,10 +171,11 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    exposure.refresh()
                     updateDisplayRotation()
                     startOrientation()
                 }
-                Lifecycle.Event.ON_PAUSE -> { stopOrientation(); metering.reset(); zoom.reset() }
+                Lifecycle.Event.ON_PAUSE -> { stopOrientation(); metering.reset(); zoom.reset(); exposure.reset() }
                 else -> Unit
             }
         }
@@ -214,6 +218,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                 camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, boundPreview, boundCapture)
                     .also(metering::attach)
                     .also(zoom::attach)
+                    .also(exposure::attach)
                 controller.imageCapture = boundCapture
                 controller.ready = true
             }.onFailure {
@@ -229,6 +234,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
             previewView.removeOnAttachStateChangeListener(attachListener)
             metering.detach(camera)
             zoom.detach(camera)
+            exposure.detach(camera)
             if (controller.imageCapture === capture) {
                 controller.imageCapture = null
                 controller.ready = false
@@ -242,7 +248,8 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         fun canControlCamera() = controller.ready && !controller.busy && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         val uninstall = installCameraPreviewGestures(previewView, focusLabel,
             onTap = { position ->
-                if (canControlCamera()) metering.focusAt(previewView.meteringPointFactory, position)
+                if (canControlCamera() && metering.focusAt(previewView.meteringPointFactory, position))
+                    exposure.applyMeteringDefault()
             },
             onZoomStart = {
                 if (canControlCamera()) { metering.reset(); zoom.beginGesture() }
@@ -253,6 +260,8 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
     }
     Box(modifier.clipToBounds().onSizeChanged { metering.reset() }) {
         AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize().testTag("camera-preview"))
-        CameraFocusIndicator(metering.target, metering::dismiss, Modifier.matchParentSize())
+        CameraMeteringOverlay(metering.target, exposure.fraction, exposure.supported,
+            enabled = controller.ready && !controller.busy && lifecycleState.isAtLeast(Lifecycle.State.RESUMED),
+            onValue = exposure::adjustTo, onFinished = metering::dismiss, modifier = Modifier.matchParentSize())
     }
 }

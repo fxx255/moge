@@ -107,6 +107,7 @@ internal fun HistoryContent(
     val strings = rememberAppStrings()
     val drag = rememberPaperDragState()
     val paperScroll = rememberPaperScrollState()
+    val controlSway = rememberPaperControlSway()
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
         PaperDropTarget.Delete -> onDeleteItems(action.ids)
         is PaperDropTarget.Category -> onMoveItems(action.ids, target.id)
@@ -173,6 +174,7 @@ internal fun HistoryContent(
                         query = state.query, onQuery = onQuery, hint = strings.text(R.string.ui_search_titles_messages_or_recognized_text_52b39), enabled = !state.busy,
                         filtersModifier = Modifier.paperCategoryActivation(drag).testTag("history-category-filters"),
                         expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
+                        scrollSway = { controlSway.fraction },
                     ) {
                         PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
                             { onCategory(null, false) }, strings.text(R.string.ui_all_778fc), enabled = !state.busy && !drag.held)
@@ -206,7 +208,7 @@ internal fun HistoryContent(
                             { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets),
                         )
                         else -> HistoryGrid(state, onOpenConversation, onToggleSelection, drag, drop,
-                            Modifier.fillMaxSize().nestedScroll(paperScroll), insets)
+                            Modifier.fillMaxSize().nestedScroll(paperScroll).nestedScroll(controlSway), insets)
                     }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(8.dp))

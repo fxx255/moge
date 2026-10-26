@@ -626,4 +626,6 @@
     <string name="ui_share_images_7996a">"分享圖片"</string>
     <string name="ui_figure_generating">圖片正在生成…</string>
     <string name="ui_camera_focus_and_meter">點選對焦並調整曝光，雙指縮放</string>
+    <string name="ui_camera_brightness">調整拍攝亮度</string>
+    <string name="ui_camera_brightness_unavailable">此相機不支援調整亮度</string>
 </resources>

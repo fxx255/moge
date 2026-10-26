@@ -1,5 +1,8 @@
 package com.moge.app.ui.markdown
 
+import android.graphics.Path
+import android.graphics.RectF
+import android.text.Spanned
 import android.widget.TextView
 
 /** TextView-local caret and row bounds, without the extra space between lines. */
@@ -47,4 +50,26 @@ internal fun selectionEndpoint(view: TextView, offset: Int, start: Boolean): Sel
     val originY = view.totalPaddingTop - view.scrollY
     return SelectionEndpoint(view.totalPaddingLeft - view.scrollX + x,
         originY + top, originY + top + rowHeight.coerceAtLeast(1f))
+}
+
+/** Mixed math/prose rows must fit the same selection band inside and outside the lens. */
+internal fun magnifierSelectionEndpoint(view: TextView, offset: Int, start: Boolean): SelectionEndpoint? {
+    val caret = selectionEndpoint(view, offset, start) ?: return null
+    val layout = view.layout ?: return caret
+    val text = view.text as? Spanned ?: return caret
+    if (!view.hasSelection()) return caret
+    val line = layout.getLineForVertical((caret.centerY - view.totalPaddingTop + view.scrollY).toInt())
+    val lineStart = layout.getLineStart(line)
+    val lineEnd = layout.getLineEnd(line)
+    if (text.getSpans(lineStart, lineEnd, BaselineLatexSpan::class.java).isEmpty()) return caret
+    val from = maxOf(minOf(view.selectionStart, view.selectionEnd), lineStart)
+    val to = minOf(maxOf(view.selectionStart, view.selectionEnd), lineEnd)
+    if (from >= to) return caret
+    val path = Path()
+    markdownSelectionPath(view, from, to, path)
+    if (path.isEmpty) return caret
+    val band = RectF().also { path.computeBounds(it, true) }
+    // Keep the horizontal caret unchanged. A single math letter can have a
+    // much shorter TeX box than its neighboring CJK characters and line spacing.
+    return caret.copy(top = minOf(caret.top, band.top), bottom = maxOf(caret.bottom, band.bottom))
 }

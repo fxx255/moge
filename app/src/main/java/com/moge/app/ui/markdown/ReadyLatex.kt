@@ -33,7 +33,8 @@ internal fun readyLatex(view: TextView, text: Spanned, widthPx: Int, color: Int,
         val drawable = span.drawable
         if (drawable.hasResult()) continue
         val result = runCatching {
-            JLatexMathDrawable.builder(drawable.destination).textSize(view.textSize).color(color).build()
+            JLatexMathDrawable.builder(drawable.destination).textSize(view.textSize).color(color)
+                .align(MARKDOWN_FORMULA_ALIGNMENT).build()
         }.getOrElse { error ->
             appendRenderErrorLog(view.context, drawable.destination, error, originalMarkdown = source)
             LatexFallbackDrawable(color, view.textSize * 14f / MARKDOWN_TEXT_SIZE_SP, drawable.destination,

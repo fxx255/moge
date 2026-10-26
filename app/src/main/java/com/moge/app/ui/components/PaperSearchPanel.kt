@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -51,13 +52,23 @@ internal fun PaperSearchPanel(
     enabled: Boolean,
     filtersModifier: Modifier = Modifier,
     expandedContent: @Composable () -> Unit = {},
+    scrollSway: () -> Float = { 0f },
     filters: @Composable RowScope.() -> Unit,
 ) {
     val strings = rememberAppStrings()
+    val page = LocalPaperPageMotion.current
+    val motion = MogeTheme.motionEnabled
     Surface(
         // Keep the top flush with the list viewport: a transparent top margin
         // exposes a thin strip of cards between the page header and this sheet.
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp).testTag("paper-search-panel"),
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+            .graphicsLayer {
+                if (motion) {
+                    translationX = -PaperControlHorizontalTravel.toPx() * page.swipeDirection *
+                        if (page.switching) paperControlSwipeFraction(page.swipeProgress()) else 0f
+                    translationY = PaperControlVerticalTravel.toPx() * scrollSway()
+                }
+            }.testTag("paper-search-panel"),
         shape = RoundedCornerShape(PaperSearchPanelCornerRadius),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

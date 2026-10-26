@@ -12,6 +12,9 @@ import androidx.compose.ui.draw.shadow
 
 import android.os.SystemClock
 import com.moge.app.ui.components.excludePageSwipe
+import com.moge.app.ui.components.PaperControlHorizontalTravel
+import com.moge.app.ui.components.PaperControlVerticalTravel
+import com.moge.app.ui.components.paperControlSwipeFraction
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -466,6 +469,7 @@ internal fun FollowUpBar(
     switchingPage: Boolean = false,
     swipeDirection: Int = 0,
     swipeProgress: (() -> Float)? = null,
+    scrollSway: () -> Float = { 0f },
 ) {
     val strings = rememberAppStrings()
     val motionEnabled = MogeTheme.motionEnabled
@@ -473,7 +477,7 @@ internal fun FollowUpBar(
         if (switchingPage && swipeProgress == null && motionEnabled) 14.dp else 8.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-shadow")
     val drift by androidx.compose.animation.core.animateDpAsState(
-        if (switchingPage && swipeProgress == null && motionEnabled) 3.dp * swipeDirection.coerceIn(-1, 1) else 0.dp,
+        if (switchingPage && swipeProgress == null && motionEnabled) PaperControlHorizontalTravel * swipeDirection.coerceIn(-1, 1) else 0.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-drift")
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.editingQuestionId != null) {
@@ -496,9 +500,10 @@ internal fun FollowUpBar(
                 .graphicsLayer {
                     val progress = swipeProgress?.invoke()
                     val depth = if (progress != null && motionEnabled) {
-                        kotlin.math.sin(progress * kotlin.math.PI).toFloat().coerceAtLeast(0f)
+                        paperControlSwipeFraction(progress)
                     } else null
-                    translationX = if (depth != null) 3.dp.toPx() * swipeDirection * depth else drift.toPx()
+                    translationX = if (depth != null) PaperControlHorizontalTravel.toPx() * swipeDirection * depth else drift.toPx()
+                    translationY = if (motionEnabled) PaperControlVerticalTravel.toPx() * scrollSway() else 0f
                     shadowElevation = if (depth != null) (8.dp.toPx() + 6.dp.toPx() * depth) else elevation.toPx()
                     shape = RoundedCornerShape(32.dp)
                 }

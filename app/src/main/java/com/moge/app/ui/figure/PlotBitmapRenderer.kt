@@ -115,9 +115,10 @@ class PlotBitmapRenderer(
      * 保证图内的注释/标记标签不会画到图片外面。
      */
     private var labelBounds: RectF = RectF()
-    private enum class LabelPlacement { Fixed, Nearby, Annotation }
+    private enum class LabelPlacement { Fixed, Nearby, Point, Annotation }
     private data class PendingLabel(val raw: String, val x: Float, val baseline: Float, val size: Float,
-        val color: Int, val centered: Boolean, val bounds: RectF, val placement: LabelPlacement, val matrix: Matrix)
+        val color: Int, val centered: Boolean, val bounds: RectF, val placement: LabelPlacement, val matrix: Matrix,
+        val anchorRadius: Float)
     private data class MeasuredLabel(val source: PendingLabel, val above: Float, val initial: LabelRect)
     private var pendingLabels: MutableList<PendingLabel>? = null
     private var labelPlacement = LabelPlacement.Fixed
@@ -153,9 +154,11 @@ class PlotBitmapRenderer(
         textSizePx: Float,
         color: Int,
         alignCenter: Boolean = false,
+        anchorRadius: Float = 0f,
     ) {
         pendingLabels?.let {
-            it += PendingLabel(raw, x, baselineY, textSizePx, color, alignCenter, RectF(labelBounds), labelPlacement, Matrix(canvas.matrix))
+            it += PendingLabel(raw, x, baselineY, textSizePx, color, alignCenter, RectF(labelBounds), labelPlacement,
+                Matrix(canvas.matrix), anchorRadius)
             return
         }
         val pieces = splitLabelPieces(raw)
@@ -325,11 +328,12 @@ class PlotBitmapRenderer(
 
     /** 绘制入口（internal 便于测试注入记录型 Canvas 校验定位）。 */
     internal fun drawAll(canvas: Canvas, source: PlotSpec, width: Float, height: Float) {
-        val spec = source.voronoi?.let { geometry -> source.copy(equalAspect = true,
-            series = source.series + geometry.sites.mapIndexed { index, site ->
+        val markers = solidScatterHighlights(source)
+        val spec = markers.voronoi?.let { geometry -> markers.copy(equalAspect = true,
+            series = markers.series + geometry.sites.mapIndexed { index, site ->
                 Series(label = site.label, points = listOf(site.x to site.y), style = "marker",
                     colorIndex = geometry.colorIndex(index))
-            }) } ?: if (source.polar != null) source.copy(equalAspect = true) else source
+            }) } ?: if (markers.polar != null) markers.copy(equalAspect = true) else markers
         val polar = spec.polar
         pendingLabels = mutableListOf()
         labelPlacements.clear()
@@ -601,7 +605,7 @@ class PlotBitmapRenderer(
         // 刻度文字夹在**画布**内（它们本来就在绘图区外、贴着轴排布），
         // 但要留出底部/左侧的固定余量，避免被裁掉半个字。
         val tickBottomLimit = height - height * 0.012f
-        val tickGap = maxOf(tickSize * .65f, dp(AXIS_STROKE_DP))
+        val tickGap = maxOf(tickSize * .32f, dp(AXIS_STROKE_DP))
         val tickBounds = LabelRect(0f, 0f, width, tickBottomLimit)
         // x 轴：参数化刻度（如 `-f_c-B/2`、`O`、`f_c+B/2`）比纯数字宽得多，
         // 挨着画会糊成一片（用户截图里 `-f_c-B/2-f_cf_c-B/2` 挤在一起就是这个）。
@@ -630,14 +634,8 @@ class PlotBitmapRenderer(
             )
             lastLabelRight = box.right
         }
-        // y 轴：右对齐到绘图区左侧，并且**把夹取范围收进绘图区左侧的留白**。
-        // 参数化的刻度文案可能很长（如 $2\pi^2N_0(f_c+B/2)^2$），
-        // 不收紧的话它会横向伸进绘图区、压住曲线（用户反馈「左边的字挡住图像」）。
-        //
-        // 但夹取会导致截断加省略号，而 y 轴文案**不能被截**（截出来就是用户看到的
-        // 「左边稳定显示三个点」）。所以这里的设计是：**先量后裁**——
-        // 上面已经按实际文案宽度定好了字号与绘图区位置，正常情况下列文正好填满留白、
-        // 不带省略号；这里的夹取只作为最后兜底（例如留白已放到上限仍装不下）。
+        // Keep vertical ticks in the left margin so labels do not crowd the data.
+        // Their measured widths were included in the margin plan above.
         val savedBounds = labelBounds
         labelBounds = RectF(0f, drawY, (drawX - width * 0.008f).coerceAtLeast(0f), drawY + drawH)
         // y 轴刻度文案的字号已由 planYTickSize 定好：装得下就用基准字号，
@@ -788,12 +786,15 @@ class PlotBitmapRenderer(
         }
         canvas.restoreToCount(markerSave)
         labelBounds = plotBounds
+        labelPlacement = LabelPlacement.Point
         spec.series.forEach { series ->
             if (series.style == "marker" && series.points?.size == 1 && series.label.isNotBlank()) {
                 val (x, y) = series.points.single()
-                if (visiblePoint(x, y)) drawSmartText(canvas, series.label, sx(x), sy(y), tickSize, theme.text)
+                if (visiblePoint(x, y)) drawSmartText(canvas, series.label, sx(x), sy(y), tickSize, theme.text,
+                    anchorRadius = dp(series.markerSize))
             }
         }
+        labelPlacement = LabelPlacement.Annotation
         spec.markAreas.forEach { area -> area.label?.let {
             drawSmartText(canvas, it, (sx(area.x0) + sx(area.x1)) / 2, drawY + height * .058f, tickSize, theme.subText, true)
         } }
@@ -872,6 +873,12 @@ class PlotBitmapRenderer(
                     placeNearbyPlotLabel(initial, bounds, occupied + remainingTicks.map { it.initial }, obstacles,
                         maxOf(label.size * .18f, strokeClearance + 1f), maxOffset = label.size * 1.5f) ?: initial
                 }
+                LabelPlacement.Point -> placePlotLabel(label.x, label.baseline, initial.width, initial.height,
+                    bounds, occupied, obstacles, width * .006f, anchorRadius = label.anchorRadius,
+                    maxDistance = label.anchorRadius + label.size * 1.25f)
+                    ?: placePlotLabel(label.x, label.baseline, initial.width, initial.height,
+                        bounds, occupied, obstacles, width * .006f, anchorRadius = label.anchorRadius)
+                    ?: initial
                 LabelPlacement.Annotation -> placePlotLabel(label.x, label.baseline, initial.width, initial.height,
                     bounds, occupied, obstacles, width * .009f)
                     ?: placePlotLabel(label.x, label.baseline, initial.width, initial.height,
@@ -880,16 +887,21 @@ class PlotBitmapRenderer(
             }
             val save = canvas.save()
             canvas.setMatrix(label.matrix)
-            if (label.placement == LabelPlacement.Annotation && kotlin.math.hypot(box.left - initial.left, box.top - initial.top) > label.size * 1.7f) {
+            val leader = if (label.placement == LabelPlacement.Point || label.placement == LabelPlacement.Annotation)
+                plotLabelLeader(label.x, label.baseline, box, label.anchorRadius, width * .003f, label.size * .75f)
+                else null
+            if (leader != null) {
                 val connectorSave = canvas.save()
                 occupied.forEach { canvas.clipOutRect(it.left - 2, it.top - 2, it.right + 2, it.bottom + 2) }
                 linePaint.color = theme.subText
                 linePaint.strokeWidth = width * .001f
                 linePaint.pathEffect = null
-                canvas.drawLine(label.x, label.baseline, (box.left + box.right) / 2, (box.top + box.bottom) / 2, linePaint)
+                canvas.drawLine(leader.x0, leader.y0, leader.x1, leader.y1, linePaint)
                 canvas.restoreToCount(connectorSave)
             }
-            labelBounds = RectF(0f, 0f, width, height).takeIf { label.placement == LabelPlacement.Annotation } ?: label.bounds
+            labelBounds = RectF(0f, 0f, width, height).takeIf {
+                label.placement == LabelPlacement.Annotation || label.placement == LabelPlacement.Point
+            } ?: label.bounds
             drawSmartText(canvas, label.raw, box.left, box.top + above, label.size, label.color)
             val mapped = RectF(box.left, box.top, box.right, box.bottom)
             label.matrix.mapRect(mapped)

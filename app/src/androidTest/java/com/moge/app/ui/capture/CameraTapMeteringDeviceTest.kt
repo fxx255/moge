@@ -6,6 +6,8 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.camera.view.PreviewView
+import androidx.camera.core.CameraSelector
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -22,6 +24,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /** Uses the actual emulator preview transform and native touch delivery, without a model request. */
 @RunWith(AndroidJUnit4::class)
@@ -66,7 +70,29 @@ class CameraTapMeteringDeviceTest {
         preview.performTouchInput { click(Offset(width * .3f, height * .45f)) }
         compose.onNodeWithTag("camera-focus-indicator").assertExists()
         snapshot("camera-tap-left.png")
+        val info = ProcessCameraProvider.getInstance(instrumentation.targetContext).get(5, TimeUnit.SECONDS)
+            .getCameraInfo(CameraSelector.DEFAULT_BACK_CAMERA)
+        val exposure = info.exposureState
+        val range = exposure.exposureCompensationRange
+        if (exposure.isExposureCompensationSupported && range.upper > range.lower) {
+            val step = exposure.exposureCompensationStep.toFloat()
+            val defaultIndex = if (step.isFinite() && step > 0f)
+                (1f / 3f / step).roundToInt().coerceIn(range.lower, range.upper) else 0
+            if (defaultIndex > 0) compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex == defaultIndex }
+            compose.onNodeWithTag("camera-exposure-sun").assertIsEnabled().performClick()
+            compose.onNodeWithTag("camera-exposure-slider").performSemanticsAction(
+                androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.75f) }
+            val expected = (range.lower + .75f * (range.upper - range.lower)).roundToInt()
+            compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex == expected }
+            compose.onNodeWithTag("camera-focus-indicator").assertExists()
+            snapshot("camera-exposure-adjustment.png")
+        } else compose.onNodeWithTag("camera-exposure-sun").assertIsNotEnabled()
         preview.performTouchInput { click(Offset(width * .7f, height * .55f)) }
+        compose.onNodeWithTag("camera-exposure-slider").assertDoesNotExist()
+        if (exposure.isExposureCompensationSupported && range.upper > range.lower) {
+            assertEquals("A new metering point must preserve manual brightness",
+                (range.lower + .75f * (range.upper - range.lower)).roundToInt(), info.exposureState.exposureCompensationIndex)
+        }
         compose.onNodeWithTag("camera-focus-indicator").assertExists()
         snapshot("camera-tap-right.png")
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)

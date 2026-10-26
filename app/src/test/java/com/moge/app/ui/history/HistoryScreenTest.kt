@@ -105,7 +105,7 @@ class HistoryScreenTest {
         compose.onNodeWithContentDescription("正在读取历史").assertExists()
     }
 
-    @Test fun `history scrolls behind stationary filters instead of clipping below them`() {
+    @Test fun `history scrolls behind filters that settle at their original anchor`() {
         state.value = state.value.copy(entries = (0..15).map {
             HistoryEntry(ConversationEntity(id = "item$it", title = "对话 $it"), "题目预览")
         })
@@ -115,8 +115,12 @@ class HistoryScreenTest {
         assertTrue(grid.fetchSemanticsNode().boundsInRoot.top < filters.top)
         assertTrue(compose.onNodeWithTag("history-card-item0").fetchSemanticsNode().boundsInRoot.top > filters.bottom)
         grid.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 90f) }
+        compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
-        assertEquals(filters, compose.onNodeWithTag("history-category-filters").fetchSemanticsNode().boundsInRoot)
+        val settled = compose.onNodeWithTag("history-category-filters").fetchSemanticsNode().boundsInRoot
+        assertEquals(filters.left, settled.left, .01f)
+        assertEquals(filters.top, settled.top, .01f)
+        assertEquals(filters.bottom, settled.bottom, .01f)
         assertTrue(compose.onNodeWithTag("history-card-item0").fetchSemanticsNode().boundsInRoot.top < filters.bottom)
     }
 }

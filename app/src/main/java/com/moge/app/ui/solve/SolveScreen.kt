@@ -9,7 +9,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,13 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -54,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
+import com.moge.app.ui.components.rememberPaperControlSway
 import com.moge.app.ui.components.PaperHeaderIconButton
 import com.moge.app.ui.components.KeepConversationScreenOn
 import com.moge.app.ui.export.AnswerExportContent
@@ -89,6 +87,7 @@ fun SolveScreen(
     ribbonState: ConversationRibbonState? = null,
 ) {
     val strings = rememberAppStrings()
+    val composerSway = rememberPaperControlSway()
     val state by vm.uiState.collectAsStateWithLifecycle()
     KeepConversationScreenOn(pageMotion.active && state.keepScreenOnInConversation)
     var viewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
@@ -184,7 +183,7 @@ fun SolveScreen(
                 onRemovePendingPhoto = vm::removePhoto, onRemoveDocument = vm::removeDocument,
                 onPasteImages = vm::pasteImages, onCancelEditing = dismissEditing,
                 switchingPage = pageMotion.switching, swipeDirection = pageMotion.direction,
-                swipeProgress = pageMotion.progress)
+                swipeProgress = pageMotion.progress, scrollSway = { composerSway.fraction })
         }) { padding ->
             val initialViewport = remember(observedId) { observedId?.let(readViewport) }
             SolveList(state, vm::retry, vm::regenerate,
@@ -196,7 +195,7 @@ fun SolveScreen(
                 saveBranchViewport = { key, viewport -> observedId?.let { saveViewport(it + "__path__" + key, viewport) } },
                 conversationId = observedId, initialViewport = initialViewport, active = pageMotion.active,
                 saveViewport = { viewport -> observedId?.let { saveViewport(it, viewport) } },
-                contentPadding = padding)
+                contentPadding = padding, modifier = Modifier.nestedScroll(composerSway))
         }
     }
     cropQueue.firstOrNull()?.let { path ->
@@ -215,22 +214,11 @@ fun SolveScreen(
         favorite = null; vm.showNotice(strings.text(R.string.ui_saved_to_notebook_32992))
     }) }
     selection?.let { pending ->
-        AlertDialog(onDismissRequest = { selection = null },
-            title = { Text(if (pending.collect) strings.text(R.string.ui_choose_question_to_save_d5dba) else strings.text(R.string.ui_choose_question_to_share_84103)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text(strings.text(R.string.ui_this_follow_up_has_no_image_you_can_include_earlier_question_1b9ac))
-                    TextButton(onClick = { selection = null; performAction(pending.answer, pending.current, pending.collect) }) {
-                        Text(strings.text(R.string.ui_this_question_only_f03e2) + pending.current.text.take(45))
-                    }
-                    pending.alternatives.forEach { previous ->
-                        TextButton(onClick = {
-                            selection = null
-                            performAction(pending.answer, withFollowUp(previous, pending.current), pending.collect)
-                        }) { Text(strings.text(R.string.ui_original_question_and_follow_up_89027) + previous.text.ifBlank { strings.text(R.string.ui_photo_question_770f1) }.take(45)) }
-                    }
-                }
-            }, confirmButton = {}, dismissButton = { TextButton(onClick = { selection = null }) { Text(strings.text(R.string.ui_cancel_4d0b4)) } })
+        QuestionSelectionDialog(pending.current, pending.alternatives, pending.collect,
+            onDismiss = { selection = null }, onChoose = { question ->
+                selection = null
+                performAction(pending.answer, question, pending.collect)
+            })
     }
 }
 
@@ -280,6 +268,7 @@ internal fun SolveList(
     readBranchViewport: (String) -> ConversationViewport? = { null },
     saveBranchViewport: (String, ConversationViewport) -> Unit = { _, _ -> },
     active: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val scroll = rememberConversationListScroll(conversationId, state.items, initialViewport,
         contentPadding, active, saveViewport, readBranchViewport, saveBranchViewport,
@@ -301,7 +290,7 @@ internal fun SolveList(
         return
     }
     CompositionLocalProvider(LocalSelectionScrollHost provides selectionScrollHost) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().testTag("conversation-list")
+        LazyColumn(state = listState, modifier = modifier.fillMaxSize().testTag("conversation-list")
             .dismissMarkdownSelectionOnOutsideTap(selectionScrollHost)
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()

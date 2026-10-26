@@ -49,14 +49,7 @@ internal class BaselineLatexSpan(
         val height = drawable.bounds.height()
         val result = drawable.result as? JLatexMathDrawable
             ?: return height / 2f - (paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
-        val scale = minOf(
-            1f,
-            drawable.bounds.width().toFloat() / result.intrinsicWidth.coerceAtLeast(1),
-            height.toFloat() / result.intrinsicHeight.coerceAtLeast(1),
-        )
-        val scaledHeight = (result.intrinsicHeight * scale + 0.5f).toInt()
-        return (height - scaledHeight) / 2 +
-            (result.intrinsicHeight - result.icon().iconDepth) * scale
+        return latexDrawableGeometry(result).baseline
     }
 
     override fun getSize(

@@ -43,6 +43,44 @@ class AnswerExportRendererTest {
     }
     @After fun reset() { Dispatchers.resetMain() }
 
+    @Test fun `photo tape is centered in the actual exported page`() = runTest {
+        val photo = File(context.cacheDir, "export-centered-tape.png")
+        val source = Bitmap.createBitmap(800, 120, Bitmap.Config.ARGB_8888)
+        try {
+            source.eraseColor(android.graphics.Color.WHITE)
+            // The blue lower band locates the photograph without relying on text layout offsets.
+            Canvas(source).drawRect(0f, 60f, 800f, 120f,
+                android.graphics.Paint().apply { color = android.graphics.Color.BLUE })
+            photo.outputStream().use { source.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally { source.recycle() }
+        try {
+            val result = renderAnswerExport(context, AnswerExportContent("题目", "", questionPhotos = listOf(photo.path),
+                answerText = "解答"), ExportChoice.FULL, resolver) {}
+            try {
+                val page = BitmapFactory.decodeFile(result.pages.single().path)
+                try {
+                    val blueTop = (0 until page.height).first { page.getPixel(page.width / 2, it) == android.graphics.Color.BLUE }
+                    val photoTop = blueTop - 60 * ExportLimits.SCALE
+                    val yellow = mutableListOf<Int>()
+                    for (y in photoTop - 32 until photoTop + 60) for (x in 0 until page.width) {
+                        val pixel = page.getPixel(x, y)
+                        if (android.graphics.Color.red(pixel) > 220 && android.graphics.Color.green(pixel) > 200 &&
+                            android.graphics.Color.blue(pixel) < 220 &&
+                            android.graphics.Color.green(pixel) - android.graphics.Color.blue(pixel) > 20 &&
+                            android.graphics.Color.red(pixel) - android.graphics.Color.blue(pixel) > 30) yellow += x
+                    }
+                    if (System.getenv("SELECTION_EXPORT_SAMPLES") == "1") {
+                        val preview = File("build/selection-samples/export-centered-tape.png").apply { parentFile!!.mkdirs() }
+                        preview.outputStream().use { page.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    }
+                    assertTrue("The real export should contain the photo's tape", yellow.size > 1000)
+                    assertEquals("Rotating the tape should retain the photo's horizontal center (top=$photoTop, blue=$blueTop)",
+                        page.width / 2f, (yellow.min() + yellow.max() + 1f) / 2f, 3f)
+                } finally { page.recycle() }
+            } finally { result.files.close(force = true) }
+        } finally { photo.delete() }
+    }
+
     @Test fun `question photo export prints the current processed companion and falls back after a recrop`() = runTest {
         val original = File(context.cacheDir, "export-processed-source.png")
         fun photo(file: File, color: Int) {

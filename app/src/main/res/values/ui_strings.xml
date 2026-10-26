@@ -626,4 +626,6 @@
     <string name="ui_share_images_7996a">"分享图片"</string>
     <string name="ui_figure_generating">图片正在生成…</string>
     <string name="ui_camera_focus_and_meter">点击对焦并调整曝光，双指缩放</string>
+    <string name="ui_camera_brightness">调整拍摄亮度</string>
+    <string name="ui_camera_brightness_unavailable">此相机不支持调整亮度</string>
 </resources>

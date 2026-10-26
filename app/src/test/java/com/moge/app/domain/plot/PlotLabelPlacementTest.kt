@@ -65,4 +65,33 @@ class PlotLabelPlacementTest {
     @Test fun `oversized label requests a margin callout`() {
         assertNull(placePlotLabel(50f, 50f, 101f, 20f, LabelRect(0f, 0f, 100f, 100f), emptyList(), emptyList(), 4f))
     }
+
+    @Test fun `wide point labels use a nearby edge instead of a distant diagonal callout`() {
+        val point = LabelRect(190f, 140f, 210f, 160f)
+        val box = requireNotNull(placePlotLabel(200f, 150f, 100f, 20f,
+            LabelRect(0f, 0f, 400f, 300f), listOf(point), emptyList(), 4f,
+            anchorRadius = 10f, maxDistance = 35f))
+        assertTrue("Keep the label immediately above or below the dot", box.left < 200 && box.right > 200)
+        assertTrue(kotlin.math.abs(box.top - 150f) <= box.height + 14f)
+        assertFalse(box.overlaps(point))
+        assertNull("An adjacent label needs no leader", plotLabelLeader(200f, 150f, box, 10f, 2f, 15f))
+    }
+
+    @Test fun `point search cannot escape the requested neighbourhood when it is crowded`() {
+        val box = placePlotLabel(200f, 150f, 40f, 20f, LabelRect(0f, 0f, 400f, 300f),
+            listOf(LabelRect(140f, 90f, 260f, 210f)), emptyList(), 4f,
+            anchorRadius = 8f, maxDistance = 25f)
+        assertNull(box)
+    }
+
+    @Test fun `leaders stop outside the point and nearest text edge`() {
+        val box = LabelRect(180f, 30f, 300f, 60f)
+        val leader = requireNotNull(plotLabelLeader(200f, 150f, box, 10f, 3f, 15f))
+        assertEquals(200f, leader.x0, 0f)
+        assertEquals(137f, leader.y0, 0f)
+        assertEquals(200f, leader.x1, 0f)
+        assertEquals(63f, leader.y1, 0f)
+        assertFalse(box.intersects(leader))
+        assertFalse(LabelRect(190f, 140f, 210f, 160f).intersects(leader))
+    }
 }

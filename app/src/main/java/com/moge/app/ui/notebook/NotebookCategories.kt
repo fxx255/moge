@@ -6,6 +6,8 @@ import com.moge.app.ui.localization.rememberAppStrings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -66,9 +68,13 @@ internal fun CategoryPicker(categories: List<NotebookCategoryEntity>, onDismiss:
 }
 
 @Composable
-private fun CategoryDestination(name: String, onClick: () -> Unit) {
-    CategoryPaperSurface(onClick = onClick) {
-        Text(name, style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 18.dp, end = 16.dp, top = 18.dp, bottom = 18.dp))
+internal fun CategoryDestination(name: String, modifier: Modifier = Modifier, selected: Boolean? = null,
+    enabled: Boolean = true, onClick: () -> Unit) {
+    CategoryPaperSurface(modifier, onClick = onClick, selected = selected, enabled = enabled) {
+        Row(Modifier.fillMaxWidth().padding(start = 22.dp, end = 16.dp, top = 18.dp, bottom = 18.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (selected == true) Icon(Icons.Outlined.Check, null, tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }

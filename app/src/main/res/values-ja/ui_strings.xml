@@ -626,4 +626,6 @@
     <string name="ui_share_images_7996a">"画像を共有"</string>
     <string name="ui_figure_generating">画像を生成中…</string>
     <string name="ui_camera_focus_and_meter">タップしてピントと露出を調整、ピンチでズーム</string>
+    <string name="ui_camera_brightness">撮影の明るさを調整</string>
+    <string name="ui_camera_brightness_unavailable">このカメラは明るさの調整に対応していません</string>
 </resources>

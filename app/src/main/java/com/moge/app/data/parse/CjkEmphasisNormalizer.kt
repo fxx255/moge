@@ -50,7 +50,7 @@ internal fun normalizeCjkStrongEmphasis(source: String, codeRanges: List<IntRang
 }
 
 /** Leave four-column indented code (and ambiguous list continuations) to CommonMark. */
-private fun String.hasCodeIndentAt(index: Int): Boolean {
+internal fun String.hasCodeIndentAt(index: Int): Boolean {
     var cursor = lastIndexOf('\n', index - 1) + 1
     var spaces = 0
     while (cursor < index) {

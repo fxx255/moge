@@ -288,7 +288,7 @@ internal fun createMarkdownTextView(
             .usePlugin(
                 JLatexMathPlugin.create(this.textSize) { builder ->
                     builder.inlinesEnabled(true)
-                    builder.theme().textColor(textColor)
+                    builder.theme().textColor(textColor).blockHorizontalAlignment(MARKDOWN_FORMULA_ALIGNMENT)
                     // 单条公式解析失败时画占位，绝不让 ParseException 冒泡成整页闪退。
                     // Preserve complete TeX (including Chinese text) in the source fallback,
                     // and retain the original input in the log before any display-only repairs.

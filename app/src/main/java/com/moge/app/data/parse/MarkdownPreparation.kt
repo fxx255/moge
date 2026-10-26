@@ -26,16 +26,38 @@ internal fun prepareReplyMarkdown(source: String): String {
             }
             closing.range.last + 1
         }
-        out.append(sanitizeReplyLatex(normalizeReplyMarkdown(source.substring(proseStart, token.range.first))))
+        out.append(prepareProse(source.substring(proseStart, token.range.first)))
         val codeStart = out.length
         out.append(source, token.range.first, end)
         codeRanges += codeStart until out.length
         proseStart = end
         scanFrom = end
     }
-    out.append(sanitizeReplyLatex(normalizeReplyMarkdown(source.substring(proseStart))))
+    out.append(prepareProse(source.substring(proseStart)))
     return normalizeCjkStrongEmphasis(out.toString(), codeRanges)
 }
+
+private fun prepareProse(source: String): String =
+    sanitizeReplyLatex(normalizeStandaloneEscapedBreaks(normalizeReplyMarkdown(source)))
+
+/** Repair a lone escaped break at a prose boundary, never an n-prefixed TeX command. */
+private fun normalizeStandaloneEscapedBreaks(source: String): String {
+    if ("\\n" !in source) return source
+    var inMath = false
+    var copiedUntil = 0
+    val out = StringBuilder(source.length)
+    for (token in STANDALONE_BREAK_TOKENS.findAll(source)) {
+        if (source.isEscapedMarkdownToken(token.range.first)) continue
+        if (token.value == "$$") inMath = !inMath
+        else if (!inMath && !source.hasCodeIndentAt(token.range.first)) {
+            out.append(source, copiedUntil, token.range.first).append('\n')
+            copiedUntil = token.range.last + 1
+        }
+    }
+    return out.append(source, copiedUntil, source.length).toString()
+}
+
+private val STANDALONE_BREAK_TOKENS = Regex("""\$\$|\\n(?=[ \t]*(?:\r?\n|$|\$\$))""")
 
 private val CODE_TOKEN = Regex("(?m)^[ \\t]{0,3}(`{3,}|~{3,})[^\\n]*(?:\\n|$)|`+")
 

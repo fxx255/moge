@@ -415,10 +415,12 @@ private class NativeExportRenderer(
             })
             if (!part.generated) {
                 val tape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperExtras.tape.toArgb() }
+                val tapeWidth = minOf(90f * ExportLimits.SCALE, rect.width())
+                val tapeRect = RectF(rect.centerX() - tapeWidth / 2, rect.top - 8f * ExportLimits.SCALE,
+                    rect.centerX() + tapeWidth / 2, rect.top + 22f * ExportLimits.SCALE)
                 val save = canvas.save()
-                canvas.rotate(-7f, rect.right - 48f * ExportLimits.SCALE, rect.top + 4f * ExportLimits.SCALE)
-                canvas.drawRect(rect.right - 94f * ExportLimits.SCALE, rect.top - 8f * ExportLimits.SCALE,
-                    rect.right - 4f * ExportLimits.SCALE, rect.top + 22f * ExportLimits.SCALE, tape)
+                canvas.rotate(-7f, tapeRect.centerX(), tapeRect.centerY())
+                canvas.drawRect(tapeRect, tape)
                 canvas.restoreToCount(save)
             }
         }

@@ -82,6 +82,7 @@ internal fun NotebookContent(
     val strings = rememberAppStrings()
     val drag = rememberPaperDragState()
     val paperScroll = rememberPaperScrollState()
+    val controlSway = rememberPaperControlSway()
     val detailScroll = remember(state.openEntryId) { PaperScrollState() }
     val drop: (PaperDrop) -> Unit = { action -> when (val target = action.target) {
         PaperDropTarget.Delete -> onDeleteItems(action.ids)
@@ -149,6 +150,7 @@ internal fun NotebookContent(
                             query = state.query, onQuery = onQuery, hint = strings.text(R.string.ui_search_saved_titles_questions_or_answers_43689), enabled = !state.busy,
                             filtersModifier = Modifier.paperCategoryActivation(drag).testTag("notebook-category-filters"),
                             expandedContent = { PaperCategoryDropPanel(drag, state.categories) },
+                            scrollSway = { controlSway.fraction },
                         ) {
                             PaperCategoryFilter(state.categoryId == null && !state.uncategorizedOnly,
                                 { onCategory(null, false) }, strings.text(R.string.ui_all_778fc), enabled = !state.busy)
@@ -177,7 +179,7 @@ internal fun NotebookContent(
                                 if (state.filtered) strings.text(R.string.ui_no_matching_saved_items_3a77a) else strings.text(R.string.ui_no_saved_items_yet_use_save_to_notebook_after_a_solution_is_da759),
                                 if (state.filtered) strings.text(R.string.ui_clear_filters_4bbc4) else strings.text(R.string.ui_ask_a_question_847be),
                                 { if (state.filtered) { onQuery(""); onCategory(null, false) } else onBack() }, Modifier.fillMaxSize().padding(insets))
-                            else -> LazyColumn(Modifier.fillMaxSize().nestedScroll(paperScroll), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                            else -> LazyColumn(Modifier.fillMaxSize().nestedScroll(paperScroll).nestedScroll(controlSway), contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                                 top = insets.calculateTopPadding() + 16.dp, bottom = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(state.entries, key = { it.id }) { entry ->

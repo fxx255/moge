@@ -626,4 +626,6 @@
     <string name="ui_share_images_7996a">"Share images"</string>
     <string name="ui_figure_generating">Generating image…</string>
     <string name="ui_camera_focus_and_meter">Tap to focus and adjust exposure, pinch to zoom</string>
+    <string name="ui_camera_brightness">Adjust camera brightness</string>
+    <string name="ui_camera_brightness_unavailable">This camera cannot adjust brightness</string>
 </resources>
