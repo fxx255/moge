@@ -86,6 +86,7 @@ internal fun createMarkdownTextView(
         private var selectionActionMode: ActionMode? = null
         private var handlingNativeTouch = false
         private var tapStartedWithSelection = false
+        private var ownsTextTapGesture = false
         private val selectedPath = android.graphics.Path()
         private val selectedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = androidx.core.graphics.ColorUtils.setAlphaComponent(linkColor, 64)
@@ -99,6 +100,9 @@ internal fun createMarkdownTextView(
                 override fun onSingleTapUp(event: MotionEvent): Boolean {
                     if (!tapStartedWithSelection && !hasSelection()) performClick()
                     return false
+                }
+                override fun onLongPress(event: MotionEvent) {
+                    if (ownsTextTapGesture) conversationSelection?.longClick()
                 }
             })
         }
@@ -192,12 +196,21 @@ internal fun createMarkdownTextView(
                     // cannot also start editing after the controller handles UP.
                     tapStartedWithSelection = hasSelection() ||
                         (spannable != null && isPointInsideClickableSpan(spannable, event))
+                    ownsTextTapGesture = conversationSelection != null &&
+                        (spannable == null || !isPointInsideClickableSpan(spannable, event))
                 }
                 if (conversationSelection?.touch(event) == true) return true
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && !isPointInsideText(event)) {
                     return false
                 }
                 if (onTextTap != null) {
+                    if (ownsTextTapGesture) {
+                        // Our detector owns both tap and long press for editable
+                        // conversation text. View.onTouchEvent also posts a click
+                        // after UP, which would edit twice after this detector.
+                        tapDetector.onTouchEvent(event)
+                        return true
+                    }
                     // Let the editor process selection first. Its own click dispatch
                     // must not also invoke editing; the detector handles only short taps.
                     handlingNativeTouch = true

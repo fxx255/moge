@@ -13,7 +13,7 @@ import org.junit.Assert.*
 import ru.noties.jlatexmath.JLatexMathDrawable
 
 internal fun nativeMathViews(root: View): List<TextView> = when (root) {
-    is TextView -> if (root.tag is Markwon) listOf(root) else emptyList()
+    is TextView -> if (root.tag is Markwon && nativeMathSpans(root).isNotEmpty()) listOf(root) else emptyList()
     is ViewGroup -> (0 until root.childCount).flatMap { nativeMathViews(root.getChildAt(it)) }
     else -> emptyList()
 }

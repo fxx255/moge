@@ -48,6 +48,11 @@ internal fun wrapLongFormulas(
         }
         var rest = line
         if (inDisplay) {
+            // Quote markers describe the Markdown container, not formula rows.
+            val quoteDepth = markdownQuotePrefix(displayIndent).count { it == '>' }
+            if (quoteDepth > 0) {
+                rest = rest.removePrefix(markdownQuotePrefix(rest, maxDepth = quoteDepth))
+            }
             val close = mathDelimiters(rest).firstOrNull()
             if (close == null) {
                 if (block.isNotEmpty()) block.append('\n')
@@ -83,7 +88,9 @@ internal fun wrapLongFormulas(
                 index++
                 continue
             }
-            if (prefix.isNotBlank()) out += wrapInlineLine(prefix, maxWidthPx, measure)
+            if (prefix.removePrefix(markdownQuotePrefix(prefix)).isNotBlank()) {
+                out += wrapInlineLine(prefix, maxWidthPx, measure)
+            }
             displayIndent = formulaContinuationIndent(rest)
             block.append(body)
             inDisplay = true
@@ -181,11 +188,13 @@ private const val DISPLAY_DELIMITER = "$$"
 /** Keep sentence punctuation attached when a formula becomes a display block. */
 private val TRAILING_FORMULA_PUNCTUATION = Regex("""^[ \t]*[,;，；。.!?！？、]+""")
 
-/** Promoted math and its trailing prose must remain inside the original list item. */
+/** Promoted math and trailing prose must remain inside the original quote/list. */
 private fun formulaContinuationIndent(line: String): String {
-    val leading = line.takeWhile { it == ' ' || it == '\t' }
-    val marker = LIST_MARKER.find(line.substring(leading.length))?.value.orEmpty()
-    return leading + " ".repeat(marker.length)
+    val quote = markdownQuotePrefix(line)
+    val content = line.removePrefix(quote)
+    val leading = content.takeWhile { it == ' ' || it == '\t' }
+    val marker = LIST_MARKER.find(content.substring(leading.length))?.value.orEmpty()
+    return quote + leading + " ".repeat(marker.length)
 }
 
 private val LIST_MARKER = Regex("""^(?:\d{1,9}[.)]|[-+*])[ \t]+""")
@@ -232,7 +241,10 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
                     text.append(DISPLAY_DELIMITER).append(rows.single()).append(DISPLAY_DELIMITER)
                 } else {
                     val before = prose()
-                    val markerOnly = LIST_MARKER.matches(before.trimStart())
+                    val quote = markdownQuotePrefix(before)
+                    val contentBefore = before.removePrefix(quote)
+                    val markerOnly = LIST_MARKER.matches(contentBefore.trimStart()) ||
+                        (quote.isNotEmpty() && contentBefore.isBlank())
                     if (!markerOnly) before.trimEnd().takeIf { it.isNotBlank() }?.let { out += it }
                     out += formulaBlockLines(rows).mapIndexed { index, block ->
                         // An empty bullet cannot interrupt a paragraph; keep its

@@ -222,7 +222,6 @@ fun MogeNavHost(
                         SolveScreen(
                             ribbonState = conversationRibbon,
                             pageMotion = paperConversationPageMotion(),
-                            conversationId = entry.arguments?.getString(Routes.ARG_CONVERSATION_ID)?.takeIf { it.isNotBlank() },
                             onBack = back.takeIf {
                                 nav.navigatorProvider.getNavigator<ComposeNavigator>("composable").backStack.value
                                     .indexOfFirst { it.id == entry.id } > 0

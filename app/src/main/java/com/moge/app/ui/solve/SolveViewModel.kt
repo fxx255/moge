@@ -180,9 +180,12 @@ class SolveViewModel @Inject constructor(
     val uiState: StateFlow<SolveUiState> =
         combine(conversationId, roomState, generationManager.active, transient, settings.settings) { id, room, active, local, prefs ->
             val path = ConversationBranches.visible(room.messages, room.selections)
+            // A retained navigation entry can outlive a deleted history record. Keep its
+            // draft owner for recovery, but only a real record represents an existing page.
+            val existingId = id?.takeIf { room.conversation?.id == it }
             val generatingHere = active.isRunning && id != null && active.conversationId == id && path.any { it.id == active.answerMessageId }
             SolveUiState(
-                conversationId = id,
+                conversationId = existingId,
                 title = room.conversation?.let { conversation ->
                     // Keep the stored placeholder stable for automatic naming; localize its display only.
                     if (conversation.title == PHOTO_PLACEHOLDER_TITLE && !conversation.titleUserEdited)
@@ -201,7 +204,7 @@ class SolveViewModel @Inject constructor(
                 keepScreenOnInConversation = prefs.keepScreenOnInConversation,
                 branchPathKey = path.lastOrNull()?.id.orEmpty(),
                 conversationMode = room.conversation?.let { ConversationMode.fromName(it.conversationMode) } ?: selectedMode.value,
-                modeSelectable = id == null && !local.submitting,
+                modeSelectable = existingId == null && !local.submitting,
             )
         }.combine(selectedMode) { state, mode ->
             if (state.conversationId == null) state.copy(conversationMode = mode) else state
@@ -317,13 +320,13 @@ class SolveViewModel @Inject constructor(
     }
 
     fun selectConversationMode(mode: ConversationMode) {
-        if (!draftLoaded.value || conversationId.value != null || submitting.value || importingPhotos.value) return
+        if (!draftLoaded.value || !uiState.value.modeSelectable || submitting.value || importingPhotos.value) return
         requestNewConversationMode(mode)
     }
 
     /** Navigation may reuse an unsent page whose draft is still loading. */
     fun requestNewConversationMode(mode: ConversationMode) {
-        if (conversationId.value != null || submitting.value) return
+        if (uiState.value.conversationId != null || submitting.value) return
         selectedMode.value = mode
         savedState[Routes.ARG_DRAFT_MODE] = mode.name
         if (draftLoaded.value) {

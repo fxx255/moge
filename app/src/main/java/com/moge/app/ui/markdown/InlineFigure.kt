@@ -3,7 +3,6 @@ package com.moge.app.ui.markdown
 import com.moge.app.R
 import com.moge.app.ui.localization.rememberAppStrings
 
-import android.graphics.Bitmap
 import com.moge.app.ui.components.excludePageSwipe
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -23,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -39,12 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.photo.PhotoEdits
-import com.moge.app.ui.photo.decodeUprightPhoto
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.theme.MonoFamily
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import java.io.File
 
 /**
@@ -80,48 +78,57 @@ internal fun InlineFigure(
     val dark = MogeTheme.paper.isChalk
     val resolver = LocalFigurePathResolver.current
     val photoRevision by PhotoEdits.revision.collectAsStateWithLifecycle()
-    var decodeAttempt by remember(path, dark, resolver, photoRevision) { mutableIntStateOf(0) }
-    val loaded by produceState<LoadedFigure?>(null, path, dark, decodeAttempt, photoRevision, resolver) {
-        value = null
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val resolved = resolver.resolve(path, dark) ?: return@runCatching null
-                decodeUprightPhoto(resolved, FIGURE_DECODE_MAX_PX)?.let { LoadedFigure(resolved, it) }
-            }.getOrNull()
+    val imageKey = FigureImageKey(path, dark, photoRevision, resolver)
+    key(imageKey) {
+        var decodeAttempt by remember { mutableIntStateOf(0) }
+        val cached = remember { FigureImageCache.peek(imageKey) }
+        val loaded by produceState(cached, decodeAttempt) {
+            if (value == null) value = try {
+                FigureImageCache.load(imageKey)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (value == null && decodeAttempt < DECODE_RETRY_MAX) {
+                delay(DECODE_RETRY_DELAY_MS)
+                decodeAttempt++
+            }
         }
-        if (value == null && decodeAttempt < DECODE_RETRY_MAX) {
-            delay(DECODE_RETRY_DELAY_MS)
-            decodeAttempt++
-        }
-    }
-    val label = number?.let { strings.text(R.string.ui_figure_1_s_a25b7, it) } ?: strings.text(R.string.ui_generated_chart_369b8)
-    Column(
-        modifier = Modifier.fillMaxWidth().zIndex(FIGURE_Z_INDEX),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        val figure = loaded
-        if (figure == null) {
-            FigurePlaceholder(
-                text = if (decodeAttempt < DECODE_RETRY_MAX) strings.text(R.string.ui_loading_chart_64b19) else strings.text(R.string.ui_chart_unavailable_a3291),
-                label = label,
-                onClick = onClick,
-                height = placeholderHeight,
-            )
-        } else {
-            FigureImage(figure, label, onClick)
-        }
-        if (number != null) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        val label = number?.let { strings.text(R.string.ui_figure_1_s_a25b7, it) } ?: strings.text(R.string.ui_generated_chart_369b8)
+        BoxWithConstraints(Modifier.fillMaxWidth().zIndex(FIGURE_Z_INDEX)) {
+            val geometry = loaded?.geometry ?: FigureImageCache.geometry(imageKey)
+            val loadingHeight = geometry?.let {
+                val canvasWidth = if (it.scrolls) maxOf(maxWidth, DIAGRAM_MIN_INLINE_WIDTH) else maxWidth
+                canvasWidth * (it.height.toFloat() / it.width)
+            } ?: placeholderHeight
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                val figure = loaded
+                if (figure == null) {
+                    FigurePlaceholder(
+                        text = if (decodeAttempt < DECODE_RETRY_MAX) strings.text(R.string.ui_loading_chart_64b19) else strings.text(R.string.ui_chart_unavailable_a3291),
+                        label = label,
+                        onClick = onClick,
+                        height = loadingHeight,
+                    )
+                } else {
+                    FigureImage(figure, label, onClick)
+                }
+                if (number != null) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
-
-private class LoadedFigure(val path: String, val bitmap: Bitmap)
 
 @Composable
 private fun FigurePlaceholder(text: String, label: String, onClick: () -> Unit, height: androidx.compose.ui.unit.Dp) {
@@ -146,9 +153,7 @@ private fun FigureImage(figure: LoadedFigure, label: String, onClick: () -> Unit
     val frame = Modifier
         .clip(MaterialTheme.shapes.small)
         .border(BorderStroke(1.dp, MogeTheme.paper.cardStroke.copy(alpha = 0.25f)), MaterialTheme.shapes.small)
-    val scrolls = remember(figure) {
-        shouldScrollGeneratedImage(File(figure.path), figure.bitmap.width, figure.bitmap.height)
-    }
+    val scrolls = figure.geometry.scrolls
     if (scrolls) {
         // 宽框图塞进手机宽度会小到看不清：保留一个可读的最小画布，放不下就横向滚动。
         // 先量出有限的视口宽度再挂 horizontalScroll，后者会给子项无限宽。
@@ -199,7 +204,6 @@ internal fun FailedFigureHint(index: Int) {
 internal const val FIGURE_Z_INDEX = 1f
 
 private val DIAGRAM_MIN_INLINE_WIDTH = 520.dp
-private const val FIGURE_DECODE_MAX_PX = 3200
 private const val DECODE_RETRY_MAX = 3
 private const val DECODE_RETRY_DELAY_MS = 600L
 

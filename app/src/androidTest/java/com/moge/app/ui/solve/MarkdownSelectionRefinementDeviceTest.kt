@@ -67,6 +67,71 @@ class MarkdownSelectionRefinementDeviceTest {
     @Test fun nestedFormulaLongPressHandleDragAndCopyWorkInBothThemes() = verifyFormula(false)
     @Test fun framedFormulaLongPressHandleDragAndCopyWorkInBothThemes() = verifyFormula(true)
 
+    @Test fun endHandleCrossesSummaryIntoExplanation() = verifyReplyBoundary(false)
+    @Test fun startHandleCrossesExplanationIntoSummary() = verifyReplyBoundary(true)
+
+    private fun verifyReplyBoundary(upward: Boolean) {
+        val appearance = mutableStateOf(Appearance.PAPER)
+        val summary = "判卷概况：第（4）问正确；第（5）问最终表达式正确，按常见分值约 6/14。"
+        val explanation = "这题的关键是两个匹配滤波器的能量为 1。\n\n先统一基本量。"
+        compose.setContent { MogeTheme(appearance.value) {
+            SolveList(SolveUiState(conversationId = "boundary", items = listOf(
+                SolveItem.Answer("answer", AnswerState.COMPLETED, explanation, finalAnswer = summary))),
+                {}, {}, { _, _ -> }, {}, {})
+        } }
+        for (theme in listOf(Appearance.PAPER, Appearance.CHALK)) {
+            compose.runOnUiThread { appearance.value = theme }
+            compose.waitForIdle()
+            lateinit var view: TextView
+            compose.waitUntil(15_000) {
+                var ready = false
+                compose.runOnUiThread {
+                    val body = views(compose.activity.window.decorView).singleOrNull { it.text.contains("判卷概况") }
+                    if (body != null && body.isLaidOut && body.isShown && body.text.contains("这题的关键")) {
+                        view = body
+                        ready = true
+                    }
+                }
+                ready
+            }
+            var point = 0f to 0f
+            var target = 0f to 0f
+            var expected = ""
+            compose.runOnUiThread {
+                val split = view.text.indexOf("这题的关键")
+                val from = if (upward) split + 3 else 0
+                val to = if (upward) split + 8 else 4
+                val targetOffset = if (upward) 1 else split + 10
+                requireNotNull(markdownSelectionController(view)).begin(from, to)
+                val caret = requireNotNull(selectionEndpoint(view, if (upward) from else to, upward))
+                val destination = requireNotNull(selectionEndpoint(view, targetOffset, upward))
+                val location = IntArray(2).also(view::getLocationOnScreen)
+                val dx = (if (upward) -5f else 5f) * view.resources.displayMetrics.density
+                val dy = 12f * view.resources.displayMetrics.density
+                point = location[0] + caret.x + dx to location[1] + caret.bottom + dy
+                target = location[0] + destination.x + dx to
+                    location[1] + destination.centerY + caret.bottom - caret.centerY + dy
+                expected = view.text.subSequence(if (upward) targetOffset else from,
+                    if (upward) to else targetOffset).toString()
+            }
+            awaitFrame(view)
+            val time = SystemClock.uptimeMillis()
+            inject(MotionEvent.ACTION_DOWN, point.first, point.second, time)
+            instrumentation.runOnMainSync {
+                assertTrue("The real handle popup must receive the gesture", requireNotNull(markdownSelectionController(view)).dragging)
+            }
+            inject(MotionEvent.ACTION_MOVE, target.first, target.second, time)
+            inject(MotionEvent.ACTION_UP, target.first, target.second, time)
+            instrumentation.runOnMainSync {
+                assertEquals(expected, selectedMarkdownText(view.text, view.selectionStart, view.selectionEnd))
+                assertTrue(expected.contains("6/14。\n\n这题"))
+                view.onTextContextMenuItem(android.R.id.copy)
+                val clipboard = view.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                assertEquals(expected, clipboard.primaryClip!!.getItemAt(0).text.toString())
+            }
+        }
+    }
+
     private fun verifyFormula(framed: Boolean) {
         val appearance = mutableStateOf(Appearance.PAPER)
         val fraction = "\\frac{\\pi f}{B}"

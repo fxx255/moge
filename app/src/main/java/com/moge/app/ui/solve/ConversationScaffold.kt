@@ -12,8 +12,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.outlined.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -111,13 +109,9 @@ internal fun ConversationScaffold(
                                 else if (onBack != null) PaperHeaderIconButton(onClick = onBack) {
                                     Icon(Icons.AutoMirrored.Filled.ArrowBack, strings.text(R.string.ui_back_11d02))
                                 } else Spacer(Modifier.width(12.dp))
-                                (newConversationMode ?: conversationMode)?.let { mode ->
-                                    Icon(if (mode == ConversationMode.CHAT) Icons.AutoMirrored.Outlined.Chat else Icons.Outlined.School,
-                                        strings.text(R.string.ui_1_s_mode_3cfe2, strings.label(mode)), Modifier.padding(end = 4.dp).size(20.dp),
-                                        tint = MaterialTheme.colorScheme.primary)
-                                }
                                 Box(Modifier.weight(1f)) {
                                     ConversationTitle(title, newConversationMode, modeSelectable,
+                                        conversationMode = conversationMode,
                                         onEditTitle = { onTitleEditingChange(true) }.takeIf {
                                             !titleEditorVisible && newConversationMode == null && onRenameTitle != null
                                         },

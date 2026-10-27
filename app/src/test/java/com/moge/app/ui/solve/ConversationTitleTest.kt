@@ -52,6 +52,33 @@ class ConversationTitleTest {
         compose.onNodeWithText("新对话").assertIsDisplayed()
     }
 
+    @Test fun modeSwitchIncludesIconAndKeepsBackAndDisabledStatesIndependent() {
+        var mode by mutableStateOf(ConversationMode.SOLVE)
+        var enabled by mutableStateOf(true)
+        var theme by mutableStateOf(Appearance.PAPER)
+        var backs = 0
+        compose.setContent { MogeTheme(theme) {
+            ConversationScaffold("", { backs++ }, {}, {}, newConversationMode = mode,
+                modeSelectable = enabled, onSelectMode = { mode = it }) {}
+        } }
+        for (appearance in listOf(Appearance.PAPER, Appearance.CHALK)) {
+            compose.runOnIdle { theme = appearance }
+            compose.onNodeWithTag("conversation-mode-icon", useUnmergedTree = true).performTouchInput { click() }
+            compose.onNodeWithText("新对话").assertIsDisplayed()
+            compose.onNodeWithTag("conversation-mode-switch").assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "对话模式"))
+            compose.runOnIdle { enabled = false }
+            compose.onNodeWithTag("conversation-mode-icon", useUnmergedTree = true).performTouchInput { click() }
+            assertEquals(ConversationMode.CHAT, mode)
+            compose.runOnIdle { enabled = true }
+            compose.onNodeWithText("新对话").performClick()
+            assertEquals(ConversationMode.SOLVE, mode)
+        }
+        assertEquals(0, backs)
+        compose.onNodeWithContentDescription("返回").performClick()
+        assertEquals(1, backs)
+    }
+
     @Test fun rapidSwitchingEndsOnTheLatestMode() {
         var mode by mutableStateOf(ConversationMode.SOLVE)
         compose.setContent { MogeTheme { ConversationTitle("", mode, onSelectMode = { mode = it }) } }

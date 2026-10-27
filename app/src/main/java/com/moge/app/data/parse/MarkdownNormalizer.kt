@@ -259,7 +259,8 @@ private fun normalizeMathDelimiters(markdown: String): String {
         } else if (fence != null) {
             line
         } else {
-            val trimmed = line.trim()
+            // A block quote is a Markdown container, not part of its math delimiter.
+            val trimmed = line.removePrefix(markdownQuotePrefix(line)).trim()
             val normalized = when (trimmed) {
                 "\\[", "\\]" -> line.replace(trimmed, "${'$'}${'$'}")
                 else -> normalizeInlineMathDelimiters(line)

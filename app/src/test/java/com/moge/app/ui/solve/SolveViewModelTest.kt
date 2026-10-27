@@ -134,6 +134,36 @@ class SolveViewModelTest {
         coVerify { manager.submit(match { it.conversationMode == ConversationMode.CHAT }, any(), any(), any(), any()) }
     }
 
+    @Test fun `returning to a deleted chat exposes a selectable new page and keeps its draft`() = runBlocking {
+        val old = conversations.createConversation("旧对话", SolveMode.DETAILED, ConversationMode.CHAT)
+        val page = vm(old.id)
+        page.awaitState { it.title == "旧对话" }
+        page.onInputChange("返回后仍要保留的内容")
+        page.awaitState { it.input == "返回后仍要保留的内容" }
+        conversations.deleteIdle(setOf(old.id))
+        val returned = page.awaitState { it.title == ConversationRepository.PLACEHOLDER_TITLE }
+        assertNull(returned.conversationId)
+        assertTrue(returned.modeSelectable)
+        assertEquals(ConversationMode.CHAT, returned.conversationMode)
+        assertEquals("返回后仍要保留的内容", returned.input)
+        page.selectConversationMode(ConversationMode.SOLVE)
+        page.awaitState { it.conversationMode == ConversationMode.SOLVE }
+        page.send()
+        val sent = page.awaitState { it.items.size == 2 && !it.submitting }
+        assertTrue(sent.conversationId != old.id)
+        assertEquals("SOLVE", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
+    }
+
+    @Test fun `restored route whose conversation is missing can switch modes without sending first`() = runBlocking<Unit> {
+        drafts.save("missing-conversation", "保留失效页面的草稿", emptyList())
+        val page = vm("missing-conversation")
+        val restored = page.awaitState { it.draftLoaded && it.input == "保留失效页面的草稿" }
+        assertNull(restored.conversationId)
+        assertTrue(restored.modeSelectable)
+        page.selectConversationMode(ConversationMode.CHAT)
+        page.awaitState { it.conversationMode == ConversationMode.CHAT }
+    }
+
     @Test fun `chat choice persists with draft and stays fixed when history is reopened`() = runBlocking {
         drafts.clear(null)
         val first = vm()

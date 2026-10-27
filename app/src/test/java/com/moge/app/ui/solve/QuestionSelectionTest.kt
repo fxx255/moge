@@ -8,23 +8,16 @@ import android.text.Selection
 import android.text.Spannable
 import android.view.MotionEvent
 import android.view.ViewGroup
-import android.widget.Magnifier
+import android.view.View
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
-import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
-import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSession
-import androidx.compose.foundation.text.contextmenu.provider.LocalTextContextMenuToolbarProvider
-import androidx.compose.foundation.text.contextmenu.provider.TextContextMenuDataProvider
-import androidx.compose.foundation.text.contextmenu.provider.TextContextMenuProvider
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.text.TextLayoutResult
+import com.moge.app.ui.markdown.markdownSelectionController
+import com.moge.app.ui.markdown.selectionEndpoint
 import com.moge.app.ui.theme.MogeTheme
 import java.time.Duration
-import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -34,57 +27,107 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
 import ru.noties.jlatexmath.JLatexMathAndroid
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@OptIn(ExperimentalFoundationApi::class)
 class QuestionSelectionTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     @Before fun initializeMath() { JLatexMathAndroid.init(compose.activity) }
     private fun clipboard() = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
-    private class CopyToolbar : TextContextMenuProvider {
-        var copy: (() -> Unit)? = null
-        override suspend fun showTextContextMenu(dataProvider: TextContextMenuDataProvider) {
-            val closed = CompletableDeferred<Unit>()
-            val session = object : TextContextMenuSession {
-                override fun close() { closed.complete(Unit) }
-            }
-            val item = dataProvider.data().components.filterIsInstance<TextContextMenuItem>()
-                .singleOrNull { it.key == TextContextMenuKeys.CopyKey }
-            copy = item?.let { { it.onClick(session) } }
-            closed.await()
-        }
+    private fun views(view: View): List<TextView> = when (view) {
+        is TextView -> listOf(view)
+        is ViewGroup -> (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+        else -> emptyList()
     }
 
     @Test
-    @Config(shadows = [SelectionTestMagnifier::class])
     fun `long press selects question text without starting edit and copies selected word`() {
         var edits = 0
         val raw = "original chosen question"
-        val toolbar = CopyToolbar()
         compose.setContent { MogeTheme {
-            CompositionLocalProvider(LocalTextContextMenuToolbarProvider provides toolbar) {
-                FollowUpNote(SolveItem.Question("q", raw, emptyList(), "", false), onEdit = { edits++ }) { _, _ -> }
-            }
+            SolveList(SolveUiState(conversationId = "q", items = listOf(
+                SolveItem.Question("q", raw, emptyList(), "", false))),
+                {}, {}, { _, _ -> }, {}, {}, onEdit = { edits++ })
         } }
-        val node = compose.onNodeWithText(raw)
-        val layouts = mutableListOf<TextLayoutResult>()
-        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        val chosen = layouts.single().getBoundingBox(raw.indexOf("chosen") + 2).center
-        node.performTouchInput { longClick(chosen) }
-        // Smart selection/classification returns asynchronously from Android.
-        compose.waitUntil(timeoutMillis = 5_000) { toolbar.copy != null }
         compose.runOnIdle {
+            val view = views(compose.activity.window.decorView).single { it.text.toString() == raw }
+            val caret = requireNotNull(selectionEndpoint(view, raw.indexOf("chosen") + 2, true))
+            val now = SystemClock.uptimeMillis()
+            fun dispatch(action: Int) {
+                val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, caret.x, caret.centerY, 0)
+                try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+            }
+            dispatch(MotionEvent.ACTION_DOWN)
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+            dispatch(MotionEvent.ACTION_UP)
             assertEquals(0, edits)
-            assertNotNull("Long press must offer selection copy", toolbar.copy)
-            toolbar.copy!!.invoke()
+            assertTrue(requireNotNull(markdownSelectionController(view)).selecting)
+            assertEquals("chosen", view.text.subSequence(view.selectionStart, view.selectionEnd).toString())
+            view.onTextContextMenuItem(android.R.id.copy)
+            assertEquals("chosen", clipboard().primaryClip!!.getItemAt(0).text.toString())
         }
-        compose.runOnIdle { assertEquals("chosen", clipboard().primaryClip!!.getItemAt(0).text.toString()) }
+    }
+
+    @Test fun `question end handle shrinks by characters and stays put after release and recomposition`() {
+        val raw = "帮我纠错，详细讲讲，注重原理和一般结论。"
+        val version = mutableStateOf(0)
+        var edits = 0
+        compose.setContent { MogeTheme {
+            val current = version.value
+            SolveList(SolveUiState(conversationId = "q", items = listOf(
+                SolveItem.Question("q", raw, emptyList(), "", true))),
+                {}, {}, { _, _ -> }, {}, {}, onEdit = { edits += current + 1 })
+        } }
+        lateinit var body: TextView
+        lateinit var selectedText: CharSequence
+        compose.runOnIdle {
+            body = views(compose.activity.window.decorView).single { it.text.toString() == raw }
+            selectedText = body.text
+            val controller = requireNotNull(markdownSelectionController(body))
+            controller.begin(0, raw.length)
+            val caret = requireNotNull(selectionEndpoint(body, raw.length, false))
+            val position = IntArray(2).also(body::getLocationOnScreen)
+            controller.beginDrag(false, position[0] + caret.x, position[1] + caret.bottom + 10f)
+            for (offset in raw.lastIndex downTo 2) {
+                // At a wrapped row boundary, move to the next row's first
+                // character rather than Android's preceding-row caret alias.
+                val target = requireNotNull(selectionEndpoint(body, offset, true))
+                controller.moveDrag(position[0] + target.x,
+                    position[1] + target.centerY + caret.bottom - caret.centerY + 10f)
+                assertEquals("The end handle must follow every character", offset, body.selectionEnd)
+            }
+            controller.endDrag()
+            version.value++
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertSame("Unrelated updates must preserve the selected Spannable", selectedText, body.text)
+            assertEquals(0, body.selectionStart)
+            assertEquals("Release must not restore the original full-line range", 2, body.selectionEnd)
+            assertEquals(0, edits)
+            body.onTextContextMenuItem(android.R.id.copy)
+            assertEquals(raw.take(2), clipboard().primaryClip!!.getItemAt(0).text.toString())
+        }
+    }
+
+    @Test fun `literal question retains markdown currency paths and unfinished formulas through updates`() {
+        val raw = mutableStateOf("  **原文** $5 到 $10，C:\\temp\\file.txt\n下一行  ")
+        compose.setContent { MogeTheme {
+            UserQuestionText(raw.value)
+        } }
+        fun assertLiteral() = compose.runOnIdle {
+            val body = views(compose.activity.window.decorView).single { it.text.toString() == raw.value }
+            assertTrue(nativeMathSpans(body).isEmpty())
+            Selection.setSelection(body.text as Spannable, 0, body.text.length)
+            body.onTextContextMenuItem(android.R.id.copy)
+            assertEquals(raw.value, clipboard().primaryClip!!.getItemAt(0).text.toString())
+        }
+        assertLiteral()
+        compose.runOnIdle { raw.value = "\\(\\frac{1}{" }
+        assertLiteral()
     }
 
     @Test fun `math question native long press retains selection and does not edit`() {
@@ -128,13 +171,4 @@ class QuestionSelectionTest {
             assertEquals("\$\$x^2+y^2\$\$", clipboard().primaryClip!!.getItemAt(0).text.toString())
         }
     }
-}
-
-/** Robolectric has no Surface for the floating magnifier; selection itself runs normally. */
-@Implements(Magnifier::class, minSdk = 28)
-class SelectionTestMagnifier {
-    @Implementation fun show(x: Float, y: Float) = Unit
-    @Implementation fun show(x: Float, y: Float, windowX: Float, windowY: Float) = Unit
-    @Implementation fun update() = Unit
-    @Implementation fun dismiss() = Unit
 }

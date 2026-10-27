@@ -226,6 +226,12 @@ internal fun AnswerSheet(
     val hasAnswer = item.finalAnswer.isNotBlank() && item.finalAnswer != item.text
     val foldable = answerFirst && hasAnswer
     var expanded by rememberSaveable(item.id, item.finalAnswer) { mutableStateOf(false) }
+    val showSummary = hasAnswer && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)
+    // The full lecture owns the figures when it is visible; summary references
+    // stay readable without inserting the same figures twice.
+    val summary = if (item.state == AnswerState.COMPLETED && (!foldable || expanded)) {
+        replaceFigureAnchors(item.finalAnswer) { strings.text(R.string.ui_figure_1_s_a25b7, it.numberText.trimStart('0').ifEmpty { "0" }) }
+    } else item.finalAnswer
     val lineProgress = remember(item.id) { Animatable(if (generating && motion) 0f else 1f) }
     LaunchedEffect(item.id, motion, generating) {
         if (motion && generating) lineProgress.animateTo(1f, tween(1200)) else lineProgress.snapTo(1f)
@@ -242,14 +248,9 @@ internal fun AnswerSheet(
         if (item.reasoning.isNotBlank() && generating) {
             ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty())
         }
-        if (hasAnswer && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
+        if (showSummary) {
             Text(strings.text(R.string.ui_answer_8784e), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            // The full lecture already includes all figure slots. Keep summary references
-            // readable without showing each image twice; a folded answer retains its images.
-            val summary = if (item.state == AnswerState.COMPLETED && (!foldable || expanded)) {
-                replaceFigureAnchors(item.finalAnswer) { strings.text(R.string.ui_figure_1_s_a25b7, it.numberText.trimStart('0').ifEmpty { "0" }) }
-            } else item.finalAnswer
-            StreamingMarkdownBody(summary, streaming = generating, imagePaths = item.figurePaths,
+            if (foldable) StreamingMarkdownBody(summary, streaming = generating, imagePaths = item.figurePaths,
                 appendUnreferencedImages = false, onImageClick = onOpenImages)
         }
         if (foldable && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)) {
@@ -258,8 +259,12 @@ internal fun AnswerSheet(
                 else StreamingMarkdownBody(item.text, streaming = generating, imagePaths = item.figurePaths, onImageClick = onOpenImages)
             }
             if (generating && !expanded) GeneratingHint(strings.text(R.string.ui_preparing_full_solution_9a111))
-        } else if ((item.text.isNotBlank() || item.figurePaths.isNotEmpty()) && !(generating && answerFirst && !hasAnswer)) {
-            StreamingMarkdownBody(item.text, streaming = generating, imagePaths = item.figurePaths, onImageClick = onOpenImages)
+        } else if ((showSummary || item.text.isNotBlank() || item.figurePaths.isNotEmpty()) && !(generating && answerFirst && !hasAnswer)) {
+            // Continuous reply text needs one native selection surface. Separate
+            // TextViews trap both handles at the summary/explanation boundary.
+            val readingText = if (showSummary) listOf(summary, item.text)
+                .filter(String::isNotBlank).joinToString("\n\n") else item.text
+            StreamingMarkdownBody(readingText, streaming = generating, imagePaths = item.figurePaths, onImageClick = onOpenImages)
         } else if (generating) {
             GeneratingHint(when {
                 answerFirst && !hasAnswer -> strings.text(R.string.ui_generating_answer_1ee41)

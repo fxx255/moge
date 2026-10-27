@@ -21,7 +21,14 @@ import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,6 +54,7 @@ internal fun ConversationTitle(
     title: String,
     newMode: ConversationMode? = null,
     switchEnabled: Boolean = true,
+    conversationMode: ConversationMode? = null,
     onEditTitle: (() -> Unit)? = null,
     onSelectMode: (ConversationMode) -> Unit = {},
 ) {
@@ -83,21 +91,31 @@ internal fun ConversationTitle(
         .combinedClickable(interactionSource = interaction, indication = null,
             onClick = {}, onLongClickLabel = strings.text(R.string.ui_edit_conversation_title_9c8af), onLongClick = onEditTitle)
     else Modifier
-    Box(switch.heightIn(min = 44.dp), contentAlignment = Alignment.CenterStart) {
-        if (newMode == null) {
-            // A saved title has one stable layout, including while its data loads.
-            // AnimatedContent would briefly measure the empty outgoing title and
-            // clip the incoming marquee even with a zero-duration transition.
-            WritingTitle(text, animate = writeTitle, animateChanges = animateChanges, scroll = page.active)
-        } else {
-            AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
-                val duration = if (animateChanges) 240 else 0
-                (fadeIn(tween(duration)) + slideInVertically(tween(duration, easing = FastOutSlowInEasing)) { it / 4 })
-                    .togetherWith(fadeOut(tween(if (animateChanges) 120 else 0)) +
-                        slideOutVertically(tween(duration, easing = FastOutSlowInEasing)) { -it / 4 })
-                    .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(duration) }))
-            }, label = "conversation-title") { shown ->
-                WritingTitle(shown.text, animate = false, animateChanges = animateChanges, scroll = page.active)
+    Row((if (newMode != null) switch else Modifier).heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        (newMode ?: conversationMode)?.let { mode ->
+            Icon(if (mode == ConversationMode.CHAT) Icons.AutoMirrored.Outlined.Chat else Icons.Outlined.School,
+                strings.text(R.string.ui_1_s_mode_3cfe2, strings.label(mode)),
+                Modifier.padding(end = 8.dp).size(20.dp).testTag("conversation-mode-icon"),
+                tint = MaterialTheme.colorScheme.primary)
+        }
+        Box(Modifier.weight(1f, fill = false).then(if (newMode == null) switch.heightIn(min = 44.dp) else Modifier),
+            contentAlignment = Alignment.CenterStart) {
+            if (newMode == null) {
+                // A saved title has one stable layout, including while its data loads.
+                // AnimatedContent would briefly measure the empty outgoing title and
+                // clip the incoming marquee even with a zero-duration transition.
+                WritingTitle(text, animate = writeTitle, animateChanges = animateChanges, scroll = page.active)
+            } else {
+                AnimatedContent(target, contentAlignment = Alignment.CenterStart, transitionSpec = {
+                    val duration = if (animateChanges) 240 else 0
+                    (fadeIn(tween(duration)) + slideInVertically(tween(duration, easing = FastOutSlowInEasing)) { it / 4 })
+                        .togetherWith(fadeOut(tween(if (animateChanges) 120 else 0)) +
+                            slideOutVertically(tween(duration, easing = FastOutSlowInEasing)) { -it / 4 })
+                        .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(duration) }))
+                }, label = "conversation-title") { shown ->
+                    WritingTitle(shown.text, animate = false, animateChanges = animateChanges, scroll = page.active)
+                }
             }
         }
     }

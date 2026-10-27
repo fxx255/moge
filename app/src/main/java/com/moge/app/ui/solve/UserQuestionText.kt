@@ -6,19 +6,16 @@ import com.moge.app.ui.localization.rememberAppStrings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import com.moge.app.ui.theme.LocalAppTypeface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +28,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -39,8 +40,9 @@ import com.moge.app.ui.markdown.LocalSelectionScrollHost
 import com.moge.app.ui.markdown.createMarkdownTextView
 import com.moge.app.ui.markdown.renderMarkdownIfChanged
 import com.moge.app.ui.markdown.setMarkdownTextTap
+import com.moge.app.ui.markdown.markdownSelectionController
 
-/** Both first questions and follow-ups use the same native math path. */
+/** All question text shares the same handles, including literal and unfinished input. */
 @Composable
 internal fun UserQuestionText(
     source: String,
@@ -49,18 +51,12 @@ internal fun UserQuestionText(
     onClick: (() -> Unit)? = null,
 ) {
     val strings = rememberAppStrings()
-    val click = if (onClick != null) Modifier.clickable(onClickLabel = strings.text(R.string.ui_edit_input_695fa), onClick = onClick) else Modifier
     val math = remember(source) { userMathSource(source) }
     if (math == null) {
-        SelectionContainer {
-            Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
-        }
+        UserTextBody(source, renderMath = false, color, onClick)
     } else {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (math.incomplete) SelectionContainer {
-                Text(source, style = MaterialTheme.typography.bodyLarge, color = color, modifier = click)
-            }
-            else UserMathBody(math, color, onClick)
+            UserTextBody(if (math.incomplete) source else math.renderSource, renderMath = !math.incomplete, color, onClick)
             if (showSourceCopy) {
                 val context = LocalContext.current
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -82,7 +78,7 @@ internal fun UserQuestionText(
  * keep the entire equation visible, including unsplittable integral products.
  */
 @Composable
-private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Unit)?) {
+private fun UserTextBody(source: String, renderMath: Boolean, color: Color, onClick: (() -> Unit)?) {
     val textColor = color.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
@@ -91,27 +87,47 @@ private fun UserMathBody(math: UserMathSource, color: Color, onClick: (() -> Uni
     val density = LocalDensity.current
     val bodyTypeface = LocalAppTypeface.current
     val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
-    val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
-    BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds()) {
+    val style = MaterialTheme.typography.bodyLarge
+    val fontSizePx = with(density) { if (renderMath) MARKDOWN_TEXT_SIZE_SP.sp.toPx() else style.fontSize.toPx() }
+    val lineHeightPx = with(density) { style.lineHeight.toPx() }
+    val editLabel = rememberAppStrings().text(R.string.ui_edit_input_695fa)
+    val width = if (renderMath) Modifier.fillMaxWidth() else Modifier
+    BoxWithConstraints(width.clipToBounds()) {
         val viewportWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectionScrollHost) {
+        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, lineHeightPx, selectionScrollHost, renderMath) {
             val view = remember {
                 createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSizePx,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface)
+                    .apply {
+                        if (!renderMath) {
+                            includeFontPadding = false
+                            setPadding(0, 0, 0, 0)
+                            setLineSpacing((lineHeightPx - paint.getFontMetricsInt(null)).coerceAtLeast(0f), 1f)
+                        }
+                    }
             }
-            LaunchedEffect(view, math.renderSource, viewportWidthPx) {
+            LaunchedEffect(view, source, viewportWidthPx) {
                 withFrameNanos { }
                 view.requestLayout()
             }
             AndroidView(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = width.semantics {
+                    if (!renderMath) text = AnnotatedString(source)
+                    if (onClick != null) onClick(editLabel) { view.performClick() }
+                },
                 factory = { view },
                 update = {
-                    it.contentDescription = math.renderSource
+                    if (renderMath) it.contentDescription = source
                     // A long press or a tap ending an existing selection is a selection
                     // gesture; only an ordinary tap should start editing the old input.
                     setMarkdownTextTap(it, onClick)
-                    renderMarkdownIfChanged(it, math.renderSource, viewportWidthPx, textColor, linkColor)
+                    if (renderMath) renderMarkdownIfChanged(it, source, viewportWidthPx, textColor, linkColor)
+                    // Keep literal input byte-for-byte, and never replace its
+                    // Spannable during selection or an unrelated recomposition.
+                    else if (it.text.toString() != source) {
+                        markdownSelectionController(it)?.finish()
+                        it.text = source
+                    }
                 },
             )
         }

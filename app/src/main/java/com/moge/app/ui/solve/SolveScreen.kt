@@ -66,7 +66,6 @@ import kotlinx.coroutines.delay
 /** 首页与历史会话共用的文字/图像对话页。拍照只回传附件，不自动发送。 */
 @Composable
 fun SolveScreen(
-    conversationId: String?,
     onBack: (() -> Unit)? = null,
     onOpenSettings: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
@@ -95,7 +94,7 @@ fun SolveScreen(
     var favorite by remember { mutableStateOf<FavoriteTarget?>(null) }
     var selection by remember { mutableStateOf<AnswerSelection?>(null) }
     var savedFavoriteId by rememberSaveable { mutableStateOf<String?>(null) }
-    val observedId = state.conversationId ?: conversationId
+    val observedId = state.conversationId
     var editingTitle by rememberSaveable(observedId) { mutableStateOf(false) }
     LaunchedEffect(observedId, pageMotion.active) { if (pageMotion.active) onConversationObserved(observedId) }
     LaunchedEffect(state.notice) {
@@ -152,7 +151,7 @@ fun SolveScreen(
             onRenameTitle = vm::renameTitle,
             onDismissEditing = dismissEditing.takeIf { state.editingQuestionId != null }, actions = {
             ConversationActions(
-                existingConversation = state.conversationId != null || conversationId != null,
+                existingConversation = existing,
                 onNewConversation = onNewConversation,
                 onOpenHistory = onOpenHistory,
                 onOpenSettings = onOpenSettings,
