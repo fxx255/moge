@@ -50,6 +50,12 @@
 
 两条工作流共用 `scripts/release/test-runtime.gradle`：Robolectric 原生视图的默认语言设为简体中文，与应用默认设置一致；显式选择其他语言或屏幕配置的测试保留其配置。测试进程使用 1536 MiB 堆并每 40 个测试类重建一次，避免内置字体和原生资源在完整回归中累积耗尽内存。手动发布既有标签时也使用默认分支的同一运行配置，应用和测试源码仍来自标签。
 
+`scripts/release/verify_android.sh` 将完整测试、Lint、APK 构建分成三个依次运行的 Gradle 进程，
+每个进程使用 4 GiB 堆、两个可用处理器/worker，关闭项目并行并在 Gradle 内运行 Kotlin 编译器。
+这避免 Lint 与包含字体的 APK 打包争用同一堆，也避免额外编译器进程占用独立的大堆。
+该配置用于修复 0.6.9 首次远端 Debug 打包的 `ApkFlinger` Java heap space 失败，不省略测试或签名校验。
+手动发布既有标签时从修复后的默认分支加载脚本，标签内的应用代码保持不变。
+
 发布目标自动取该 GitHub 工作流所属仓库的真实标识，不在工程中捏造 URL。工作流明确要求该分发仓库公开。若将来源码必须私有，应另行设计公开分发仓库及其授权流程；当前工作流不自动创建或跨仓库推送。
 
 工作流执行测试、Lint、签名 arm64 构建，运行 `aapt dump badging` 和 `apksigner verify --print-certs`，由实际 APK 生成 `release-output/update.json`。内容包含 schemaVersion、versionCode、versionName、minSdk、packageName、abi、文件大小、SHA-256、签名证书 SHA-256、真实仓库/Release/APK URL 与标签。

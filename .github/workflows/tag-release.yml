@@ -86,7 +86,7 @@ jobs:
         run: |
           chmod +x gradlew
           python3 -m unittest discover -s "$RELEASE_TOOLING_DIR" -p 'test_*.py'
-          ./gradlew -I "$RELEASE_TOOLING_DIR/test-runtime.gradle" --no-daemon --no-configuration-cache --stacktrace testDebugUnitTest lintRelease assembleRelease
+          bash "$RELEASE_TOOLING_DIR/verify_android.sh" release
       - name: Generate metadata from verified APK and compare published versions
         env:
           GH_TOKEN: ${{ github.token }}
