@@ -18,11 +18,14 @@ import com.moge.app.data.db.MogeDatabase
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.llm.GenerationDiagnostics
+import com.moge.app.data.llm.AnswerUsageCodec
 import com.moge.app.data.llm.ModelClient
 import com.moge.app.data.llm.ModelException
 import com.moge.app.data.llm.MonotonicClock
 import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.llm.withTestModelCatalog
+import com.moge.app.data.llm.tools.SolveToolClient
+import com.moge.app.data.document.DocumentStore
 import com.moge.app.data.parse.ReplyFigure
 import com.moge.app.data.parse.ReplyParser
 import com.moge.app.data.prefs.SettingsRepository
@@ -47,6 +50,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -409,7 +413,8 @@ class EndToEndGenerationTest {
             every { questionVisionProfileId() } returns null
             every { profiles() } returns listOf(profile)
         }
-        val modelClient = ModelClient(settings, credentials, Dispatchers.Unconfined).withTestModelCatalog()
+        val modelClient = ModelClient(settings, credentials, Dispatchers.Unconfined,
+            solveToolClient = SolveToolClient(RuntimeFigureToolRenderer(renderer), context, DocumentStore(context))).withTestModelCatalog()
         val preparer = GenerationPreparer(modelClient, db.conversationDao(), settings, credentials, repository,
             com.moge.app.data.llm.VisionInputImageStore(context))
         manager = GenerationManager(
@@ -440,7 +445,9 @@ class EndToEndGenerationTest {
     }
 
     /** 把 [content] 切成小片作为 Chat Completions SSE 发出，最后带 finish_reason 与 usage。 */
-    private fun sse(content: String, finish: String, chunk: Int = 16): MockResponse {
+    private fun sse(content: String, finish: String, chunk: Int = 16,
+        usage: String = """{"prompt_tokens":120,"completion_tokens":40}""",
+    ): MockResponse {
         val body = StringBuilder()
         content.chunked(chunk).forEach { piece ->
             val delta = buildJsonObject {
@@ -451,7 +458,7 @@ class EndToEndGenerationTest {
             body.append("data: ").append(delta).append("\n\n")
         }
         body.append("data: {\"choices\":[{\"finish_reason\":\"").append(finish).append("\"}],")
-            .append("\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40}}\n\n")
+            .append("\"usage\":").append(usage).append("}\n\n")
         body.append("data: [DONE]\n\n")
         return MockResponse()
             .setHeader("Content-Type", "text/event-stream")
@@ -577,10 +584,106 @@ class EndToEndGenerationTest {
         val answer = db.requestDao().getMessage(record.answerMessageId)!!
         assertEquals(ReplyParser.parse(first.toString(), normalizeMarkdown = false).reply, answer.content)
         assertEquals("原结论", answer.finalAnswer)
+        val usage = AnswerUsageCodec.decode(answer.usageJson)!!
+        assertEquals(2, usage.requestCount)
+        assertEquals(240L, usage.inputTokens)
+        assertEquals(80L, usage.outputTokens)
         assertEquals(listOf("/figures/0.png", "/figures/1.png", "/figures/0.png"), RequestRepository.decodePathList(answer.imagePaths))
         assertEquals(2, renderedBatches.size)
         assertTrue(renderedBatches.last().single() is ReplyFigure.Diagram)
         assertEquals("PCM 与 64QAM", db.conversationDao().getConversation("c1")!!.title)
+    }
+
+    @Test fun `tool HTTP rounds contribute distinct usage once and persist through the footer`() = runBlocking {
+        fun guideRound(id: String, usage: String): MockResponse {
+            val arguments = """{"kind":"plot"}"""
+            val chunk = buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+                put("delta", buildJsonObject { put("tool_calls", buildJsonArray { add(buildJsonObject {
+                    put("index", 0); put("id", id); put("type", "function")
+                    put("function", buildJsonObject { put("name", "get_figure_guide"); put("arguments", arguments) })
+                }) }) }); put("finish_reason", "tool_calls")
+            }) }); put("usage", Json.parseToJsonElement(usage)) }
+            // The same cumulative sample can appear twice in one stream; bill that HTTP only once.
+            return MockResponse().setHeader("Content-Type", "text/event-stream")
+                .setBody("data: $chunk\n\ndata: {\"choices\":[],\"usage\":$usage}\n\ndata: [DONE]\n\n")
+        }
+        server.enqueue(guideRound("guide-1", """{"prompt_tokens":1000,"prompt_cache_hit_tokens":600,"completion_tokens":100}"""))
+        server.enqueue(guideRound("guide-2", """{"prompt_tokens":2000,"prompt_cache_hit_tokens":1500,"completion_tokens":200}"""))
+        server.enqueue(sse("""{"reply":"用量汇总完成"}""", "stop",
+            usage = """{"prompt_tokens":3000,"prompt_cache_hit_tokens":2500,"completion_tokens":300}"""))
+        val record = manager.submit(GenerationManager.Submission("c1", "帮我分析", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+        assertEquals(3, server.requestCount)
+        val saved = db.requestDao().getMessage(record.answerMessageId)!!
+        val total = AnswerUsageCodec.decode(saved.usageJson)!!
+        assertEquals(3, total.requestCount)
+        assertEquals(3, total.inputSamples)
+        assertEquals(6000L, total.inputTokens)
+        assertEquals(4600L, total.cachedInputTokens)
+        assertEquals(600L, total.outputTokens)
+        assertEquals("本次累计（3次） · 输入 6k · 缓存 4.6k · 输出 600", com.moge.app.ui.solve.usageLabel(saved.usageJson))
+    }
+
+    @Test fun `recognition and main answer usage are summed and recognition is saved in the snapshot`() = runBlocking {
+        val identity = credentials.resolveActiveIdentity()!!
+        every { credentials.questionVisionProfileId() } returns "vision"
+        every { credentials.resolveIdentityFor("vision") } returns identity.copy(profileId = "vision", visionEnabled = true)
+        every { credentials.credentialsFor("vision") } returns com.moge.app.data.credential.AiProfileCredentials(
+            baseUrl = identity.baseUrl, model = identity.model, apiKey = "k",
+            searchProtocol = AiSearchProtocol.OFF,
+        )
+        val photo = java.io.File.createTempFile("recognition-usage", ".png")
+        try {
+            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(
+                """{"choices":[{"message":{"content":"求一加一"}}],"usage":{"prompt_tokens":500,"completion_tokens":50}}"""))
+            server.enqueue(sse("""{"reply":"答案是二"}""", "stop"))
+            val record = manager.submit(GenerationManager.Submission("c1", "解答", listOf(photo.absolutePath)))
+            val done = awaitTerminal(record.requestId)
+            assertEquals(RequestStatus.COMPLETED.name, done.status)
+            val total = AnswerUsageCodec.decode(db.requestDao().getMessage(record.answerMessageId)!!.usageJson)!!
+            assertEquals(2, total.requestCount)
+            assertEquals(620L, total.inputTokens)
+            assertEquals(90L, total.outputTokens)
+            assertEquals(500L, SnapshotCodec.decode(done.snapshotJson)!!.preparationUsage!!.inputTokens)
+        } finally { photo.delete() }
+    }
+
+    @Test fun `tool generated mixed figures persist with their reserved IDs`() = runBlocking {
+        val specs = listOf(
+            "diagram" to """{"title":"流程","nodes":[{"id":"in","label":"输入"},{"id":"out","label":"输出"}],"edges":[{"from":"in","to":"out"}]}""",
+            "plot" to """{"title":"抛物线","series":[{"expr":"x^2"}]}""",
+        )
+        val calls = specs.mapIndexed { index, (type, spec) -> buildJsonObject {
+            put("index", index); put("id", "draw-$index"); put("type", "function")
+            put("function", buildJsonObject {
+                put("name", "render_figure"); put("arguments", buildJsonObject {
+                    put("figure_id", index + 1); put("type", type); put("spec", Json.parseToJsonElement(spec))
+                }.toString())
+            })
+        } }
+        val toolChunk = buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("delta", buildJsonObject { put("tool_calls", JsonArray(calls)) }); put("finish_reason", "tool_calls")
+        }) }) }
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody("data: $toolChunk\n\ndata: [DONE]\n\n"))
+        server.enqueue(sse("""{"conversation_title":"混合绘图","answer":"两张图","reply":"流程。\n[[FIGURE:1]]\n曲线。\n[[FIGURE:2]]"}""", "stop"))
+        val record = manager.submit(GenerationManager.Submission("c1", "画流程和曲线", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId).status)
+        assertEquals(2, server.requestCount)
+        val saved = db.requestDao().getMessage(record.answerMessageId)!!
+        assertEquals("流程。\n[[FIGURE:1]]\n曲线。\n[[FIGURE:2]]", saved.content)
+        assertEquals(listOf("/figures/0.png", "/figures/1.png"), RequestRepository.decodePathList(saved.imagePaths))
+        assertTrue(renderedBatches.last()[0] is ReplyFigure.Diagram)
+        assertTrue(renderedBatches.last()[1] is ReplyFigure.Plot)
+        assertEquals("混合绘图", db.conversationDao().getConversation("c1")!!.title)
+        val usage = AnswerUsageCodec.decode(saved.usageJson)!!
+        assertEquals(2, usage.requestCount)
+        assertEquals(1, usage.requestsWithUsage)
+        assertEquals(1, usage.inputSamples)
+        assertEquals(120L, usage.inputTokens)
+        assertEquals(40L, usage.outputTokens)
     }
 
     @Test
@@ -590,8 +693,8 @@ class EndToEndGenerationTest {
             """"plots":[{"title":"双纽线","series":[{"expr":"x"}]}]}"""
         // 第 2 轮：续写收尾，又引用了它自己的第 1 张图（应平移为全局第 2 张）。
         val round2 = """{"reply":"所以面积等于 1，最后对照示意图检查结果。\n\n[[FIGURE:1]]","diagrams":[{"title":"示意","nodes":[{"id":"a","label":"输入"},{"id":"b","label":"输出"}],"edges":[{"from":"a","to":"b"}]}]}"""
-        server.enqueue(sse(round1, finish = "length"))
-        server.enqueue(sse(round2, finish = "stop"))
+        server.enqueue(sse(round1, finish = "length", usage = """{"prompt_tokens":120,"prompt_cache_hit_tokens":80,"completion_tokens":40,"completion_tokens_details":{"reasoning_tokens":20}}"""))
+        server.enqueue(sse(round2, finish = "stop", usage = """{"prompt_tokens":300,"prompt_cache_hit_tokens":180,"completion_tokens":90,"completion_tokens_details":{"reasoning_tokens":50}}"""))
 
         val record = manager.submit(
             GenerationManager.Submission(
@@ -628,7 +731,13 @@ class EndToEndGenerationTest {
             RequestRepository.decodePathList(answer.imagePaths),
         )
         assertEquals("测试模型", answer.modelLabel)
-        assertTrue("usage 已落库", answer.usageJson.contains("inputTokens"))
+        val usage = AnswerUsageCodec.decode(answer.usageJson)!!
+        assertEquals(2, usage.requestCount)
+        assertEquals(2, usage.inputSamples)
+        assertEquals(420L, usage.inputTokens)
+        assertEquals(260L, usage.cachedInputTokens)
+        assertEquals(130L, usage.outputTokens)
+        assertEquals(70L, usage.reasoningTokens)
 
         val conversation = db.conversationDao().getConversation("c1")!!
         assertEquals("双纽线面积", conversation.title)

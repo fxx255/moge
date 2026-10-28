@@ -60,6 +60,9 @@ data class RequestSnapshot(
     val prompt: PromptSegments? = null,
     /** Version 1 stores individual model-facing messages, before adjacent-assistant merging. */
     val modelHistoryVersion: Int = 0,
+    /** Recognition requests belong to this answer even when a retry reuses the saved transcript. */
+    val preparationUsage: AnswerUsage? = null,
+    val autoResumeOnNetworkLoss: Boolean = false,
 ) {
     /** 身份齐备且路线可识别才可重试；纯照片题的 [sourceUserText] 可以为空。 */
     val isComplete: Boolean
@@ -89,6 +92,7 @@ data class RequestSnapshot(
         visionEnabled = primaryVisionEnabled,
         conversationMode = ConversationMode.fromName(conversationMode),
         prompt = prompt,
+        autoResumeOnNetworkLoss = autoResumeOnNetworkLoss,
     )
 
     companion object {
@@ -130,6 +134,7 @@ data class RequestPolicy(
     val visionEnabled: Boolean? = null,
     val conversationMode: ConversationMode = ConversationMode.SOLVE,
     val prompt: PromptSegments? = null,
+    val autoResumeOnNetworkLoss: Boolean = false,
 )
 
 /** 快照的序列化；坏快照解码成 null，调用方按「不可重试」处理。 */

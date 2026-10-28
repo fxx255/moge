@@ -215,6 +215,12 @@
     <string name="ui_input_1_s_d5982">"Input %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"Cached %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"Output %1$s"</string>
+    <string name="ui_usage_answer_total">"Answer total (%1$d calls)"</string>
+    <string name="ui_usage_legacy_request">"Legacy request"</string>
+    <string name="ui_usage_unknown">"Unknown"</string>
+    <string name="ui_usage_unavailable">"Usage unavailable"</string>
+    <string name="ui_usage_partial">"Some usage unavailable"</string>
+    <string name="ui_usage_prior_unknown">"Earlier usage unavailable"</string>
     <string name="ui_edit_input_original_kept_after_sending_e37d9">"Edit input · Original kept after sending"</string>
     <string name="ui_cancel_edit_11eec">"Cancel edit"</string>
     <string name="ui_adding_attachments_c3255">"Adding attachments…"</string>
@@ -628,4 +634,9 @@
     <string name="ui_camera_focus_and_meter">Tap to focus and adjust exposure, pinch to zoom</string>
     <string name="ui_camera_brightness">Adjust camera brightness</string>
     <string name="ui_camera_brightness_unavailable">This camera cannot adjust brightness</string>
+    <string name="ui_auto_resume_network">Continue once after a network interruption</string>
+    <string name="ui_auto_resume_network_detail">Only continue after answer text arrives. This may use additional tokens.</string>
+    <string name="ui_network_waiting">Waiting for the network…</string>
+    <string name="ui_network_retrying">Reconnecting…</string>
+    <string name="ui_network_continuing">Connection interrupted. Preparing to continue…</string>
 </resources>

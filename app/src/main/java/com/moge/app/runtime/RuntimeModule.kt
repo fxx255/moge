@@ -16,10 +16,13 @@ abstract class RuntimeModule {
     abstract fun bindFigureRenderer(impl: DefaultFigureRenderer): FigureRenderer
 
     @Binds
+    abstract fun bindFigureToolRenderer(impl: RuntimeFigureToolRenderer): com.moge.app.data.llm.tools.FigureToolRenderer
+
+    @Binds
     abstract fun bindClock(impl: SystemMonotonicClock): com.moge.app.data.llm.MonotonicClock
 }
 
 /** 注入用的单调时钟（测试替换成假时钟）。 */
 class SystemMonotonicClock @Inject constructor() : com.moge.app.data.llm.MonotonicClock {
-    override fun nanoTime(): Long = System.nanoTime()
+    override fun nanoTime(): Long = com.moge.app.data.llm.MonotonicClock.SYSTEM.nanoTime()
 }

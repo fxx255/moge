@@ -62,6 +62,25 @@ class MarkdownPreparationTest {
         assertEquals(prepared, prepareReplyMarkdown(prepared))
     }
 
+    @Test fun mixedLanguageBoldBoundariesAreIdempotentAndKeepLiteralContexts() {
+        val examples = listOf(
+            "**核对动词是否被偷换。**transform aspirations" to "**核对动词是否被偷换。**&#116;ransform aspirations",
+            "before**“中文观点”**after" to "befor&#101;**“中文观点”**&#97;fter",
+            "**核对题号。**22" to "**核对题号。**&#50;2",
+        )
+        for ((source, expected) in examples) {
+            val prepared = prepareReplyMarkdown(source)
+            assertEquals(expected, prepared)
+            assertEquals(prepared, prepareReplyMarkdown(prepared))
+        }
+        val protected = "`**核对。**transform`\n\n```text\n**核对。**transform\n```\n\n" +
+            "    **核对。**transform\n\n\t**核对。**transform\n\n" +
+            "\$\$\\text{**核对。**transform}\$\$\n\n" +
+            "\\*\\*核对。\\*\\*transform\n\n**未闭合。transform\n\n" +
+            "before**(literal)**after\n\n** 文字 **transform"
+        assertEquals(protected, prepareReplyMarkdown(protected))
+    }
+
     @Test fun screenshotStateAndOutputSequencesBecomeMathWithoutChangingTheirOrder() {
         val source = "**输出结果顺序：** 题目明确按 \$00,10,11,01\$ 给前一时刻度量，" +
             "所以答案也应按同一顺序写为 \$3,1,3,3\$；若改按 \$00,01,10,11\$ 才是 \$3,3,1,3\$。"

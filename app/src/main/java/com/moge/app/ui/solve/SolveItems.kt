@@ -35,6 +35,8 @@ sealed interface SolveItem {
         val figurePaths: List<String> = emptyList(),
         val modelLabel: String = "",
         val durationMs: Long = 0,
+        val startedAtMs: Long? = null,
+        val networkStatus: com.moge.app.data.llm.NetworkRecoveryStatus? = null,
         /** 生成中的思考过程；只活在内存里，不落库。 */
         val reasoning: String = "",
         /** 未完成的原因（失败态）。 */
@@ -131,6 +133,8 @@ private fun answerItem(
             text = live.partialText,
             reasoning = live.reasoning,
             finalAnswer = live.finalAnswer,
+            startedAtMs = live.startedAtMs,
+            networkStatus = live.networkStatus,
         )
     }
     val completed = SolveItem.Answer(

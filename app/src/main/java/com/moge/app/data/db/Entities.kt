@@ -83,7 +83,7 @@ data class MessageEntity(
     /** 本轮生成总耗时；0 = 未知。 */
     @ColumnInfo(name = "duration_ms", defaultValue = "0")
     val durationMs: Long = 0,
-    /** [com.moge.app.data.llm.UsageSample] 的 JSON；空串 = 未知。 */
+    /** [com.moge.app.data.llm.AnswerUsage] 的累计 JSON；旧版为末次请求样本，空串 = 未知。 */
     @ColumnInfo(name = "usage_json", defaultValue = "")
     val usageJson: String = "",
     /** 独立的最终答案；正文仍保存完整解答。 */

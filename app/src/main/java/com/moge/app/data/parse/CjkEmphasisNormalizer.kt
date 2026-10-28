@@ -2,9 +2,10 @@ package com.moge.app.data.parse
 
 /**
  * CommonMark rejects **评分。**后文 and 前**“重点”** when punctuation touches CJK prose.
+ * CJK emphasis has the same boundary issue beside Latin text: **核对。**transform.
  * Fullwidth ASCII symbols have the same problem: **effects on sth.**＝ cannot close because
  * ＝ is a Unicode math symbol, while its ASCII counterpart = counts as Markdown punctuation.
- * Encode only the adjacent CJK character or fullwidth symbol as a numeric character reference:
+ * Encode only the adjacent word character or fullwidth symbol as a numeric character reference:
  * the parser sees a punctuation boundary, then decodes exactly the original text. This retains
  * bold punctuation without inserting spaces or invisible characters into displayed/copied text.
  */
@@ -64,21 +65,22 @@ internal fun String.hasCodeIndentAt(index: Int): Boolean {
 }
 
 private fun collectCjkBoundaryCharacters(source: String, opening: Int, closing: Int, encodedCharacters: MutableSet<Int>) {
+    val cjkEmphasis = source.substring(opening + 2, closing).codePoints().anyMatch { it.isCjkLetter() }
     val beforeOpening = if (opening > 0) source.codePointBefore(opening) else -1
-    if (beforeOpening.needsCjkBoundaryEncoding() && source.codePointAt(opening + 2).isMarkdownPunctuation() &&
+    if (beforeOpening.needsCjkBoundaryEncoding(cjkEmphasis) && source.codePointAt(opening + 2).isMarkdownPunctuation() &&
         !source.isEscapedMarkdownToken(opening - Character.charCount(beforeOpening))
     ) {
         encodedCharacters += opening - Character.charCount(beforeOpening)
     }
     val afterClosing = closing + 2
     if (source.codePointBefore(closing).isMarkdownPunctuation() &&
-        afterClosing < source.length && source.codePointAt(afterClosing).needsCjkBoundaryEncoding()
+        afterClosing < source.length && source.codePointAt(afterClosing).needsCjkBoundaryEncoding(cjkEmphasis)
     ) encodedCharacters += afterClosing
 }
 
-/** Repair only fullwidth counterparts that CommonMark does not already classify as punctuation. */
-private fun Int.needsCjkBoundaryEncoding(): Boolean {
-    if (isCjkLetter()) return true
+/** Word boundaries around CJK emphasis, plus fullwidth counterparts of Markdown punctuation. */
+private fun Int.needsCjkBoundaryEncoding(cjkEmphasis: Boolean): Boolean {
+    if (isCjkLetter() || (cjkEmphasis && Character.isLetterOrDigit(this))) return true
     // Fullwidth U+FF01..U+FF5E maps to ASCII U+0021..U+007E.
     if (this !in 0xff01..0xff5e) return false
     return !isMarkdownPunctuation() && (this - 0xfee0).isMarkdownPunctuation()

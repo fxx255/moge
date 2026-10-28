@@ -269,6 +269,12 @@ interface RequestDao {
         finalAnswer: String,
     ): Int
 
+    /** Final elapsed time is known after the answer transaction commits; stale attempts cannot overwrite it. */
+    @Query("UPDATE message SET duration_ms = :durationMs WHERE id = :answerMessageId AND EXISTS " +
+        "(SELECT 1 FROM request WHERE request_id = :requestId AND attempt_id = :attemptId " +
+        "AND answer_message_id = :answerMessageId AND status = 'COMPLETED')")
+    suspend fun updateCompletedDuration(requestId: String, attemptId: String, answerMessageId: String, durationMs: Long): Int
+
     @Query("DELETE FROM request WHERE conversation_id = :conversationId")
     suspend fun deleteRequestsForConversation(conversationId: String)
 

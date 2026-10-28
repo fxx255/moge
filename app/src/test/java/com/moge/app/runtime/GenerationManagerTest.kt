@@ -1913,7 +1913,7 @@ class GenerationManagerTest {
     ): Triple<GenerationManager, GenerationPreparer, com.moge.app.data.credential.AiCredentialStore> {
         val store = credentialStore
         coEvery {
-            modelClient.completeWithProfile(any(), any(), any(), any())
+            modelClient.completeWithProfile(any(), any(), any(), any(), any(), any())
         } returns visionTranscribe
         val realPreparer = GenerationPreparer(
             modelClient = modelClient,
@@ -1947,7 +1947,7 @@ class GenerationManagerTest {
         val (local, _, _) = snapshotManager(visionTranscribe = "转写出来的题目")
         stubStreaming("""{"reply":"看图回答"}""")
         // Install the failure before submit launches preparation on its worker scope.
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } throws
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } throws
             ModelException(ModelException.Kind.NETWORK, "识别服务断开")
         val created = local.submit(
             GenerationManager.Submission(
@@ -1977,7 +1977,7 @@ class GenerationManagerTest {
         val profileIds = java.util.concurrent.CopyOnWriteArrayList<String>()
         val imageCounts = java.util.concurrent.CopyOnWriteArrayList<Int>()
         val sentLastUser = java.util.concurrent.CopyOnWriteArrayList<String>()
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } coAnswers {
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } coAnswers {
             profileIds += arg<String>(0)
             "转写出来的题目"
         }
@@ -2201,7 +2201,7 @@ class GenerationManagerTest {
             assertEquals("转写出来的题目", sentLastUser.single())
 
             val visionCalls = AtomicInteger(0)
-            coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } coAnswers {
+            coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } coAnswers {
                 visionCalls.incrementAndGet()
                 "不该被重新转写"
             }

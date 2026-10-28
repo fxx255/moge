@@ -19,6 +19,8 @@ import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.llm.StreamEvent
 import com.moge.app.data.llm.UsageSample
+import com.moge.app.data.llm.AnswerUsage
+import com.moge.app.data.llm.AnswerUsageCodec
 import com.moge.app.data.llm.mergeContinuation
 import com.moge.app.data.llm.offsetFigureAnchors
 import com.moge.app.data.llm.localizeFigureAnchors
@@ -52,8 +54,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -98,6 +98,7 @@ class GenerationManager @Inject constructor(
     /** 准备阶段（照片转写、历史裁剪）——同样不依赖任何页面。 */
     private val preparer: GenerationPreparer,
     private val figureCompleter: GenerationFigureCompleter,
+    private val networkRecovery: GenerationNetworkRecovery? = null,
 ) {
 
     /**
@@ -146,6 +147,7 @@ class GenerationManager @Inject constructor(
          */
         val policy: RequestPolicy? = null,
         val continuationText: String = "",
+        val preparationUsage: AnswerUsage? = null,
     )
 
     /**
@@ -273,6 +275,9 @@ class GenerationManager @Inject constructor(
         val finalAnswer: String = "",
         /** 终态落库后仍需完成通知与释放保护；在真正交还任务所有权前不能接受下一问。 */
         val ownsTask: Boolean = false,
+        /** Same elapsed-realtime origin for every page observing this attempt. */
+        val startedAtMs: Long? = null,
+        val networkStatus: com.moge.app.data.llm.NetworkRecoveryStatus? = null,
     ) {
         val isRunning: Boolean get() = phase?.isInFlight == true || ownsTask
     }
@@ -322,7 +327,7 @@ class GenerationManager @Inject constructor(
      *   `invokeOnCompletion` 兜底：万一 body 从未进入，也按 owner 的原因收尾，
      *   记录绝不停在 PREPARING。
      */
-    private class TaskOwner(val requestId: String, val attemptId: String) {
+    private class TaskOwner(val requestId: String, val attemptId: String, val timer: GenerationTimer) {
         /**
          * 协程句柄：在同一个临界区内回填；尚未回填时到达的取消先记
          * [cancelRequested]，回填后立即补取消，不会漏。
@@ -392,10 +397,11 @@ class GenerationManager @Inject constructor(
      * 协程并把第一个变成孤儿（两个 body 同时写库、模型被调两次）。
      * 现在同名也直接抛 [AlreadyRunningException]。
      */
-    private fun registerOwner(requestId: String, attemptId: String): TaskOwner {
+    private fun registerOwner(requestId: String, attemptId: String,
+        timer: GenerationTimer = GenerationTimer(monotonicClock)): TaskOwner {
         synchronized(lock) {
             if (owner != null) throw AlreadyRunningException()
-            val created = TaskOwner(requestId, attemptId)
+            val created = TaskOwner(requestId, attemptId, timer)
             owner = created
             return created
         }
@@ -528,6 +534,7 @@ class GenerationManager @Inject constructor(
             phase = RequestStatus.RUNNING,
             ownsTask = true,
             answerMessageId = request.answerMessageId,
+            startedAtMs = owner.timer.startedAtMs,
         )
         launchTurn(owner, request.conversationId, request.answerMessageId) { owned ->
             runGeneration(requestId, request, owner = owned)
@@ -571,7 +578,8 @@ class GenerationManager @Inject constructor(
         val job = scope.launch(start = CoroutineStart.ATOMIC) {
             owner.enteredBody = true
             try {
-                body(owner)
+                val session = networkRecovery?.session { status -> updateActive(owner) { it.copy(networkStatus = status) } }
+                if (session == null) body(owner) else withContext(session) { body(owner) }
             } finally {
                 // 所有出口都归还所有权：早于这里的一定已经完成"终态落库 + guard 释放"，
                 // 所以 owner 存在 ⇒ 这一轮真的还没收完 ⇒ 单飞不会提前放开。
@@ -670,6 +678,7 @@ class GenerationManager @Inject constructor(
         return mutex.withLock {
             // 2) 锁内单飞判定：owner 存在即有人还在跑（不看 phase）。
             if (hasOwner()) throw AlreadyRunningException()
+            val submissionTimer = GenerationTimer(monotonicClock)
             val pinnedSubmission = if (submission.parentMessageId == ConversationBranches.AUTO_PARENT) {
                 val path = ConversationBranches.visible(conversationDao.getMessages(submission.conversationId),
                     conversationDao.getBranchSelections(submission.conversationId))
@@ -706,7 +715,7 @@ class GenerationManager @Inject constructor(
             }
             // 4) 登记 owner 并启动。
             val owner = try {
-                registerOwner(record.requestId, record.attemptId)
+                registerOwner(record.requestId, record.attemptId, submissionTimer)
             } catch (rejected: AlreadyRunningException) {
                 // 极端交错（另一个入口绕过 mutex 直接 start）：已落盘的记录必须收成终态，
                 // 不能永远停在 PREPARING。
@@ -720,6 +729,7 @@ class GenerationManager @Inject constructor(
                 phase = RequestStatus.PREPARING,
                 ownsTask = true,
                 answerMessageId = record.answerMessageId,
+                startedAtMs = owner.timer.startedAtMs,
             )
             launchTurn(owner, record.conversationId, record.answerMessageId) { owned ->
                 runSubmission(record, pinnedSubmission, initialSnapshot, owned)
@@ -811,6 +821,7 @@ class GenerationManager @Inject constructor(
                 ownsTask = true,
                 answerMessageId = record.answerMessageId,
                 partialText = SnapshotCodec.decode(record.snapshotJson)?.continuationText.orEmpty(),
+                startedAtMs = owner.timer.startedAtMs,
             )
             launchTurn(owner, record.conversationId, record.answerMessageId) { owned ->
                 runRetry(record, attemptId, owned)
@@ -909,6 +920,9 @@ class GenerationManager @Inject constructor(
         modelLabel = modelLabelFor(prepared.snapshot),
         policy = prepared.policy,
         continuationText = prepared.snapshot.continuationText,
+        preparationUsage = prepared.snapshot.preparationUsage ?: if (
+            prepared.snapshot.photoRoute == RequestSnapshot.PHOTO_ROUTE_TRANSCRIBE
+        ) AnswerUsage(priorUsageUnknown = true) else null,
     )
 
     /** 转写结果存到用户消息上供题目卡核对；写失败不影响生成。 */
@@ -1144,7 +1158,7 @@ class GenerationManager @Inject constructor(
     ) {
         val conversationId = record?.conversationId ?: request.conversationId
         val answerMessageId = record?.answerMessageId ?: request.answerMessageId
-        val timer = GenerationTimer(monotonicClock)
+        val timer = owner.timer
         // 每个 HTTP 轮次一个解码器：续写/恢复是不同的请求体，正文要分别累积再合并。
         var partial = request.continuationText
         var extraRequests = 0
@@ -1164,13 +1178,15 @@ class GenerationManager @Inject constructor(
         // 按轮数统计会整个漏掉。
         var callsWithUsage = 0
         var callsWithoutUsage = 0
-        var lastUsage: UsageSample? = null
+        var answerUsage = (request.preparationUsage ?: AnswerUsage()).let {
+            it.copy(priorUsageUnknown = it.priorUsageUnknown || request.continuationText.isNotBlank())
+        }
         val collectUsage: (UsageSample?) -> Unit = { sample ->
+            answerUsage = answerUsage.plus(sample)
             if (sample == null) {
                 callsWithoutUsage++
             } else {
                 callsWithUsage++
-                lastUsage = sample
             }
             // 逐次留痕：失败/缺失也计一次，进入"样本不可得"而不是被丢掉。
             diagnostics.recordHttpUsage(request.usageGroupKey, sample)
@@ -1391,7 +1407,6 @@ class GenerationManager @Inject constructor(
                     request.history, request.imageBase64s, request.solveMode, request.policy, collectUsage,
                 ) else null,
             )
-            timer.markCompleted()
             // ── 绘图 + 学科归档 + 最终持久化，全部在管理器内完成 ──
             // 页面此时可能已经销毁；这些工作与页面无关，所以切页回来图还在。
             //
@@ -1406,8 +1421,8 @@ class GenerationManager @Inject constructor(
                 figures = accumulatedFigures,
                 result = result,
                 modelLabel = request.modelLabel,
-                durationMs = timer.snapshot().completedMs ?: 0L,
-                usageJson = encodeUsage(lastUsage),
+                durationMs = timer.elapsedMs(),
+                usageJson = AnswerUsageCodec.encode(answerUsage),
                 preparedFigurePaths = imagePaths,
             )
             // 绘图期间的取消必须在提交终态之前被看到。
@@ -1420,6 +1435,13 @@ class GenerationManager @Inject constructor(
                     ModelException.Kind.INVALID_RESPONSE,
                     "回答没能保存到本地，请重试",
                 )
+            }
+            // Stop only after text, figures and answer metadata have committed.
+            timer.markCompleted()
+            withContext(NonCancellable) {
+                runCatching { requestRepository.saveCompletedDuration(requestId, request.attemptId, answerMessageId,
+                    timer.snapshot().completedMs ?: 0L) }
+                    .onFailure { Log.w(TAG, "完成用时补写失败", it) }
             }
             updateActive(owner) {
                 it.copy(partialText = finalText, phase = RequestStatus.COMPLETED)
@@ -1561,20 +1583,6 @@ class GenerationManager @Inject constructor(
         }
         is java.io.FileNotFoundException -> FailureKind.ATTACHMENT_MISSING
         else -> FailureKind.UNKNOWN
-    }
-
-    /**
-     * 回答气泡展示用的 usage：取最后一次 HTTP 调用的样本（续写轮的输入已含前文）。
-     * 缺失字段不写，界面据此显示「未知」而不是 0。
-     */
-    private fun encodeUsage(sample: UsageSample?): String {
-        if (sample == null) return ""
-        return buildJsonObject {
-            sample.inputTokens?.let { put("inputTokens", it) }
-            sample.cachedInputTokens?.let { put("cachedInputTokens", it) }
-            sample.outputTokens?.let { put("outputTokens", it) }
-            if (sample.source.isNotBlank()) put("source", sample.source)
-        }.toString()
     }
 
     class AlreadyRunningException : IllegalStateException("已有生成任务在进行中")

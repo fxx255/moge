@@ -10,7 +10,6 @@ import com.moge.app.domain.ConversationMode
 
 import androidx.compose.ui.draw.shadow
 
-import android.os.SystemClock
 import com.moge.app.ui.components.excludePageSwipe
 import com.moge.app.ui.components.PaperControlHorizontalTravel
 import com.moge.app.ui.components.PaperControlVerticalTravel
@@ -87,12 +86,6 @@ import com.moge.app.ui.photo.QuestionPhoto
 import com.moge.app.ui.markdown.StreamingMarkdownBody
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.theme.MonoFamily
-import java.util.Locale
-import kotlinx.coroutines.delay
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.longOrNull
 
 /** 输入框上方的快捷追问。 */
 
@@ -223,6 +216,7 @@ internal fun AnswerSheet(
     val paper = MogeTheme.paper
     val motion = MogeTheme.motionEnabled
     val generating = item.state == AnswerState.PREPARING || item.state == AnswerState.STREAMING
+    val elapsedMs = rememberAnswerElapsedMs(item.startedAtMs.takeIf { generating }, item.durationMs)
     val hasAnswer = item.finalAnswer.isNotBlank() && item.finalAnswer != item.text
     val foldable = answerFirst && hasAnswer
     var expanded by rememberSaveable(item.id, item.finalAnswer) { mutableStateOf(false) }
@@ -244,9 +238,14 @@ internal fun AnswerSheet(
             .padding(start = 40.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        AnswerHeader(item, conversationMode)
+        AnswerHeader(item, conversationMode, elapsedMs)
+        if (generating && item.networkStatus != null) GeneratingHint(strings.text(when (item.networkStatus) {
+            com.moge.app.data.llm.NetworkRecoveryStatus.WAITING -> R.string.ui_network_waiting
+            com.moge.app.data.llm.NetworkRecoveryStatus.RETRYING -> R.string.ui_network_retrying
+            com.moge.app.data.llm.NetworkRecoveryStatus.CONTINUING -> R.string.ui_network_continuing
+        }))
         if (item.reasoning.isNotBlank() && generating) {
-            ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty())
+            ScratchPad(item.id, item.reasoning, thinking = item.text.isEmpty(), elapsedMs = elapsedMs)
         }
         if (showSummary) {
             Text(strings.text(R.string.ui_answer_8784e), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -278,15 +277,16 @@ internal fun AnswerSheet(
 }
 
 @Composable
-private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationMode) {
+private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationMode, elapsedMs: Long) {
     val strings = rememberAppStrings()
     val parts = buildList {
         add(if (conversationMode == ConversationMode.CHAT) strings.text(R.string.ui_reply_065b4) else strings.text(R.string.ui_solution_d5d01))
         if (item.modelLabel.isNotBlank()) add(item.modelLabel)
-        if (item.durationMs > 0) add("${(item.durationMs + 500) / 1000}s")
+        if (elapsedMs > 0) add("${elapsedMs / 1000}s")
     }
     Text(
         text = parts.joinToString(" · "),
+        modifier = Modifier.testTag("answer-header"),
         style = MaterialTheme.typography.labelLarge.copy(fontFamily = MonoFamily),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -294,21 +294,14 @@ private fun AnswerHeader(item: SolveItem.Answer, conversationMode: ConversationM
 
 /**
  * 草稿纸：思考过程放在虚线框里，默认折叠成一行「草稿中… 38s」，点开看全文。
- * 计时从这张解答纸第一次出现推理开始；正文出来后停表，显示「草稿 · 38s」。
+ * 计时与标题共用应用任务的起点，正文出现后仍持续更新到保存完成。
  * 推理不落库，只在生成期间可见。
  */
 @Composable
-private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean) {
+private fun ScratchPad(answerId: String, reasoning: String, thinking: Boolean, elapsedMs: Long) {
     val strings = rememberAppStrings()
     var expanded by rememberSaveable(answerId) { mutableStateOf(false) }
-    val startedAt = rememberSaveable(answerId) { SystemClock.elapsedRealtime() }
-    var elapsedSec by remember(answerId) { mutableLongStateOf((SystemClock.elapsedRealtime() - startedAt) / 1000) }
-    LaunchedEffect(answerId, thinking) {
-        while (thinking) {
-            elapsedSec = (SystemClock.elapsedRealtime() - startedAt) / 1000
-            delay(1_000)
-        }
-    }
+    val elapsedSec = elapsedMs / 1000
     val label = if (thinking) strings.text(R.string.ui_drafting_1_ss_352e8, elapsedSec) else strings.text(R.string.ui_draft_1_ss_0ecde, elapsedSec)
     Column(
         Modifier
@@ -401,26 +394,30 @@ private fun AnswerFooter(
     }
 }
 
-/** 页脚操作行：用量 · 重新生成 · 收藏 · 分享。 */
+/** 页脚累计用量占满宽度，操作按钮独立排列，兼容较长统计和大字体。 */
 @Composable
 private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit, actionsEnabled: Boolean, onShare: () -> Unit, onSave: () -> Unit) {
     val strings = rememberAppStrings()
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = usageLabel(item.usageJson, strings).orEmpty(),
-            style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        item.regenerateRequestId?.let { requestId ->
-            RegenerateButton(enabled = actionsEnabled) { onRegenerate(requestId) }
+    Column(Modifier.fillMaxWidth()) {
+        usageLabel(item.usageJson, strings)?.let { label ->
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-        if (item.text.isNotBlank()) {
-            IconButton(onClick = onSave) {
-                Icon(Icons.Outlined.BookmarkBorder, contentDescription = strings.text(R.string.ui_save_to_notebook_fd727))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            item.regenerateRequestId?.let { requestId ->
+                RegenerateButton(enabled = actionsEnabled) { onRegenerate(requestId) }
             }
-            IconButton(onClick = onShare) {
-                Icon(Icons.Outlined.Share, contentDescription = strings.text(R.string.ui_share_conversation_image_e5c0f))
+            if (item.text.isNotBlank()) {
+                IconButton(onClick = onSave) {
+                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = strings.text(R.string.ui_save_to_notebook_fd727))
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Outlined.Share, contentDescription = strings.text(R.string.ui_share_conversation_image_e5c0f))
+                }
             }
         }
     }
@@ -432,28 +429,6 @@ private fun RegenerateButton(enabled: Boolean, onClick: () -> Unit) {
     IconButton(onClick = onClick, enabled = enabled) {
         Icon(Icons.Outlined.Refresh, contentDescription = strings.text(R.string.ui_regenerate_2e190))
     }
-}
-
-/**
- * 页脚的用量文案：「输入 1.2k · 缓存 900 · 输出 860」。
- * 供应商没给的字段不显示（不冒充 0）；全都没有返回 null。
- */
-internal fun usageLabel(usageJson: String, strings: com.moge.app.core.TextResources? = null): String? {
-    if (usageJson.isBlank()) return null
-    val obj = runCatching { Json.parseToJsonElement(usageJson).jsonObject }.getOrNull() ?: return null
-    fun field(name: String) = (obj[name] as? JsonPrimitive)?.longOrNull
-    val parts = buildList {
-        field("inputTokens")?.let { add((strings?.text(R.string.ui_input_1_s_d5982, compactCount(it)) ?: "输入 ${compactCount(it)}")) }
-        field("cachedInputTokens")?.takeIf { it > 0 }?.let { add((strings?.text(R.string.ui_cached_1_s_bc1e4, compactCount(it)) ?: "缓存 ${compactCount(it)}")) }
-        field("outputTokens")?.let { add((strings?.text(R.string.ui_output_1_s_0f7f9, compactCount(it)) ?: "输出 ${compactCount(it)}")) }
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
-}
-
-internal fun compactCount(value: Long): String = when {
-    value < 1_000 -> value.toString()
-    value < 100_000 -> String.format(Locale.ROOT, "%.1fk", value / 1_000.0).replace(".0k", "k")
-    else -> "${value / 1_000}k"
 }
 
 /** 文字、附件与发送；生成中发送键变成停止键。 */

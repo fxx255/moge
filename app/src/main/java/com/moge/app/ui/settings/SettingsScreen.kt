@@ -119,6 +119,7 @@ fun SettingsScreen(
             VisionSection(state = models, onSelect = vm::setVisionProfile)
             SettingsSection(strings.text(R.string.ui_preferences_9a18b)) {
                 ConversationScreenOnSetting(prefs.keepScreenOnInConversation, vm::setKeepScreenOnInConversation)
+                NetworkResumeSetting(prefs.autoResumeOnNetworkLoss, vm::setAutoResumeOnNetworkLoss)
                 SwitchRow(strings.text(R.string.ui_clean_up_question_photos_921de), strings.text(R.string.ui_clean_up_question_photos_after_cropping_chat_photos_stay_as_f7f23),
                     prefs.questionPhotoPreprocessing, vm::setQuestionPhotoPreprocessing)
             }
@@ -424,6 +425,12 @@ internal fun ChipRow(content: @Composable () -> Unit) {
 internal fun ConversationScreenOnSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val strings = rememberAppStrings()
     SwitchRow(strings.text(R.string.ui_keep_screen_on_during_conversations_8cf60), subtitle = null, checked = checked, onCheckedChange = onCheckedChange)
+}
+
+@Composable
+internal fun NetworkResumeSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val strings = rememberAppStrings()
+    SwitchRow(strings.text(R.string.ui_auto_resume_network), strings.text(R.string.ui_auto_resume_network_detail), checked, onCheckedChange)
 }
 
 @Composable

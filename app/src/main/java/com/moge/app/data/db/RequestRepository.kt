@@ -178,6 +178,11 @@ class RequestRepository @Inject constructor(
         }.getOrDefault(false)
     }
 
+    suspend fun saveCompletedDuration(requestId: String, attemptId: String, answerMessageId: String,
+        durationMs: Long): Boolean = withContext(io) {
+        dao.updateCompletedDuration(requestId, attemptId, answerMessageId, durationMs.coerceAtLeast(0)) > 0
+    }
+
     /** 中断：保留已生成的部分正文（**只留在请求记录里**），记录失败归类。 */
     suspend fun interrupt(
         requestId: String,

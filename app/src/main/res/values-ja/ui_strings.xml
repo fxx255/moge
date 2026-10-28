@@ -215,6 +215,12 @@
     <string name="ui_input_1_s_d5982">"入力 %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"キャッシュ %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"出力 %1$s"</string>
+    <string name="ui_usage_answer_total">"今回の合計（%1$d回）"</string>
+    <string name="ui_usage_legacy_request">"旧版の単一リクエスト"</string>
+    <string name="ui_usage_unknown">"不明"</string>
+    <string name="ui_usage_unavailable">"使用量の報告なし"</string>
+    <string name="ui_usage_partial">"一部の使用量は不明"</string>
+    <string name="ui_usage_prior_unknown">"前半の使用量は不明"</string>
     <string name="ui_edit_input_original_kept_after_sending_e37d9">"入力を編集 · 送信後も元の版を保持"</string>
     <string name="ui_cancel_edit_11eec">"編集をキャンセル"</string>
     <string name="ui_adding_attachments_c3255">"添付を追加中…"</string>
@@ -628,4 +634,9 @@
     <string name="ui_camera_focus_and_meter">タップしてピントと露出を調整、ピンチでズーム</string>
     <string name="ui_camera_brightness">撮影の明るさを調整</string>
     <string name="ui_camera_brightness_unavailable">このカメラは明るさの調整に対応していません</string>
+    <string name="ui_auto_resume_network">接続回復後に一度だけ自動で続きを生成</string>
+    <string name="ui_auto_resume_network_detail">回答本文を受信済みの場合のみ続行します。トークン消費が増えることがあります。</string>
+    <string name="ui_network_waiting">接続の回復を待っています…</string>
+    <string name="ui_network_retrying">再接続しています…</string>
+    <string name="ui_network_continuing">接続が中断しました。続きの生成を準備しています…</string>
 </resources>

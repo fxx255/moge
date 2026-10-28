@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.6.8**（`versionCode = 48`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.6.8.md)。
+当前正式版本：**0.6.9**（`versionCode = 49`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.6.9.md)。
 
 ## 功能
 
@@ -24,6 +24,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **文档附件分析**：保留 PDF、DOCX、PPTX、XLSX 等原件，通过附件卡片预览；模型按需调用页、章节、表格、检索和图像读取工具，回答附可点击来源，追问与收藏保留文档引用。PDF 统一通过按页读取工具分析，图表和扫描页由看图模型读取页图。微信等应用的分享和“打开方式”会建立独立的新对话草稿，不把文档正文填入输入框。
 - **模型配置**：自行填写接口地址、模型名称和 API Key，选择 Chat Completions 或 Responses 协议，以及看图、联网和推理设置。关闭联网不会改变已选择的接口。图片提问需要看图模型；文字模型未配置可用看图兜底时，发送前提示并保留输入和图片。
 - **应用内更新**：正式版启用版本检查、下载校验和系统安装，默认使用 `https://ghfast.top/` 镜像，失败时回退 GitHub 直连。
+- **网络恢复**：发送前断网可等待恢复，临时连接错误有限重试，保留已有正文；设置中可开启默认关闭的“网络恢复后自动续写一次”，可能增加模型用量。
 
 图表由结构化数据在本地绘制，当前没有接入通用文生图服务。等概、各向同性噪声下的星座判决域可由完整坐标计算，支持单点、多点和全部点的区域展示。图片理解、搜索等能力取决于所选模型和服务端接口。
 

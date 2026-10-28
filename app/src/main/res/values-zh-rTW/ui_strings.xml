@@ -215,6 +215,12 @@
     <string name="ui_input_1_s_d5982">"輸入 %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"快取 %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"輸出 %1$s"</string>
+    <string name="ui_usage_answer_total">"本次累計（%1$d次）"</string>
+    <string name="ui_usage_legacy_request">"舊版單次"</string>
+    <string name="ui_usage_unknown">"未知"</string>
+    <string name="ui_usage_unavailable">"用量未回傳"</string>
+    <string name="ui_usage_partial">"部分用量未回傳"</string>
+    <string name="ui_usage_prior_unknown">"前段用量缺失"</string>
     <string name="ui_edit_input_original_kept_after_sending_e37d9">"修改輸入 · 傳送後保留原版本"</string>
     <string name="ui_cancel_edit_11eec">"取消修改"</string>
     <string name="ui_adding_attachments_c3255">"正在新增附件…"</string>
@@ -628,4 +634,9 @@
     <string name="ui_camera_focus_and_meter">點選對焦並調整曝光，雙指縮放</string>
     <string name="ui_camera_brightness">調整拍攝亮度</string>
     <string name="ui_camera_brightness_unavailable">此相機不支援調整亮度</string>
+    <string name="ui_auto_resume_network">網路恢復後自動續寫一次</string>
+    <string name="ui_auto_resume_network_detail">僅在已收到正文後續寫一次，可能增加用量。</string>
+    <string name="ui_network_waiting">等待網路恢復…</string>
+    <string name="ui_network_retrying">正在重新連線…</string>
+    <string name="ui_network_continuing">網路中斷，正在準備續寫…</string>
 </resources>

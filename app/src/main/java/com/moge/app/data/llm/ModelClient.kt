@@ -6,6 +6,7 @@ import com.moge.app.data.credential.AiCredentialStore
 import com.moge.app.data.credential.AiReasoningEffort
 import com.moge.app.data.credential.AiApiProtocol
 import com.moge.app.data.document.DocumentAgentClient
+import com.moge.app.data.llm.tools.SolveToolClient
 import com.moge.app.data.credential.AiSearchProtocol
 import com.moge.app.data.parse.ParsedReply
 import com.moge.app.data.prefs.SettingsRepository
@@ -79,6 +80,7 @@ class ModelClient @Inject constructor(
     private val credentialStore: AiCredentialStore,
     @param:IoDispatcher private val io: CoroutineDispatcher,
     private val documentAgent: DocumentAgentClient? = null,
+    private val solveToolClient: SolveToolClient? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -130,10 +132,21 @@ class ModelClient @Inject constructor(
          */
         policy: RequestPolicy? = null,
         onEvent: suspend (StreamEvent) -> Unit,
+    ): ParsedReply = NetworkAnswerRecovery.run(
+        ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE), policy?.autoResumeOnNetworkLoss == true,
+        messages, imageBase64s, onEvent, turnContext = policy?.prompt?.volatileSystem.orEmpty(),
+    ) { history, images, recovering, events ->
+        chatStreamingOnce(history, images, solveMode, webSearchEnabled && !recovering, forceWebSearch && !recovering, onUsage, policy, events)
+    }
+
+    private suspend fun chatStreamingOnce(
+        messages: List<ChatMessage>, imageBase64s: List<String>, solveMode: SolveMode,
+        webSearchEnabled: Boolean, forceWebSearch: Boolean, onUsage: (UsageSample?) -> Unit,
+        policy: RequestPolicy?, onEvent: suspend (StreamEvent) -> Unit,
     ): ParsedReply = modelRequest {
         val response = ConversationResponse(policy?.conversationMode ?: ConversationMode.SOLVE)
         val configured = resolveConfigured(policy).copy(conversationMode = response.mode)
-        val prompt = PromptAssembler.reusablePrompt(policy?.prompt, solveMode, response.mode) ?: settings.current().let { prefs -> PromptAssembler.assemble(
+        var prompt = PromptAssembler.reusablePrompt(policy?.prompt, solveMode, response.mode) ?: settings.current().let { prefs -> PromptAssembler.assemble(
             protocol = SYSTEM_PROMPT,
             nickname = prefs.nickname,
             reasoningEffort = configured.reasoningEffort,
@@ -150,8 +163,33 @@ class ModelClient @Inject constructor(
             webSearchOn && searchProtocol == AiSearchProtocol.RESPONSES -> AiApiProtocol.RESPONSES
             else -> AiApiProtocol.CHAT_COMPLETIONS
         }
+        var toolFallback = false
+        if (response.mode == ConversationMode.SOLVE && solveToolClient != null && configured.capability?.supportsFunctionTools != false) {
+            val payload = if (apiProtocol == AiApiProtocol.RESPONSES) buildDeepSeekResponsesPayload(
+                configured.copy(requestWebSearch = webSearchOn), messages, imageBase64s, prompt, forceWebSearch && webSearchOn,
+            ) else buildChatPayload(configured, messages, imageBase64s, prompt, stream = true,
+                webSearchEnabled = webSearchOn && searchProtocol == AiSearchProtocol.CHAT_COMPLETIONS)
+            val request = Request.Builder()
+                .url(if (apiProtocol == AiApiProtocol.RESPONSES) deepSeekResponsesUrl(configured.baseUrl) else completionsUrl(configured.baseUrl))
+                .header("Authorization", "Bearer ${configured.apiKey}")
+                .post(payload.toString().toRequestBody(mediaType)).build()
+            val result = solveToolClient.run(client, request, payload, apiProtocol, messages, configured.visionEnabled,
+                ModelGenerationParameters.fields(configured.baseUrl, configured.model, configured.reasoningEffort,
+                    apiProtocol, finalAnswer = true, capability = configured.capability), onUsage, onEvent,
+                recoverySystem = finalAnswerPrompt(prompt, configured.reasoningEffort).stableSystem,
+                autoResumeOnNetworkLoss = policy?.autoResumeOnNetworkLoss == true)
+            if (result != null) return@modelRequest withCitations(result.reply, result.citations, prompt.answerLanguage)
+            toolFallback = true
+        }
+        // Legacy/test clients and declared/rejected endpoints keep the complete inline figure contract.
+        if (response.mode == ConversationMode.SOLVE) prompt = prompt.copy(
+            stableSystem = prompt.stableSystem.replace(SOLVE_SYSTEM_PROMPT, LEGACY_SOLVE_SYSTEM_PROMPT),
+        )
+        fun noteCompatibility(reply: ParsedReply): ParsedReply = if (toolFallback) reply.copy(
+            warnings = reply.warnings + "当前接口不支持绘图工具，已使用兼容绘图协议",
+        ) else reply
         if (messages.any { it.documentPaths.isNotEmpty() }) {
-            return@modelRequest run {
+            return@modelRequest noteCompatibility(run {
                 (documentAgent ?: throw ModelException(ModelException.Kind.CONFIG_INVALID, "文档分析模块不可用"))
                     .run(client, configured.baseUrl, configured.model, configured.apiKey, apiProtocol,
                     configured.visionEnabled, promptMessageSequence(messages, imageBase64s, prompt), emptyList(),
@@ -160,14 +198,14 @@ class ModelClient @Inject constructor(
                     requireRead = messages.lastOrNull { it.role == "user" }?.documentReadRequired == true,
                     conversationMode = response.mode, reasoningEffort = configured.reasoningEffort,
                     capability = configured.capability)
-            }
+            })
         }
         var searchNote: String? = null
         if (apiProtocol == AiApiProtocol.RESPONSES) {
             try {
-                return@modelRequest chatDeepSeekNativeResponses(
+                return@modelRequest noteCompatibility(chatDeepSeekNativeResponses(
                     configured, messages, imageBase64s, prompt, forceWebSearch, onUsage, onEvent, webSearchOn, response,
-                )
+                ))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ModelException) {
@@ -250,7 +288,7 @@ class ModelClient @Inject constructor(
             warnings = parsedAnswer.warnings + output.warnings,
         )
         val parsed = if (searchNote == null) base else base.copy(warnings = base.warnings + searchNote)
-        withCitations(parsed, output.citations, prompt.answerLanguage)
+        noteCompatibility(withCitations(parsed, output.citations, prompt.answerLanguage))
     }
 
     /** 把去重后的联网来源以 Markdown 链接列表追加到正文末尾。 */
@@ -553,6 +591,7 @@ class ModelClient @Inject constructor(
         userText: String,
         imageBase64s: List<String> = emptyList(),
         maxTokens: Int? = null,
+        onUsage: (UsageSample?) -> Unit = {},
     ): String = modelRequest {
         val credentials = credentialStore.credentialsFor(profileId)
             ?: throw ModelException(
@@ -579,7 +618,7 @@ class ModelClient @Inject constructor(
             val request = Request.Builder().url(deepSeekResponsesUrl(credentials.baseUrl))
                 .header("Authorization", "Bearer ${credentials.apiKey}")
                 .post(payload.toString().toRequestBody(mediaType)).build()
-            val raw = executeBudgetedJsonRequest(client, request, payload, "responses")
+            val raw = executeBudgetedJsonRequest(client, request, payload, "responses", onUsage)
             return@modelRequest parseDeepSeekResponses(raw.toString()).text.trim().ifEmpty {
                 throw ModelException(ModelException.Kind.INVALID_RESPONSE, "多模态模型未返回有效内容")
             }
@@ -616,7 +655,7 @@ class ModelClient @Inject constructor(
             .header("Authorization", "Bearer ${credentials.apiKey}")
             .post(payload.toString().toRequestBody(mediaType))
             .build()
-        val root = executeBudgetedJsonRequest(client, request, payload, "chat-completions")
+        val root = executeBudgetedJsonRequest(client, request, payload, "chat-completions", onUsage)
         val message = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject
             ?: throw ModelException(ModelException.Kind.SERVER, "多模态模型未返回内容")
         val content = when (val rawContent = message["content"]) {
@@ -866,7 +905,7 @@ class ModelClient @Inject constructor(
             throw ModelException(
                 ModelException.Kind.NETWORK,
                 "网络错误：${e.message ?: "无法连接模型接口"}",
-            )
+            ).apply { initCause(e) }
         }
         response.use { resp ->
             if (!resp.isSuccessful) {
@@ -1007,7 +1046,7 @@ class ModelClient @Inject constructor(
             throw ModelException(
                 ModelException.Kind.NETWORK,
                 "网络错误：${e.message ?: "无法连接模型接口"}",
-            )
+            ).apply { initCause(e) }
         }
         response.use { resp ->
             val text = resp.body?.string().orEmpty()
@@ -1174,7 +1213,7 @@ class ModelClient @Inject constructor(
             throw ModelException(
                 ModelException.Kind.NETWORK,
                 "网络错误：${e.message ?: "无法连接 DeepSeek 接口"}",
-            )
+            ).apply { initCause(e) }
         }
         return response.use { resp ->
             if (!resp.isSuccessful) {
@@ -1536,7 +1575,8 @@ internal fun isStreamParameterRejected(code: Int, body: String): Boolean {
         "stream'", "stream\"", "stream`",
         "parameter stream", "parameter: stream",
         "stream parameter", "stream 参数",
-    ).any { it in lower } || lower.trim().endsWith("stream")
+    ).any { it in lower } || lower.trim().endsWith("stream") ||
+        Regex("\\bstream\\s+(?:is\\s+)?(?:not supported|unsupported)\\b|(?:does not support|unsupported)\\s+stream\\b").containsMatchIn(lower)
     if (!namesStreamParameter) return false
     // ② 必须明确表达「不支持 / 未知 / 不接受」。
     return listOf(

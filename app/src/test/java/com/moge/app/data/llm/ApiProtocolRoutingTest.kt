@@ -74,4 +74,14 @@ class ApiProtocolRoutingTest {
         assertEquals(1, requests.size)
         assertEquals("/v1/responses", requests.single().url.encodedPath)
     }
+
+    @Test fun responsesRecognizerReportsItsUsageOnceToTheAnswerCollector() = runBlocking {
+        val samples = mutableListOf<UsageSample?>()
+        val model = client(body = """{"output":[{"type":"message","content":[{"type":"output_text","text":"识题完成"}]}],"usage":{"input_tokens":500,"output_tokens":60,"input_tokens_details":{"cached_tokens":300}}}""")
+        assertEquals("识题完成", model.completeWithProfile("r", "识题", "读图", onUsage = samples::add))
+        assertEquals(1, samples.size)
+        assertEquals(500L, samples.single()!!.inputTokens)
+        assertEquals(300L, samples.single()!!.cachedInputTokens)
+        assertEquals(60L, samples.single()!!.outputTokens)
+    }
 }

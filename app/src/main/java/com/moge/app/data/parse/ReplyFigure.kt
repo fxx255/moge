@@ -16,7 +16,7 @@ sealed interface ReplyFigure {
     data object Missing : ReplyFigure
 }
 
-/** 顺序是各轮内部的局部顺序：先 plots 后 diagrams，**包含失败槽位**。 */
+/** 工具图保留预留图号；内联协议按 plots、diagrams 排序。两者都包含失败槽位。 */
 fun ParsedReply.orderedFigures(): List<ReplyFigure> =
-    plotSlots.map { it?.let(ReplyFigure::Plot) ?: ReplyFigure.Missing } +
-        diagramSlots.map { it?.let(ReplyFigure::Diagram) ?: ReplyFigure.Missing }
+    toolFigures ?: (plotSlots.map { it?.let(ReplyFigure::Plot) ?: ReplyFigure.Missing } +
+        diagramSlots.map { it?.let(ReplyFigure::Diagram) ?: ReplyFigure.Missing })

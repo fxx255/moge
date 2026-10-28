@@ -61,6 +61,42 @@ class MarkdownBoldRenderTest {
         text.getSpans(0, text.length, boldSpanClass).toList()
 
     @Test
+    fun `Chinese bold punctuation closes before adjoining English in reading advice`() {
+        val headings = listOf("分清是谁的观点。", "看逻辑，不只找原词。", "核对动词是否被偷换。")
+        val explanation = "transform aspirations 不等于 meet aspirations；改变、提升城市认知也不等于 maintain its image。"
+        val source = "1. **${headings[0]}**第22题中的“一些人”不等于第25题中的“作者”。\n" +
+            "2. **${headings[1]}**第23题C虽然有 arts、prominence，但它们出现在作者认为“不够”的短期效果中。\n" +
+            "3. **${headings[2]}**$explanation"
+        for (ink in listOf(0xFF000000.toInt(), 0xFFFFFFFF.toInt())) {
+            val view = createMarkdownTextView(ctx, ink, 0xFF0000FF.toInt(), selectable = false)
+            fun assertAdvice() {
+                val text = view.text as Spanned
+                assertTrue(text.toString(), !text.contains("**") && !text.contains("&#"))
+                assertEquals(headings, boldSpans(text).sortedBy(text::getSpanStart).map {
+                    selectedMarkdownText(text, text.getSpanStart(it), text.getSpanEnd(it))
+                })
+                assertTrue(text.toString(), text.toString().endsWith(headings.last() + explanation))
+                assertEquals(text.toString(), selectedMarkdownText(text, 0, text.length))
+            }
+            renderMarkdown(view, source, 600, ink, 0xFF0000FF.toInt())
+            assertAdvice()
+            val tokenizer = StreamingMarkdownTokenizer()
+            val boundary = source.indexOf(explanation)
+            for (end in listOf(boundary, boundary + 1, boundary + 5, source.length)) {
+                renderStreamingMarkdown(view, tokenizer.update(source.take(end)), 600, ink, 0xFF0000FF.toInt())
+            }
+            assertAdvice()
+            // Completion merges committed blocks into the same selection surface.
+            val completed = tokenizer.update(source, flush = true).copy(
+                blocks = emptyList(), tail = source, tailStart = 0,
+                renderedPrefixEnd = source.length, visibleEnd = source.length,
+            )
+            renderStreamingMarkdown(view, completed, 600, ink, 0xFF0000FF.toInt())
+            assertAdvice()
+        }
+    }
+
+    @Test
     fun `原文中的全角等号不阻止英文句号后的加粗闭合`() {
         val source = "固定搭配 **effects on sth.**＝对……的影响。"
         val view = createMarkdownTextView(ctx, 0xFF000000.toInt(), 0xFF0000FF.toInt(), selectable = false)

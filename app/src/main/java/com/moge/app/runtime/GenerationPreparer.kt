@@ -8,6 +8,7 @@ import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.ChatMessage
+import com.moge.app.data.llm.AnswerUsage
 import com.moge.app.data.llm.HISTORY_MAX_MESSAGES
 import com.moge.app.data.llm.PromptAssembler
 import com.moge.app.data.llm.VisionInputImageStore
@@ -114,6 +115,7 @@ class GenerationPreparer @Inject constructor(
                 sourceUserText = outgoing,
                 historyMessages = history.size,
                 hasImages = photo.imageBase64s.isNotEmpty(),
+                preparationUsage = photo.usage,
             ),
             transcript = photo.transcript,
         )
@@ -210,6 +212,7 @@ class GenerationPreparer @Inject constructor(
                 identity?.reasoningEffort ?: AiReasoningEffort.LOW, submission.solveMode,
                 conversationMode = conversationMode, answerLanguage = prefs.answerLanguage),
             modelHistoryVersion = 1,
+            autoResumeOnNetworkLoss = prefs.autoResumeOnNetworkLoss,
         )
     }
 
@@ -307,6 +310,7 @@ class GenerationPreparer @Inject constructor(
         val outgoingText: String,
         val failure: String? = null,
         val transcript: String? = null,
+        val usage: AnswerUsage? = null,
     )
 
     /**
@@ -336,15 +340,19 @@ class GenerationPreparer @Inject constructor(
         }
         val encoded = encodeAll(photoPaths)
         if (encoded.failure != null) return encoded
+        var usage = AnswerUsage()
         val transcription = try {
             modelClient.completeWithProfile(
                 profileId = profileId,
                 systemPrompt = VISION_TRANSCRIBE_PROMPT,
                 userText = "请完整转写图片中的全部题目内容。",
                 imageBase64s = encoded.imageBase64s,
+                onUsage = { usage = usage.plus(it) },
             ).trim()
         } catch (error: CancellationException) {
             throw error
+        } catch (error: ModelException) {
+            throw error // Network/configuration failures must not become a request to retake the photo.
         } catch (_: Exception) {
             null
         }
@@ -365,6 +373,7 @@ class GenerationPreparer @Inject constructor(
                 append(transcription)
             }.trim(),
             transcript = transcription,
+            usage = usage,
         )
     }
 

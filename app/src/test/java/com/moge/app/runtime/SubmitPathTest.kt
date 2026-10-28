@@ -273,7 +273,7 @@ class SubmitPathTest {
         coEvery { modelClient.isVisionEnabled() } returns false
         // 配置「题目识别」档案（快照会把它的 id/模型/端点钉下）。
         every { aiCredentialStore.questionVisionProfileId() } returns "vision-1"
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } returns "转写出来的题目：求 x^2 的导数"
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } returns "转写出来的题目：求 x^2 的导数"
         coEvery {
             modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
         } coAnswers {
@@ -316,7 +316,7 @@ class SubmitPathTest {
     fun `photo transcription remains available to a later question`() = runBlocking {
         stubCapturing()
         every { aiCredentialStore.questionVisionProfileId() } returns "vision-1"
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } returns
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } returns
             "原题：求 x^2 的导数"
         val photo = java.io.File.createTempFile("history-transcribed", ".png")
         val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
@@ -347,7 +347,7 @@ class SubmitPathTest {
         stubCapturing(reply = "请补发星座图，以核对第3问")
         every { aiCredentialStore.questionVisionProfileId() } returns "vision-1"
         val transcription = "补图：内圈四点位于坐标轴上，外圈四点位于正方形顶点。"
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } returns transcription
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } returns transcription
         val photo = java.io.File.createTempFile("supplement-transcribed", ".png")
         try {
             val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
@@ -610,7 +610,7 @@ class SubmitPathTest {
     fun `a throwing preparation still reaches a terminal state`() = runBlocking {
         // 记录落库之后的准备步骤（转写网络调用）抛出非模型异常。
         every { aiCredentialStore.questionVisionProfileId() } returns "vision-1"
-        coEvery { modelClient.completeWithProfile(any(), any(), any(), any()) } throws
+        coEvery { modelClient.completeWithProfile(any(), any(), any(), any(), any(), any()) } throws
             RuntimeException("转写时崩了")
         val photo = java.io.File.createTempFile("throwing-prep", ".png")
         val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)

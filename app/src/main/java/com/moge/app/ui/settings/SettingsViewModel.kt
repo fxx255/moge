@@ -150,6 +150,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setKeepScreenOnInConversation(value) }
     }
 
+    fun setAutoResumeOnNetworkLoss(value: Boolean) {
+        viewModelScope.launch { settings.setAutoResumeOnNetworkLoss(value) }
+    }
+
     fun setHistoryAutoCleanupEnabled(value: Boolean) {
         viewModelScope.launch { settings.setHistoryAutoCleanupEnabled(value) }
     }

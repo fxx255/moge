@@ -153,7 +153,7 @@ data: [DONE]
             client(userSettings = UserSettings(answerLanguage = english),
                 responses = listOf(200 to streamedResponse(protocol, SOLVE_FIGURE_RESPONSE_EXAMPLE)))
                 .chatStreaming(listOf(ChatMessage("user", "继续")), policy = RequestPolicy(apiProtocol = protocol.name, prompt = saved)) {}
-            assertEquals(saved.stableSystem, systemContent(requests.single(), protocol))
+            assertEquals(saved.stableSystem.replace(SOLVE_SYSTEM_PROMPT, LEGACY_SOLVE_SYSTEM_PROMPT), systemContent(requests.single(), protocol))
         }
     }
 
@@ -185,7 +185,7 @@ data: [DONE]
         val detailed = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "旧称呼", AiReasoningEffort.MEDIUM,
             SolveMode.DETAILED)
         val invalid = listOf(chat, PromptSegments("请简洁回答，只输出 JSON。", ""),
-            detailed.copy(stableSystem = detailed.stableSystem.substringBefore("9. 需要画图时")))
+            detailed.copy(stableSystem = detailed.stableSystem.substringBefore("9. 画函数")))
         val baseline = javaClass.getResource("/prompts/solve-language-options.txt")!!.readText().replace("\r\n", "\n")
         for (protocol in AiApiProtocol.entries) {
             for (mode in SolveMode.entries) {
@@ -221,7 +221,7 @@ data: [DONE]
                     .chatStreaming(listOf(ChatMessage("user", "画图")), solveMode = mode,
                         policy = RequestPolicy(prompt = saved, apiProtocol = protocol.name)) {}
                 val payload = requests.single()
-                assertEquals(saved.stableSystem, systemContent(payload, protocol))
+                assertEquals(saved.stableSystem.replace(SOLVE_SYSTEM_PROMPT, LEGACY_SOLVE_SYSTEM_PROMPT), systemContent(payload, protocol))
                 val turns = payload[if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!.jsonArray
                 assertTrue(turns.last().jsonObject["content"]!!.jsonPrimitive.content.contains(saved.volatileSystem))
             }
@@ -402,6 +402,28 @@ data: [DONE]
             it["messages"]!!.jsonArray.first().jsonObject["content"]!!.jsonPrimitive.content
         }
         assertEquals(first, second)
+    }
+
+    @Test
+    fun `followup preserves original user context and image bytes when time and solve mode change`() = runBlocking {
+        val original = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, "小明", AiReasoningEffort.MEDIUM, SolveMode.DETAILED)
+        val followup = original.copy(volatileSystem = "第二轮的新时间\n" + SolveMode.CHECK_WORK.instruction)
+        for (protocol in AiApiProtocol.entries) {
+            requests.clear()
+            val model = client(responses = List(2) { 200 to streamedResponse(protocol, """{"reply":"ok"}""" ) })
+            model.chatStreaming(listOf(ChatMessage("user", "第一题")), imageBase64s = listOf("ORIGINAL-IMAGE-BYTES"),
+                policy = RequestPolicy(apiProtocol = protocol.name, prompt = original)) {}
+            model.chatStreaming(listOf(
+                ChatMessage("user", "第一题", imageBase64s = listOf("ORIGINAL-IMAGE-BYTES"), turnContext = original.volatileSystem),
+                ChatMessage("assistant", "ok"),
+                ChatMessage("user", "请批改这一步")), solveMode = SolveMode.CHECK_WORK,
+                policy = RequestPolicy(apiProtocol = protocol.name, prompt = followup)) {}
+            val sequence = if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"
+            val first = requests[0][sequence]!!.jsonArray
+            assertEquals(first.toString(), JsonArray(requests[1][sequence]!!.jsonArray.take(first.size)).toString())
+            assertEquals(systemContent(requests[0], protocol), systemContent(requests[1], protocol))
+            assertTrue(requests[1][sequence]!!.jsonArray.last().toString().contains("第二轮的新时间"))
+        }
     }
 
     /** 稳定段在前：system 稳定段是第一条，历史在其后。 */

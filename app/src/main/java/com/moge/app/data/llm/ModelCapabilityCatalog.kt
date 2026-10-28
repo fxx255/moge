@@ -21,6 +21,7 @@ data class ModelCapability(
     val chatOutputParameter: String? = null,
     val supportsJsonSchema: Boolean? = null,
     val supportsJsonObject: Boolean? = null,
+    val supportsFunctionTools: Boolean? = null,
 )
 
 data class ModelCatalog(val capabilities: Map<String, ModelCapability>) {
@@ -53,6 +54,8 @@ internal fun parseModelCatalog(raw: String): ModelCatalog {
                 ?: true.takeIf { "structured_outputs" in parameters },
             supportsJsonObject = model.flag("supports_json_object")
                 ?: true.takeIf { "response_format" in parameters },
+            supportsFunctionTools = model.flag("supports_tools") ?: model.flag("supports_function_calling")
+                ?: true.takeIf { "tools" in parameters },
             chatOutputParameter = "max_completion_tokens".takeIf {
                 positive(model, it) != null || it in parameters && "max_tokens" !in parameters
             },

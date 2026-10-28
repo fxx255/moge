@@ -88,7 +88,7 @@ private fun compatibleGenerationParameters(
         if (isOutputBudgetRejected(detail)) return JsonObject(payload - budget)
     }
     // Reasoning models may accept only their default temperature; optional tuning cannot block output.
-    for (key in listOf("temperature", "stream_options")) {
+    for (key in listOf("temperature", "stream_options", "include")) {
         val at = body.indexOf(key, ignoreCase = true)
         if (payload.containsKey(key) && at >= 0 && UNSUPPORTED.containsMatchIn(
                 body.substring((at - 60).coerceAtLeast(0), (at + 180).coerceAtMost(body.length)))) {

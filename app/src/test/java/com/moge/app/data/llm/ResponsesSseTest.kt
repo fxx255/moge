@@ -114,7 +114,7 @@ class ResponsesSseTest {
         assertEquals(2, samples.size)
         val first = Json.parseToJsonElement(requests[0]).jsonObject
         val recovery = Json.parseToJsonElement(requests[1]).jsonObject
-        assertTrue(recovery["instructions"]!!.jsonPrimitive.content.startsWith(ModelClient.SYSTEM_PROMPT))
+        assertTrue(recovery["instructions"]!!.jsonPrimitive.content.startsWith(LEGACY_SOLVE_SYSTEM_PROMPT))
         assertEquals("medium", first["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content)
         assertEquals("none", recovery["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content)
         assertEquals("200000", recovery["max_output_tokens"]!!.jsonPrimitive.content)

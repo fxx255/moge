@@ -23,6 +23,14 @@ object OkHttpCancellation {
         client: OkHttpClient,
         request: Request,
         onCall: ((Call) -> Unit)? = null,
+    ): Response = currentCoroutineContext()[GenerationNetworkSession]?.execute(client, request, onCall)
+        ?: executeOnce(client, request, onCall)
+
+    @OptIn(InternalCoroutinesApi::class)
+    internal suspend fun executeOnce(
+        client: OkHttpClient,
+        request: Request,
+        onCall: ((Call) -> Unit)? = null,
     ): Response {
         val context = currentCoroutineContext()
         context.ensureActive()

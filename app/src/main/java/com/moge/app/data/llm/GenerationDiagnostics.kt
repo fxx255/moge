@@ -15,7 +15,8 @@ fun interface MonotonicClock {
     fun nanoTime(): Long
 
     companion object {
-        val SYSTEM = MonotonicClock { System.nanoTime() }
+        // elapsedRealtime includes device sleep; task elapsed time must not pause with the CPU.
+        val SYSTEM = MonotonicClock { android.os.SystemClock.elapsedRealtimeNanos() }
     }
 }
 
@@ -50,13 +51,14 @@ data class GenerationTimings(
  */
 class GenerationTimer(private val clock: MonotonicClock = MonotonicClock.SYSTEM) {
     private val start = clock.nanoTime()
+    val startedAtMs: Long get() = start / 1_000_000
     private var firstReasoning: Long? = null
     private var firstAnswerByte: Long? = null
     private var firstVisibleText: Long? = null
     private var completed: Long? = null
     private var interrupted: Long? = null
 
-    private fun elapsedMs(): Long = (clock.nanoTime() - start) / 1_000_000
+    fun elapsedMs(): Long = ((clock.nanoTime() - start) / 1_000_000).coerceAtLeast(0)
 
     fun markReasoning() {
         if (firstReasoning == null) firstReasoning = elapsedMs()

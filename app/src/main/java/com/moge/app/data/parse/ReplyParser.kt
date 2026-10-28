@@ -52,6 +52,8 @@ data class ParsedReply(
     val conversationTitle: String? = null,
     /** 可独立展示的最终答案；缺字段或非字符串时为空，不从讲解中猜测。 */
     val finalAnswer: String = "",
+    /** Tool calls may interleave plots and diagrams. Preserve their reserved figure IDs. */
+    val toolFigures: List<ReplyFigure>? = null,
 )
 
 /**
