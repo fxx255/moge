@@ -22,11 +22,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MultipleFigureTest {
     @get:Rule val compose = createComposeRule()
 
