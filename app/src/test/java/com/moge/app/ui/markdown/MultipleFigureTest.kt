@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
@@ -12,11 +13,15 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
+import com.moge.app.data.prefs.Appearance
+import com.moge.app.ui.photo.PhotoEdits
+import com.moge.app.ui.photo.ThumbnailCache
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.solve.AnswerSheet
 import com.moge.app.ui.solve.AnswerState
 import com.moge.app.ui.solve.SolveItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +30,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class, qualifiers = "zh-rCN-w393dp-h820dp")
@@ -69,12 +75,25 @@ class MultipleFigureTest {
             val second = png("second.png", android.graphics.Color.BLUE)
             val replacement = png("replacement.png", android.graphics.Color.GREEN)
             val current = mutableStateOf(second)
+            val resolver = FigurePathResolver { path, _ -> path }
+            // This case checks path identity and replacement, not IO scheduling. Warm the real
+            // cache so a loaded suite cannot time out waiting for a background decoder thread.
+            // FigureReturnLayoutTest separately exercises cold loads and bitmap eviction.
+            FigureImageCache.clear()
+            ThumbnailCache.clear()
+            runBlocking {
+                for (path in listOf(first, second, replacement)) {
+                    assertNotNull(FigureImageCache.load(FigureImageKey(path, false, PhotoEdits.revision.value, resolver)))
+                }
+            }
             var clicked: String? = null
             compose.setContent {
-                MogeTheme {
-                    Column(Modifier.requiredWidth(300.dp)) {
-                        AnswerMarkdownBody("[[FIGURE:1]]", listOf(first)) { paths, index -> clicked = paths[index] }
-                        AnswerMarkdownBody("[[FIGURE:1]]", listOf(current.value)) { paths, index -> clicked = paths[index] }
+                MogeTheme(Appearance.PAPER) {
+                    CompositionLocalProvider(LocalFigurePathResolver provides resolver) {
+                        Column(Modifier.requiredWidth(300.dp)) {
+                            AnswerMarkdownBody("[[FIGURE:1]]", listOf(first)) { paths, index -> clicked = paths[index] }
+                            AnswerMarkdownBody("[[FIGURE:1]]", listOf(current.value)) { paths, index -> clicked = paths[index] }
+                        }
                     }
                 }
             }
@@ -88,6 +107,8 @@ class MultipleFigureTest {
             compose.onAllNodesWithContentDescription("图 1")[0].performClick()
             assertEquals(first, clicked)
         } finally {
+            FigureImageCache.clear()
+            ThumbnailCache.clear()
             directory.listFiles()?.forEach { it.delete() }
             directory.delete()
         }
