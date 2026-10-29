@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,7 +71,7 @@ internal fun StreamingMarkdownBody(
                     val figure = segment.figureIndex
                     key("figure-$figure") {
                         val path = imagePaths.getOrNull(figure)
-                        StreamingFigureSlot(figure, path, streaming) {
+                        StreamingFigureSlot(figure, path, streaming, modifier = markdownReadingBlockModifier("figure:$figure")) {
                             val visibleIndex = imagePaths.take(figure).count(String::isNotBlank)
                             onImageClick(visiblePaths, visibleIndex)
                         }
@@ -79,7 +80,8 @@ internal fun StreamingMarkdownBody(
                     key("ink-$index") {
                         val chunks = remember(segment.text) { splitMarkdownTableBlocks(segment.text) }
                         chunks.forEachIndexed { chunkIndex, chunk -> key(chunkIndex) {
-                            if (chunk.isTable) MarkdownTableBlock(chunk.text, animateRows = animate, catchingUp = !streaming)
+                            if (chunk.isTable) MarkdownTableBlock(chunk.text, animateRows = animate,
+                                catchingUp = !streaming, modifier = markdownReadingBlockModifier(chunk.text))
                             else {
                                 val raw = remember(chunk.text) { StreamingMarkdownTokenizer().update(chunk.text) }
                                 val whole = !streaming || index < segments.lastIndex || chunkIndex < chunks.lastIndex
@@ -94,7 +96,7 @@ internal fun StreamingMarkdownBody(
             }
         if (!streaming && appendUnreferencedImages) imagePaths.forEachIndexed { index, path ->
             if ((index + 1).toString() !in seen) key("unreferenced-$index") {
-                StreamingFigureSlot(index, path, false) {
+                StreamingFigureSlot(index, path, false, modifier = markdownReadingBlockModifier("figure:$index")) {
                     onImageClick(visiblePaths, imagePaths.take(index).count(String::isNotBlank))
                 }
             }
@@ -109,6 +111,7 @@ private data class StreamingMarkdownRenderCache(
 
 @Composable
 internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate: Boolean = false, catchingUp: Boolean = false) {
+    val readingBlock = rememberReadingBlock()
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
@@ -121,14 +124,17 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         key(typeface, locale, textColor, linkColor, surface, fontSize, selectionScrollHost) {
-            AndroidView(modifier = Modifier.fillMaxWidth().clipToBounds(), factory = { context ->
+            AndroidView(modifier = Modifier.fillMaxWidth().clipToBounds()
+                .onGloballyPositioned { readingBlock?.coordinates = it }, factory = { context ->
                 createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSize,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = surface,
                     bodyTypeface = typeface, inkReveal = reveal).also {
+                    readingBlock?.view = it
                     renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)
                     reveal.update(it, catchingUp)
                 }
             }, update = {
+                readingBlock?.view = it
                 renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)
                 reveal.update(it, catchingUp)
             })

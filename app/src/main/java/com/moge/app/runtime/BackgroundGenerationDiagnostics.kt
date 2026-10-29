@@ -183,7 +183,9 @@ class BackgroundGenerationDiagnostics @Inject constructor(
         val codes = generateSequence(error) { it.cause }.take(5)
             .flatMap { NETWORK_ERROR_CODE.findAll(it.message.orEmpty()).map { match -> match.value } }
             .distinct().joinToString(",")
-        append("request_failed:$causes${if (codes.isEmpty()) "" else " errno=$codes"}")
+        val transport = generateSequence(error) { it.cause }.take(8)
+            .filterIsInstance<com.moge.app.data.llm.ModelTransportFailure>().firstOrNull()?.summary()
+        append("request_failed:$causes${if (codes.isEmpty()) "" else " errno=$codes"}${transport?.let { " $it" }.orEmpty()}")
     }
 
     /** Called on IO by the settings ViewModel; read the saved trace after a process restart too. */

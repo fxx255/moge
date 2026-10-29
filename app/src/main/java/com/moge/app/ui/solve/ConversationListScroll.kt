@@ -8,6 +8,7 @@ import kotlin.math.abs
 internal class ConversationListScroll(
     val state: LazyListState,
     val beforeVersionSwitch: (String) -> Unit,
+    val beforeReadingCorrection: () -> Unit,
 )
 
 /** Prefer an on-screen message edge over a large offset into the preceding answer. */
@@ -129,11 +130,11 @@ internal fun rememberConversationListScroll(
     }
     LaunchedEffect(active) { if (!active) persist() }
     DisposableEffect(list, conversationId) { onDispose { persist() } }
-    return ConversationListScroll(list) { target ->
+    return ConversationListScroll(list, beforeVersionSwitch = { target ->
         pin = null
         record.reading = list.readingViewport() ?: record.reading
         persist()
         fallback = record.reading
         pendingVersion = target
-    }
+    }, beforeReadingCorrection = { pin = null })
 }

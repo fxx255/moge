@@ -25,8 +25,9 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class GenerationNetworkLifecycleTest {
-    @Test fun waitingKeepsTaskOwnershipAndOfflineTimeWhileCancellationReleasesProtection() = runBlocking {
-        for (cancel in listOf(false, true)) {
+    @Test fun waitingKeepsTaskOwnershipAndAllTerminalStatesReleaseProtectionAndNetworkSession() = runBlocking {
+        for (outcome in listOf("success", "cancel", "failure")) {
+            val cancel = outcome == "cancel"
             val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), MogeDatabase::class.java)
                 .allowMainThreadQueries().build()
             try {
@@ -42,7 +43,10 @@ class GenerationNetworkLifecycleTest {
                     }
                 }
                 val network = mockk<GenerationNetworkRecovery>()
-                every { network.session(any()) } answers { GenerationNetworkSession(availability, firstArg(), clock) }
+                val sessions = mutableListOf<GenerationNetworkSession>()
+                every { network.session(any()) } answers {
+                    GenerationNetworkSession(availability, firstArg(), clock).also { sessions += it }
+                }
                 val repository = RequestRepository(db.requestDao(), Dispatchers.Unconfined)
                 val snapshot = RequestSnapshot(model = "fixture", endpointIdentity = "https://fixture.invalid")
                 val preparer = mockk<GenerationPreparer>(relaxed = true)
@@ -60,6 +64,7 @@ class GenerationNetworkLifecycleTest {
                 val client = mockk<ModelClient>()
                 coEvery { client.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
                     val text = OkHttpCancellation.execute(transport, Request.Builder().url("https://fixture.invalid").build()).use { it.body!!.string() }
+                    if (outcome == "failure") throw ModelException(ModelException.Kind.NETWORK, "fixture failure")
                     arg<(UsageSample?) -> Unit>(5)(UsageSample(100, 20, 50))
                     arg<suspend (StreamEvent) -> Unit>(7)(StreamEvent.AnswerDelta(text))
                     ReplyParser.parse(text)
@@ -80,9 +85,21 @@ class GenerationNetworkLifecycleTest {
                 withTimeout(5000) { while (manager.active.value.isRunning) delay(10) }
                 verify(exactly = 1) { guard.release("lease") }
                 val stored = repository.get(record.requestId)!!
-                assertEquals(if (cancel) RequestStatus.CANCELLED.name else RequestStatus.COMPLETED.name, stored.status)
+                val expected = when (outcome) {
+                    "cancel" -> RequestStatus.CANCELLED
+                    "failure" -> RequestStatus.INTERRUPTED
+                    else -> RequestStatus.COMPLETED
+                }
+                assertEquals(expected.name, stored.status)
                 assertEquals(if (cancel) 0 else 1, httpCalls)
-                if (!cancel) {
+                try {
+                    withContext(sessions.single()) {
+                        OkHttpCancellation.execute(transport, Request.Builder().url("https://fixture.invalid").build()).close()
+                    }
+                    fail("Runtime must close the session on $outcome")
+                } catch (_: IllegalStateException) { }
+                assertEquals(if (cancel) 0 else 1, httpCalls)
+                if (outcome == "success") {
                     val answer = db.requestDao().getMessage(record.answerMessageId)!!
                     assertEquals(35_000L, answer.durationMs)
                     assertEquals(1, AnswerUsageCodec.decode(answer.usageJson)!!.requestCount)

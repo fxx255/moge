@@ -50,7 +50,8 @@ import kotlin.math.ceil
 
 /** Native Markdown cells share column widths, while each row measures its tallest wrapped cell. */
 @Composable
-internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, catchingUp: Boolean = false) {
+internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, catchingUp: Boolean = false,
+    modifier: Modifier = Modifier) {
     val table = remember(source) { parseMarkdownTable(prepareReplyMarkdown(source)) }
     if (table == null) {
         MarkdownChunk(source, fixedWidthPx = null)
@@ -73,7 +74,7 @@ internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, ca
     val colors = MaterialTheme.colorScheme
     val border = colors.outlineVariant
     val animate = animateRows && MogeTheme.motionEnabled
-    BoxWithConstraints(Modifier.fillMaxWidth().clipToBounds().zIndex(FIGURE_Z_INDEX).testTag("markdown-table")) {
+    BoxWithConstraints(modifier.fillMaxWidth().clipToBounds().zIndex(FIGURE_Z_INDEX).testTag("markdown-table")) {
         val widths = remember(table, constraints.maxWidth, textSize, inset, bodyTypeface) {
             tableColumnWidthsPx(table, constraints.maxWidth, textSize, inset, paint::measureText, measureFormula)
         }

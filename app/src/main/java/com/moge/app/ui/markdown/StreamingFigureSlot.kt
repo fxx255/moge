@@ -21,10 +21,11 @@ import com.moge.app.ui.theme.MogeTheme
 
 /** A figure keeps its identity while its protocol anchor becomes a generated image. */
 @Composable
-internal fun StreamingFigureSlot(index: Int, path: String?, pending: Boolean, onClick: () -> Unit) {
+internal fun StreamingFigureSlot(index: Int, path: String?, pending: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
     val strings = rememberAppStrings()
     val motion = MogeTheme.motionEnabled
-    Column(Modifier.fillMaxWidth().testTag("figure-slot-$index")
+    Column(modifier.fillMaxWidth().testTag("figure-slot-$index")
         .animateContentSize(tween(if (motion) 180 else 0))) {
         when {
             !path.isNullOrBlank() -> InlineFigure(path, onClick, index + 1, placeholderHeight = 180.dp)

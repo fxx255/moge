@@ -579,7 +579,7 @@ class GenerationManager @Inject constructor(
             owner.enteredBody = true
             try {
                 val session = networkRecovery?.session { status -> updateActive(owner) { it.copy(networkStatus = status) } }
-                if (session == null) body(owner) else withContext(session) { body(owner) }
+                if (session == null) body(owner) else session.use { withContext(it) { body(owner) } }
             } finally {
                 // 所有出口都归还所有权：早于这里的一定已经完成"终态落库 + guard 释放"，
                 // 所以 owner 存在 ⇒ 这一轮真的还没收完 ⇒ 单飞不会提前放开。

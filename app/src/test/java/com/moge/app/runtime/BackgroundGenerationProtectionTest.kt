@@ -9,6 +9,8 @@ import android.net.wifi.WifiManager
 import android.os.Looper
 import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
+import com.moge.app.data.llm.ModelTransportFailure
+import com.moge.app.data.llm.ModelTransportTrace
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -88,6 +90,18 @@ class BackgroundGenerationProtectionTest {
         assertTrue(diagnostics.report().contains("service_destroyed_while_generating"))
         assertTrue(diagnostics.report().lineSequence().last().contains("fgs=stopped"))
         diagnostics.end()
+    }
+
+    @Test fun `transport failure persists only phase counts protocol and safe error codes`() {
+        val diagnostics = BackgroundGenerationDiagnostics(context)
+        val transport = ModelTransportFailure(ModelTransportTrace.Phase.UPLOAD, null, 12345, false,
+            "h2", SocketException("EPIPE https://private.example?key=secret image-base64"))
+        diagnostics.failure(IllegalStateException("private prompt", transport))
+        val saved = BackgroundGenerationDiagnostics(context).report()
+        assertTrue(saved.contains("request_failed:IllegalStateException<-ModelTransportFailure<-SocketException"))
+        assertTrue(saved.contains("errno=EPIPE"))
+        assertTrue(saved.contains("phase=UPLOAD bodyBytes=unknown expectedBytes=12345 reused=false protocol=h2"))
+        for (privateData in listOf("private", "secret", "image-base64")) assertFalse(saved.contains(privateData))
     }
 
     @Test fun `screen off sampling observes liveness and stops when the request lease ends`() = runTest {

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.R
@@ -324,6 +325,7 @@ internal fun MarkdownChunk(
     wrapFormulas: Boolean = true,
     stableLayout: Boolean = false,
 ) {
+    val readingBlock = rememberReadingBlock()
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
@@ -344,17 +346,20 @@ internal fun MarkdownChunk(
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
             AndroidView(
-                modifier = Modifier.fillMaxWidth().clipToBounds(),
+                modifier = Modifier.fillMaxWidth().clipToBounds()
+                    .onGloballyPositioned { readingBlock?.coordinates = it },
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor,
                         selectable = selectable, fontSizePx = fontSizePx,
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
+                        readingBlock?.view = view
                         view.textAlignment = textAlignment
                         if (bold) view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
                         renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas, stableLayout)
                     }
                 },
                 update = { view ->
+                    readingBlock?.view = view
                     // Also recover stale native text when an existing View reattaches.
                     renderMarkdownIfChanged(view, content, renderWidthPx, textColor, linkColor, wrapFormulas, stableLayout)
                 },

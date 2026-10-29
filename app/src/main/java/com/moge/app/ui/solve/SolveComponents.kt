@@ -72,12 +72,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.components.Stamp
 import com.moge.app.ui.components.PhotoArrival
+import com.moge.app.ui.components.PaperOverlayIconButton
 import com.moge.app.ui.components.Tape
 import com.moge.app.ui.components.TornPaperNote
 import com.moge.app.ui.components.dashedBorder
 import com.moge.app.ui.components.marginLine
 import com.moge.app.ui.components.paperCard
 import com.moge.app.data.parse.replaceFigureAnchors
+import com.moge.app.ui.markdown.PreserveMarkdownReadingPosition
 import com.moge.app.ui.markdown.AnswerMarkdownBody
 import com.moge.app.ui.markdown.InlineFigure
 import com.moge.app.ui.markdown.MarkdownAnswer
@@ -197,7 +199,7 @@ internal fun FollowUpNote(item: SolveItem.Question,
 }
 /**
  * 解答纸：白纸 + 红色页边线，页眉「解答 · 模型名 · 用时」。
- * 生成中走流式渲染（只把已闭合的块交给 Markwon），完成后整篇渲染并内嵌图表。
+ * 同一正文渲染树跨越生成与完成，结束时保持屏幕中的阅读位置。
  */
 @Composable
 internal fun AnswerSheet(
@@ -219,7 +221,7 @@ internal fun AnswerSheet(
     val elapsedMs = rememberAnswerElapsedMs(item.startedAtMs.takeIf { generating }, item.durationMs)
     val hasAnswer = item.finalAnswer.isNotBlank() && item.finalAnswer != item.text
     val foldable = answerFirst && hasAnswer
-    var expanded by rememberSaveable(item.id, item.finalAnswer) { mutableStateOf(false) }
+    var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
     val showSummary = hasAnswer && item.state in setOf(AnswerState.COMPLETED, AnswerState.STREAMING)
     // The full lecture owns the figures when it is visible; summary references
     // stay readable without inserting the same figures twice.
@@ -230,6 +232,7 @@ internal fun AnswerSheet(
     LaunchedEffect(item.id, motion, generating) {
         if (motion && generating) lineProgress.animateTo(1f, tween(1200)) else lineProgress.snapTo(1f)
     }
+    PreserveMarkdownReadingPosition(generating) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -273,6 +276,7 @@ internal fun AnswerSheet(
             })
         }
         AnswerFooter(item, onRetry, onRegenerate, actionsEnabled, onShare, onSave, onResume)
+    }
     }
 }
 
@@ -461,10 +465,8 @@ internal fun FollowUpBar(
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-drift")
     Column(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (state.editingQuestionId != null) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(strings.text(R.string.ui_edit_input_original_kept_after_sending_e37d9), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).liveRegion())
-                IconButton(onClick = onCancelEditing, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                PaperOverlayIconButton(onClick = onCancelEditing, enabled = !state.submitting && !state.switchingBranch && !state.importingPhotos) {
                     Icon(Icons.Outlined.Close, strings.text(R.string.ui_cancel_edit_11eec))
                 }
             }
@@ -543,11 +545,10 @@ private fun PendingPhotos(paths: List<String>, onOpen: (Int) -> Unit, onRemove: 
         paths.forEachIndexed { index, path ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 PhotoThumb(path, strings.text(R.string.ui_photo_1_s_to_send_b8dbb, index + 1), onClick = { onOpen(index) }, modifier = Modifier.size(64.dp))
-                IconButton(
+                PaperOverlayIconButton(
                     onClick = { onRemove(path) },
-                    modifier = Modifier.size(48.dp),
                 ) {
-                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1), Modifier.size(16.dp))
+                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1))
                 }
             }
         }

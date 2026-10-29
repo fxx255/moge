@@ -29,6 +29,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -59,6 +63,8 @@ import com.moge.app.ui.export.AnswerExportDialog
 import com.moge.app.ui.photo.PhotoCropDialog
 import com.moge.app.ui.viewer.PhotoViewer
 import com.moge.app.ui.markdown.LocalSelectionScrollHost
+import com.moge.app.ui.markdown.LocalReadingScrollHost
+import com.moge.app.ui.markdown.ReadingScrollHost
 import com.moge.app.ui.markdown.SelectionScrollHost
 import com.moge.app.ui.markdown.dismissMarkdownSelectionOnOutsideTap
 import kotlinx.coroutines.delay
@@ -279,6 +285,24 @@ internal fun SolveList(
     val selectionScrollHost = remember(listState, conversationId, density.density) {
         SelectionScrollHost(scope, density.density) { priority, block -> listState.scroll(priority, block) }
     }
+    val readingScrollHost = remember(listState) {
+        ReadingScrollHost { delta ->
+            scroll.beforeReadingCorrection()
+            listState.dispatchRawDelta(delta)
+        }
+    }
+    SideEffect {
+        readingScrollHost.enabled = active
+        readingScrollHost.updateMessages(state.items.map { it.id })
+    }
+    val readingScroll = remember(readingScrollHost) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                readingScrollHost.readerScrollY += consumed.y
+                return Offset.Zero
+            }
+        }
+    }
     DisposableEffect(selectionScrollHost) { onDispose { selectionScrollHost.dispose() } }
     if (state.items.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(contentPadding).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
@@ -288,8 +312,10 @@ internal fun SolveList(
         }
         return
     }
-    CompositionLocalProvider(LocalSelectionScrollHost provides selectionScrollHost) {
+    CompositionLocalProvider(LocalSelectionScrollHost provides selectionScrollHost,
+        LocalReadingScrollHost provides readingScrollHost) {
         LazyColumn(state = listState, modifier = modifier.fillMaxSize().testTag("conversation-list")
+            .nestedScroll(readingScroll)
             .dismissMarkdownSelectionOnOutsideTap(selectionScrollHost)
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
@@ -302,11 +328,12 @@ internal fun SolveList(
                 // Overlay padding marks the unobscured reading area, rather than
                 // the full list which extends behind the title and floating input.
                 with(density) {
-                    selectionScrollHost.viewport = android.graphics.RectF(
-                        bounds.left + originX,
-                        bounds.top + originY + contentPadding.calculateTopPadding().toPx(),
-                        bounds.right + originX,
-                        bounds.bottom + originY - contentPadding.calculateBottomPadding().toPx())
+                    readingScrollHost.viewport = android.graphics.RectF(bounds.left,
+                        bounds.top + contentPadding.calculateTopPadding().toPx(), bounds.right,
+                        bounds.bottom - contentPadding.calculateBottomPadding().toPx())
+                    selectionScrollHost.viewport = android.graphics.RectF(readingScrollHost.viewport).apply {
+                        offset(originX.toFloat(), originY.toFloat())
+                    }
                 }
             },
             contentPadding = contentPadding,

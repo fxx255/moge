@@ -3,13 +3,14 @@ package com.moge.app.data.parse
 /**
  * CommonMark rejects **评分。**后文 and 前**“重点”** when punctuation touches CJK prose.
  * CJK emphasis has the same boundary issue beside Latin text: **核对。**transform.
+ * Punctuation-only emphasis beside a word also fails, e.g. limitations**,** we or word**!**next.
  * Fullwidth ASCII symbols have the same problem: **effects on sth.**＝ cannot close because
  * ＝ is a Unicode math symbol, while its ASCII counterpart = counts as Markdown punctuation.
  * Encode only the adjacent word character or fullwidth symbol as a numeric character reference:
  * the parser sees a punctuation boundary, then decodes exactly the original text. This retains
  * bold punctuation without inserting spaces or invisible characters into displayed/copied text.
  */
-internal fun normalizeCjkStrongEmphasis(source: String, codeRanges: List<IntRange>): String {
+internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<IntRange>): String {
     if ("**" !in source) return source
     val encodedCharacters = sortedSetOf<Int>()
     var codeIndex = 0
@@ -29,7 +30,7 @@ internal fun normalizeCjkStrongEmphasis(source: String, codeRanges: List<IntRang
                 val end = token.range.last + 1
                 val opening = opener
                 if (opening != null && start > opening + 2 && !source[start - 1].isWhitespace()) {
-                    collectCjkBoundaryCharacters(source, opening, start, encodedCharacters)
+                    collectStrongBoundaryCharacters(source, opening, start, encodedCharacters)
                     opener = null
                 } else if (source.getOrNull(end)?.isWhitespace() == false) {
                     opener = start
@@ -64,23 +65,25 @@ internal fun String.hasCodeIndentAt(index: Int): Boolean {
     return false
 }
 
-private fun collectCjkBoundaryCharacters(source: String, opening: Int, closing: Int, encodedCharacters: MutableSet<Int>) {
-    val cjkEmphasis = source.substring(opening + 2, closing).codePoints().anyMatch { it.isCjkLetter() }
+private fun collectStrongBoundaryCharacters(source: String, opening: Int, closing: Int, encodedCharacters: MutableSet<Int>) {
+    val content = source.substring(opening + 2, closing)
+    val allowWordBoundary = content.codePoints().anyMatch { it.isCjkLetter() } ||
+        content.codePoints().allMatch { it.isMarkdownPunctuation() }
     val beforeOpening = if (opening > 0) source.codePointBefore(opening) else -1
-    if (beforeOpening.needsCjkBoundaryEncoding(cjkEmphasis) && source.codePointAt(opening + 2).isMarkdownPunctuation() &&
+    if (beforeOpening.needsBoundaryEncoding(allowWordBoundary) && source.codePointAt(opening + 2).isMarkdownPunctuation() &&
         !source.isEscapedMarkdownToken(opening - Character.charCount(beforeOpening))
     ) {
         encodedCharacters += opening - Character.charCount(beforeOpening)
     }
     val afterClosing = closing + 2
     if (source.codePointBefore(closing).isMarkdownPunctuation() &&
-        afterClosing < source.length && source.codePointAt(afterClosing).needsCjkBoundaryEncoding(cjkEmphasis)
+        afterClosing < source.length && source.codePointAt(afterClosing).needsBoundaryEncoding(allowWordBoundary)
     ) encodedCharacters += afterClosing
 }
 
-/** Word boundaries around CJK emphasis, plus fullwidth counterparts of Markdown punctuation. */
-private fun Int.needsCjkBoundaryEncoding(cjkEmphasis: Boolean): Boolean {
-    if (isCjkLetter() || (cjkEmphasis && Character.isLetterOrDigit(this))) return true
+/** Word boundaries around CJK or punctuation-only emphasis, plus fullwidth Markdown symbols. */
+private fun Int.needsBoundaryEncoding(allowWordBoundary: Boolean): Boolean {
+    if (isCjkLetter() || (allowWordBoundary && Character.isLetterOrDigit(this))) return true
     // Fullwidth U+FF01..U+FF5E maps to ASCII U+0021..U+007E.
     if (this !in 0xff01..0xff5e) return false
     return !isMarkdownPunctuation() && (this - 0xfee0).isMarkdownPunctuation()

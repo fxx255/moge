@@ -23,9 +23,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -38,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.photo.PhotoThumb
 import com.moge.app.ui.components.PhotoArrival
+import com.moge.app.ui.components.PaperOverlayIconButton
 
 /**
  * 确认面板：照片预览、裁剪、删除、继续添加和「使用照片」。只交接附件，不发送请求。
@@ -77,22 +76,16 @@ fun ConfirmSheet(
                         key(path) {
                             PhotoArrival(path, surface = "confirm", Modifier.size(width = 96.dp, height = 120.dp)) {
                                 PhotoThumb(path, strings.text(R.string.ui_photo_1_s_6ec17, index + 1), onClick = { onOpenPhoto(index) }, modifier = Modifier.matchParentSize())
-                                FilledTonalIconButton(
+                                PaperOverlayIconButton(
                                     onClick = { onRemove(path) },
-                                    modifier = Modifier.align(Alignment.TopEnd).size(48.dp),
-                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                    ),
+                                    modifier = Modifier.align(Alignment.TopEnd),
                                 ) {
-                                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1), Modifier.size(18.dp))
+                                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1))
                                 }
                                 onCropPhoto?.let { crop ->
-                                    FilledTonalIconButton(
+                                    PaperOverlayIconButton(
                                         onClick = { crop(index) },
-                                        modifier = Modifier.align(Alignment.BottomEnd).size(48.dp),
-                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                        ),
+                                        modifier = Modifier.align(Alignment.BottomEnd),
                                     ) {
                                         Icon(Icons.Outlined.Crop, contentDescription = strings.text(R.string.ui_crop_photo_1_s_664dc, index + 1))
                                     }

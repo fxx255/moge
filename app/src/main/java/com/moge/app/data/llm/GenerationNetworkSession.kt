@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import okhttp3.Call
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -45,7 +46,7 @@ class GenerationNetworkSession(
     private val clock: MonotonicClock = MonotonicClock.SYSTEM,
     private val pause: suspend (Long) -> Unit = { delay(it) },
     private val waitBudgetMs: Long = 60_000,
-) : AbstractCoroutineContextElement(Key) {
+) : AbstractCoroutineContextElement(Key), java.io.Closeable {
     companion object Key : CoroutineContext.Key<GenerationNetworkSession>
     private class Submission {
         private val phase = AtomicInteger(0) // 0: connecting, 1: possibly sent, 2: connection deadline expired.
@@ -61,7 +62,16 @@ class GenerationNetworkSession(
         fun expire() { if (phase.compareAndSet(0, 2)) call.get()?.cancel() }
     }
     private val clients = IdentityHashMap<OkHttpClient, OkHttpClient>()
+    private val pools = IdentityHashMap<ConnectionPool, ConnectionPool>()
+    private var closed = false
     private val continued = AtomicBoolean(false)
+
+    override fun close() = synchronized(clients) {
+        closed = true
+        pools.values.forEach { it.evictAll() }
+        pools.clear()
+        clients.clear()
+    }
 
     fun claimContinuation(enabled: Boolean): Boolean = enabled && continued.compareAndSet(false, true)
 
@@ -76,16 +86,24 @@ class GenerationNetworkSession(
     suspend fun execute(client: OkHttpClient, request: Request, onCall: ((Call) -> Unit)?): Response {
         val startedAt = clock.nanoTime()
         fun remaining() = (waitBudgetMs - (clock.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
-        val guarded = synchronized(clients) { clients.getOrPut(client) {
-            client.newBuilder().retryOnConnectionFailure(false).addNetworkInterceptor { chain ->
-                // Mark conservatively before headers: no replay if the provider might have received anything.
-                // Redirected GETs remain compatible; model POSTs may be submitted only once.
-                chain.request().tag(Submission::class.java)?.let { submission ->
-                    if (!submission.started || chain.request().body != null) submission.start()
+        val guarded = synchronized(clients) {
+            check(!closed) { "Generation network session is closed" }
+            clients.getOrPut(client) {
+                // Start each user attempt on fresh sockets; derived metadata/tool clients
+                // share only this attempt's pool, never a settings probe or older answer.
+                val pool = pools.getOrPut(client.connectionPool) {
+                    ConnectionPool(2, 30, java.util.concurrent.TimeUnit.SECONDS)
                 }
-                chain.proceed(chain.request())
-            }.build()
-        } }
+                client.newBuilder().connectionPool(pool).retryOnConnectionFailure(false).addNetworkInterceptor { chain ->
+                    // Mark conservatively before headers: no replay if the provider might have received anything.
+                    // Redirected GETs remain compatible; model POSTs may be submitted only once.
+                    chain.request().tag(Submission::class.java)?.let { submission ->
+                        if (!submission.started || chain.request().body != null) submission.start()
+                    }
+                    chain.proceed(chain.request())
+                }.build()
+            }
+        }
         try {
             var failure: IOException? = null
             for (attempt in 0..2) {
@@ -130,8 +148,10 @@ class GenerationNetworkSession(
                 } catch (error: IOException) {
                     currentCoroutineContext().ensureActive()
                     if (submission.expired) throw java.net.SocketTimeoutException("模型连接等待超时，尚未发送请求").apply { initCause(error) }
-                    if (submission.started || isPermanentTlsFailure(error) || error is ProtocolException ||
-                        error is java.io.FileNotFoundException || error is InterruptedIOException && error.message == "interrupted") throw error
+                    if (submission.started || isPermanentTlsFailure(error) || generateSequence<Throwable>(error) { it.cause }.any {
+                        it is ProtocolException || it is java.io.FileNotFoundException ||
+                            it is InterruptedIOException && it.message == "interrupted"
+                    }) throw error
                     failure = error
                     if (attempt == 2) throw error
                 } finally { deadline.cancel() }

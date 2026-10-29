@@ -34,7 +34,8 @@ object OkHttpCancellation {
     ): Response {
         val context = currentCoroutineContext()
         context.ensureActive()
-        val call = client.newCall(request)
+        val trace = ModelTransportTrace()
+        val call = client.newCall(request.newBuilder().tag(ModelTransportTrace::class.java, trace).build())
         val handle = context[Job]?.invokeOnCompletion(
             onCancelling = true,
             invokeImmediately = true,
@@ -59,7 +60,7 @@ object OkHttpCancellation {
                         super.read(sink, byteCount)
                     } catch (error: IOException) {
                         context.ensureActive()
-                        throw error
+                        throw trace.failure(error)
                     }
                 }
 
@@ -80,7 +81,7 @@ object OkHttpCancellation {
             handle?.dispose()
             call.cancel()
             context.ensureActive()
-            throw error
+            throw if (error is IOException) trace.failure(error) else error
         }
     }
 }

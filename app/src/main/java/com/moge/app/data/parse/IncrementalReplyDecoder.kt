@@ -95,6 +95,8 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
     private var pendingSink = 0
     /** 挂起转义是否是 `\n`（`\n` 需要按命令表精确匹配，见 [N_COMMANDS]）。 */
     private val pendingLetters = StringBuilder()
+    /** Wait across spaces after ambiguous \ne until an assignment or a real operand arrives. */
+    private val pendingNSpaces = StringBuilder()
 
     private var sawReply = false
     private var closedValue = false
@@ -141,6 +143,7 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
         pendingEscape = null
         pendingSink = SINK_TEXT
         pendingLetters.setLength(0)
+        pendingNSpaces.setLength(0)
         awaitingNWord = false
     }
 
@@ -214,10 +217,14 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
      * `\nf(x)`：收词 "nf" 不再是任何命令的前缀 ⇒ 回退成「换行 + f(x)」。
      */
     private fun continueNWord(ch: Char) {
+        if (pendingLetters.toString() == "ne" && (ch == ' ' || ch == '\t')) {
+            pendingNSpaces.append(ch)
+            return
+        }
         val isLetter = ch in 'a'..'z' || ch in 'A'..'Z'
-        if (!isLetter) {
+        if (!isLetter || pendingNSpaces.isNotEmpty()) {
             // 收词结束：按最终词判定，当前字符另行正常处理。
-            finishNWord()
+            finishNWord(ch)
             consume(ch)
             return
         }
@@ -238,11 +245,11 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
     }
 
     /** `\n` 收词结束：命中命令表则按 LaTeX 输出，否则输出换行。 */
-    private fun finishNWord() {
+    private fun finishNWord(following: Char? = null) {
         val word = pendingLetters.toString()
         pendingLetters.setLength(0)
         awaitingNWord = false
-        if (word.isNotEmpty() && word in N_COMMANDS) {
+        if (word.isNotEmpty() && word in N_COMMANDS && !isNewlineBeforeAssignment(word, following)) {
             // 命令名整体按字面量输出（含开头的 `\`）。
             emitPending('\\')
             for (c in word) emitCurrentAsPlain(c)
@@ -251,6 +258,8 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
             emitPending('\n')
             for (c in word.removePrefix("n")) emitCurrentAsPlain(c)
         }
+        for (c in pendingNSpaces) emitCurrentAsPlain(c)
+        pendingNSpaces.setLength(0)
     }
 
     private fun consumeStructural(ch: Char) {

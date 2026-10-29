@@ -87,11 +87,7 @@ class ModelClient @Inject constructor(
     private val capabilityCatalog = ModelCapabilityCatalog()
 
     /** Allow slow first tokens and pauses in reasoning; cancellation still closes the socket immediately. */
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.MINUTES)
-        .callTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
+    private val client = ModelTransport.create()
 
     /** Model operations share the IO dispatcher and classify failures throughout body consumption. */
     private suspend fun <T> modelRequest(block: suspend () -> T): T = withContext(io) {
@@ -899,14 +895,7 @@ class ModelClient @Inject constructor(
         val usageAccumulator = UsageAccumulator("chat-completions")
         try {
         // 取消必须能立刻打断阻塞读：注册在 execute 之前，覆盖整个 response.use。
-        val response = try {
-            OkHttpCancellation.execute(client, request)
-        } catch (e: IOException) {
-            throw ModelException(
-                ModelException.Kind.NETWORK,
-                "网络错误：${e.message ?: "无法连接模型接口"}",
-            ).apply { initCause(e) }
-        }
+        val response = withModelNetworkErrors { OkHttpCancellation.execute(client, request) }
         response.use { resp ->
             if (!resp.isSuccessful) {
                 val text = resp.body?.string().orEmpty()
@@ -1040,14 +1029,7 @@ class ModelClient @Inject constructor(
 
     /** 从 OpenAI 兼容响应里取出 choices[0].message.content。 */
     private suspend fun executeForContent(request: Request): String {
-        val response = try {
-            OkHttpCancellation.execute(client, request)
-        } catch (e: IOException) {
-            throw ModelException(
-                ModelException.Kind.NETWORK,
-                "网络错误：${e.message ?: "无法连接模型接口"}",
-            ).apply { initCause(e) }
-        }
+        val response = withModelNetworkErrors { OkHttpCancellation.execute(client, request) }
         response.use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
@@ -1207,14 +1189,7 @@ class ModelClient @Inject constructor(
         var usageReported = false
         currentCoroutineContext().ensureActive()
         try {
-        val response = try {
-            OkHttpCancellation.execute(client, request)
-        } catch (e: IOException) {
-            throw ModelException(
-                ModelException.Kind.NETWORK,
-                "网络错误：${e.message ?: "无法连接 DeepSeek 接口"}",
-            ).apply { initCause(e) }
-        }
+        val response = withModelNetworkErrors { OkHttpCancellation.execute(client, request) }
         return response.use { resp ->
             if (!resp.isSuccessful) {
                 val body = resp.body?.string().orEmpty()

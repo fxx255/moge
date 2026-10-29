@@ -27,7 +27,7 @@ import java.io.File
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class)
+@Config(sdk = [33], application = Application::class, qualifiers = "zh-rCN-w393dp-h820dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MultipleFigureTest {
     @get:Rule val compose = createComposeRule()

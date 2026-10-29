@@ -131,7 +131,9 @@ private fun isLatexNCommand(raw: String, start: Int): Boolean {
         word.append(raw[i])
         i++
     }
-    return word.isNotEmpty() && word.toString() in LATEX_N_COMMANDS
+    while (raw.getOrNull(i) == ' ' || raw.getOrNull(i) == '\t') i++
+    return word.isNotEmpty() && word.toString() in LATEX_N_COMMANDS &&
+        !isNewlineBeforeAssignment(word.toString(), raw.getOrNull(i))
 }
 
 /**
