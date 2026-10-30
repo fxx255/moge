@@ -47,12 +47,17 @@ class CaptureStore @Inject constructor(
     }
 
     /** Clipboard URI grants are temporary; keep a verified original in persistent storage. */
-    suspend fun importPastedPhoto(uri: Uri): String = withContext(Dispatchers.IO) {
-        val file = importPhoto(context, uri, photosDir(), "paste")
+    suspend fun importPastedPhoto(uri: Uri): String = importVerifiedPhoto(uri, "paste", "无法读取剪贴板中的图片，请重新复制")
+
+    /** Shared providers may revoke their grant as soon as the receiver finishes. */
+    suspend fun importSharedPhoto(uri: Uri): String = importVerifiedPhoto(uri, "share", "无法读取分享的图片，请重新分享")
+
+    private suspend fun importVerifiedPhoto(uri: Uri, prefix: String, errorMessage: String): String = withContext(Dispatchers.IO) {
+        val file = importPhoto(context, uri, photosDir(), prefix)
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
-            check(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法读取剪贴板中的图片，请重新复制" }
+            check(bounds.outWidth > 0 && bounds.outHeight > 0) { errorMessage }
             file.absolutePath
         } catch (error: Throwable) {
             file.delete()

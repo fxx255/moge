@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_images_title">共有された画像を追加</string>
+    <string name="share_current_conversation">現在の会話</string>
+    <string name="share_new_conversation">新しい会話</string>
+    <string name="share_conversation_type">会話の種類</string>
+    <string name="share_current_type">現在の種類：%1$s</string>
+    <string name="share_add_to_input">入力欄に追加</string>
+    <string name="share_dismiss_error">閉じる</string>
+    <string name="share_destination">追加先</string>
+    <string name="share_image_count">画像 %1$d 枚</string>
+</resources>

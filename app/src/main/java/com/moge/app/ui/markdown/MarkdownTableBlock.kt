@@ -80,7 +80,10 @@ internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, ca
         }
         if (widths.isEmpty()) return@BoxWithConstraints
         val rows = remember(table) { listOf(table.headers) + table.rows }
-        Column(Modifier.excludePageSwipe().horizontalScroll(rememberScrollState()).testTag("markdown-table-scroll")) {
+        val needsHorizontalScroll = widths.sum() > constraints.maxWidth
+        val scroll = rememberScrollState()
+        val tableGestures = if (needsHorizontalScroll) Modifier.excludePageSwipe().horizontalScroll(scroll) else Modifier
+        Column(tableGestures.testTag("markdown-table-scroll")) {
             Column(Modifier.width(with(density) { widths.sum().toDp() })
                 .semantics { collectionInfo = CollectionInfo(rows.size, table.columns) }) {
                 rows.forEachIndexed { rowIndex, row ->

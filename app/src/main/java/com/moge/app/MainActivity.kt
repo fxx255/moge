@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -23,6 +24,7 @@ import com.moge.app.ui.Routes
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.theme.usesChalk
+import com.moge.app.ui.share.SharedImagesViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
     private val sharedRoutes = MutableStateFlow<List<String>>(emptyList())
     private val shareMutex = Mutex()
+    private val sharedImages: SharedImagesViewModel by viewModels()
 
     @Inject lateinit var documentImporter: DocumentShareImporter
 
@@ -49,7 +52,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedRoutes.value = savedInstanceState?.getStringArrayList("sharedDocumentRoutes").orEmpty()
-        if (savedInstanceState?.getBoolean("sharedDocumentHandled") != true) handleSharedDocument(intent)
+        if (savedInstanceState?.getBoolean("sharedDocumentHandled") != true) handleIncomingShare(intent)
         setContent {
             val prefs by settings.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
             val appearance = prefs.appearance
@@ -67,7 +70,9 @@ class MainActivity : ComponentActivity() {
             MogeTheme(appearance = appearance, font = prefs.font, language = prefs.interfaceLanguage) {
                 CompositionLocalProvider(LocalFigurePathResolver provides figureResolver) {
                     val routes by sharedRoutes.collectAsStateWithLifecycle()
-                    MogeNavHost(routes.firstOrNull()) { sharedRoutes.value = sharedRoutes.value.drop(1) }
+                    MogeNavHost(sharedRoute = routes.firstOrNull(),
+                        onSharedCaptureConsumed = { sharedRoutes.value = sharedRoutes.value.drop(1) },
+                        sharedImages = sharedImages)
                 }
             }
         }
@@ -76,7 +81,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleSharedDocument(intent)
+        handleIncomingShare(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -85,8 +90,9 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun handleSharedDocument(intent: Intent?) {
+    private fun handleIncomingShare(intent: Intent?) {
         val source = intent ?: return
+        if (sharedImages.receive(source)) return
         if (DocumentShareImporter.documentUris(source).isEmpty()) return
         lifecycleScope.launch {
             shareMutex.withLock {

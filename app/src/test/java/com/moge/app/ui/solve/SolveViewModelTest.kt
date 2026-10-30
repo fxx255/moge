@@ -73,6 +73,28 @@ import java.util.UUID
 @Config(application = android.app.Application::class, shadows = [PosixAtomicFileShadow::class])
 class SolveViewModelTest {
 
+    @Test fun sharedImagesMergeIntoCurrentBranchWithoutSendingOrChangingModeAndRejectOverflow() = runBlocking {
+        val id = conversations.createConversation("已有对话", SolveMode.DETAILED, ConversationMode.CHAT).id
+        val originalPhoto = photo()
+        drafts.persist(drafts.reserveSave(id, "原来的输入", listOf(originalPhoto), conversationMode = ConversationMode.CHAT))
+        val page = vm(id)
+        page.awaitState { it.input == "原来的输入" }
+        val share = com.moge.app.runtime.SharedImages("share-1", listOf(photo(), photo()), "一起看一下")
+        page.acceptSharedImages(share)
+        page.awaitState { it.photos.size == 3 }
+        assertEquals("原来的输入\n一起看一下", page.uiState.value.input)
+        assertEquals(ConversationMode.CHAT, page.uiState.value.conversationMode)
+        page.acceptSharedImages(share)
+        assertEquals("原来的输入\n一起看一下", drafts.load(id)!!.text)
+        assertEquals(listOf(originalPhoto) + share.photoPaths, drafts.load(id)!!.photoPaths)
+        val overflow = com.moge.app.runtime.SharedImages("share-overflow", (1..9).map { photo() }, "不能部分添加")
+        assertTrue(runCatching { page.acceptSharedImages(overflow) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(3, page.uiState.value.photos.size)
+        assertEquals("原来的输入\n一起看一下", page.uiState.value.input)
+        assertTrue(conversations.messages(id).isEmpty())
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+    }
+
     @Test fun `draft recovery must finish before a new page can send`() = runBlocking {
         val recovered = CompletableDeferred<DraftStore.Draft?>()
         drafts = spyk(drafts)

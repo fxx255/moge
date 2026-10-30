@@ -69,6 +69,7 @@ internal class PaperNavigationScope {
     private var startTilt = -2f
     private var startAlpha = 1f
     var composerHeight by mutableStateOf(0)
+    var composerInputTop by mutableStateOf<Float?>(null)
 
     fun beginDrag() {
         startTilt = pose.tilt.value

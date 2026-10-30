@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_images_title">加入分享圖片</string>
+    <string name="share_current_conversation">目前對話</string>
+    <string name="share_new_conversation">新對話</string>
+    <string name="share_conversation_type">對話類型</string>
+    <string name="share_current_type">目前類型：%1$s</string>
+    <string name="share_add_to_input">加入輸入框</string>
+    <string name="share_dismiss_error">知道了</string>
+    <string name="share_destination">加入到</string>
+    <string name="share_image_count">%1$d 張圖片</string>
+</resources>

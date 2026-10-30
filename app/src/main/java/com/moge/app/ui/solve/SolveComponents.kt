@@ -14,6 +14,7 @@ import com.moge.app.ui.components.excludePageSwipe
 import com.moge.app.ui.components.PaperControlHorizontalTravel
 import com.moge.app.ui.components.PaperControlVerticalTravel
 import com.moge.app.ui.components.paperControlSwipeFraction
+import com.moge.app.ui.components.LocalPaperNavigationScope
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -62,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -84,6 +87,7 @@ import com.moge.app.ui.markdown.AnswerMarkdownBody
 import com.moge.app.ui.markdown.InlineFigure
 import com.moge.app.ui.markdown.MarkdownAnswer
 import com.moge.app.ui.photo.PhotoThumb
+import com.moge.app.ui.photo.PhotoOverlayIconButton
 import com.moge.app.ui.photo.QuestionPhoto
 import com.moge.app.ui.markdown.StreamingMarkdownBody
 import com.moge.app.ui.theme.MogeTheme
@@ -457,6 +461,7 @@ internal fun FollowUpBar(
 ) {
     val strings = rememberAppStrings()
     val motionEnabled = MogeTheme.motionEnabled
+    val navigationPaper = LocalPaperNavigationScope.current
     val elevation by androidx.compose.animation.core.animateDpAsState(
         if (switchingPage && swipeProgress == null && motionEnabled) 14.dp else 8.dp,
         tween(if (MogeTheme.motionEnabled) 160 else 0), label = "composer-page-shadow")
@@ -479,6 +484,7 @@ internal fun FollowUpBar(
         }
         Column(
             Modifier.fillMaxWidth().testTag("composer-surface")
+                .onGloballyPositioned { navigationPaper?.composerInputTop = it.positionInRoot().y }
                 .graphicsLayer {
                     val progress = swipeProgress?.invoke()
                     val depth = if (progress != null && motionEnabled) {
@@ -543,13 +549,15 @@ private fun PendingPhotos(paths: List<String>, onOpen: (Int) -> Unit, onRemove: 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         paths.forEachIndexed { index, path ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PhotoThumb(path, strings.text(R.string.ui_photo_1_s_to_send_b8dbb, index + 1), onClick = { onOpen(index) }, modifier = Modifier.size(64.dp))
-                PaperOverlayIconButton(
+            Box(Modifier.size(80.dp)) {
+                PhotoThumb(path, strings.text(R.string.ui_photo_1_s_to_send_b8dbb, index + 1), onClick = { onOpen(index) },
+                    modifier = Modifier.size(64.dp).align(Alignment.BottomStart))
+                PhotoOverlayIconButton(
                     onClick = { onRemove(path) },
-                ) {
-                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1))
-                }
+                    icon = Icons.Outlined.Close,
+                    contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1),
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
             }
         }
     }

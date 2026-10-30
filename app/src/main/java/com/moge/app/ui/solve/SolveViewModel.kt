@@ -242,6 +242,26 @@ class SolveViewModel @Inject constructor(
         savedState[Routes.ARG_CAPTURE] = raw
     }
 
+    /** Merge an imported batch into the live branch draft, then persist before acknowledging it. */
+    suspend fun acceptSharedImages(share: com.moge.app.runtime.SharedImages) {
+        draftReady.await()
+        check(!submitting.value && !switchingBranch.value && !importingPhotos.value) { "输入正在处理，请稍后重试" }
+        val added = share.photoPaths.filterNot { it in photos.value }
+        require(photos.value.size + added.size <= CaptureStore.MAX_PHOTOS) {
+            "当前输入最多容纳 ${CaptureStore.MAX_PHOTOS} 张图片，请移除部分图片或选择新对话"
+        }
+        // A failed disk write may be retried while this ViewModel retains its updated input.
+        if (added.isNotEmpty()) {
+            photos.value = photos.value + added
+            if (share.text.isNotBlank()) input.value = listOf(input.value, share.text).filter(String::isNotBlank).joinToString("\n")
+            PhotoArrivals.markNew(added)
+            editRevision++
+            draftRestored = true
+            preparePhotos(added)
+        }
+        draftStore.persist(draftStore.reserveSave(draftSlot, input.value, photos.value, documents.value, selectedMode.value))
+    }
+
     private fun restoreDraft() {
         val key = conversationId.value
         val initialSlot = draftSlot

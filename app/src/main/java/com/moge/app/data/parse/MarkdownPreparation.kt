@@ -40,16 +40,19 @@ internal fun prepareReplyMarkdown(source: String): String {
 private fun prepareProse(source: String): String =
     sanitizeReplyLatex(normalizeStandaloneEscapedBreaks(normalizeReplyMarkdown(source)))
 
-/** Repair escaped breaks at prose boundaries and the damaged formula opener \ne= only. */
+/** Repair standalone escaped breaks, keeping TeX commands and braced arguments literal. */
 private fun normalizeStandaloneEscapedBreaks(source: String): String {
     if ("\\n" !in source) return source
     var inMath = false
+    var mathBraceDepth = 0
     var copiedUntil = 0
     val out = StringBuilder(source.length)
     for (token in STANDALONE_BREAK_TOKENS.findAll(source)) {
         if (source.isEscapedMarkdownToken(token.range.first)) continue
         if (token.value == "$$") {
+            if (!inMath && source.hasCodeIndentAt(token.range.first)) continue
             inMath = !inMath
+            mathBraceDepth = 0
             if (inMath && !source.hasCodeIndentAt(token.range.first)) {
                 // Also repair older saved replies whose JSON decoder already converted newline+e
                 // into \ne. Only a formula opener followed by the invalid \ne= sequence qualifies.
@@ -60,7 +63,13 @@ private fun normalizeStandaloneEscapedBreaks(source: String): String {
                     copiedUntil = slash + 2 // leave the variable e and the assignment intact
                 }
             }
-        } else if (!inMath && !source.hasCodeIndentAt(token.range.first)) {
+        } else if (token.value == "{") {
+            if (inMath) mathBraceDepth++
+        } else if (token.value == "}") {
+            if (inMath && mathBraceDepth > 0) mathBraceDepth--
+        } else if (if (inMath) mathBraceDepth == 0 else !source.hasCodeIndentAt(token.range.first)) {
+            // A standalone \n is not a TeX command. In particular, providers sometimes leave
+            // it immediately before the closing $$, causing the entire formula to fail.
             out.append(source, copiedUntil, token.range.first).append('\n')
             copiedUntil = token.range.last + 1
         }
@@ -68,7 +77,7 @@ private fun normalizeStandaloneEscapedBreaks(source: String): String {
     return out.append(source, copiedUntil, source.length).toString()
 }
 
-private val STANDALONE_BREAK_TOKENS = Regex("""\$\$|\\n(?=[ \t]*(?:\r?\n|$|\$\$))""")
+private val STANDALONE_BREAK_TOKENS = Regex("""\$\$|[{}]|\\n(?=[ \t]*(?:\r?\n|$|\$\$))""")
 private val LEADING_E_ASSIGNMENT = Regex("""[ \t\r\n]*\\ne(?=[ \t]*=)""")
 
 private val CODE_TOKEN = Regex("(?m)^[ \\t]{0,3}(`{3,}|~{3,})[^\\n]*(?:\\n|$)|`+")

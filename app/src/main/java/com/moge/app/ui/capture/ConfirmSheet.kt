@@ -36,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.moge.app.ui.photo.PhotoThumb
 import com.moge.app.ui.components.PhotoArrival
-import com.moge.app.ui.components.PaperOverlayIconButton
+import com.moge.app.ui.photo.PhotoOverlayIconButton
 
 /**
  * 确认面板：照片预览、裁剪、删除、继续添加和「使用照片」。只交接附件，不发送请求。
@@ -76,19 +76,20 @@ fun ConfirmSheet(
                         key(path) {
                             PhotoArrival(path, surface = "confirm", Modifier.size(width = 96.dp, height = 120.dp)) {
                                 PhotoThumb(path, strings.text(R.string.ui_photo_1_s_6ec17, index + 1), onClick = { onOpenPhoto(index) }, modifier = Modifier.matchParentSize())
-                                PaperOverlayIconButton(
+                                PhotoOverlayIconButton(
                                     onClick = { onRemove(path) },
+                                    icon = Icons.Outlined.Close,
+                                    contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1),
                                     modifier = Modifier.align(Alignment.TopEnd),
-                                ) {
-                                    Icon(Icons.Outlined.Close, contentDescription = strings.text(R.string.ui_remove_photo_1_s_32a36, index + 1))
-                                }
+                                )
                                 onCropPhoto?.let { crop ->
-                                    PaperOverlayIconButton(
+                                    PhotoOverlayIconButton(
                                         onClick = { crop(index) },
+                                        icon = Icons.Outlined.Crop,
+                                        contentDescription = strings.text(R.string.ui_crop_photo_1_s_664dc, index + 1),
                                         modifier = Modifier.align(Alignment.BottomEnd),
-                                    ) {
-                                        Icon(Icons.Outlined.Crop, contentDescription = strings.text(R.string.ui_crop_photo_1_s_664dc, index + 1))
-                                    }
+                                        badgeAlignment = Alignment.BottomEnd,
+                                    )
                                 }
                             }
                         }

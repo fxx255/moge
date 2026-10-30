@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.7.0**（`versionCode = 51`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.7.0.md)。
+当前正式版本：**0.7.1**（`versionCode = 52`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.7.1.md)。
 
 ## 功能
 
@@ -22,6 +22,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **历史保留**：手动收藏或已分类的对话与题目长期保留；其他历史默认保留 7 天，可在设置中关闭自动清理或调整为 1–365 天。
 - **长图分享**：以 2160 像素宽高清稿纸预览、保存和系统分享题目与解答；预览支持双击放大及滑动查看细节，极长内容按顺序分图。
 - **文档附件分析**：保留 PDF、DOCX、PPTX、XLSX 等原件，通过附件卡片预览；模型按需调用页、章节、表格、检索和图像读取工具，回答附可点击来源，追问与收藏保留文档引用。PDF 统一通过按页读取工具分析，图表和扫描页由看图模型读取页图。微信等应用的分享和“打开方式”会建立独立的新对话草稿，不把文档正文填入输入框。
+- **图片分享接收**：从其他应用分享单张或多张图片，在输入框上方的附件面板预览并选择当前或新对话；新对话可选解题或对话类型。支持方格本、黑板主题、横屏和大字体，添加后由用户手动发送。
 - **模型配置**：自行填写接口地址、模型名称和 API Key，选择 Chat Completions 或 Responses 协议，以及看图、联网和推理设置。关闭联网不会改变已选择的接口。图片提问需要看图模型；文字模型未配置可用看图兜底时，发送前提示并保留输入和图片。
 - **应用内更新**：正式版启用版本检查、下载校验和系统安装，默认使用 `https://ghfast.top/` 镜像，失败时回退 GitHub 直连。
 - **网络恢复**：发送前断网可等待恢复，临时连接错误有限重试，保留已有正文；设置中可开启默认关闭的“网络恢复后自动续写一次”，可能增加模型用量。

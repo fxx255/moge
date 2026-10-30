@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_images_title">Add shared images</string>
+    <string name="share_current_conversation">Current chat</string>
+    <string name="share_new_conversation">New chat</string>
+    <string name="share_conversation_type">Chat type</string>
+    <string name="share_current_type">Current type: %1$s</string>
+    <string name="share_add_to_input">Add to input</string>
+    <string name="share_dismiss_error">OK</string>
+    <string name="share_destination">Add to</string>
+    <string name="share_image_count">%1$d images</string>
+</resources>

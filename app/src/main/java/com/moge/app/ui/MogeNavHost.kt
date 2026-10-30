@@ -99,6 +99,7 @@ object Routes {
 fun MogeNavHost(
     sharedRoute: String? = null,
     onSharedCaptureConsumed: () -> Unit = {},
+    sharedImages: com.moge.app.ui.share.SharedImagesViewModel? = null,
 ) {
     val nav = rememberNavController()
     val navigation: ConversationNavigationViewModel = hiltViewModel()
@@ -249,6 +250,7 @@ fun MogeNavHost(
                 }
             }
         }
+        sharedImages?.let { com.moge.app.ui.share.SharedImageNavigation(nav, it) }
     }
 }
 

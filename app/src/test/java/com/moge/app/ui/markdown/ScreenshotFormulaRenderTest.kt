@@ -7,9 +7,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.text.Spanned
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import com.moge.app.ui.solve.userMathSource
+import com.moge.app.data.parse.IncrementalReplyDecoder
+import com.moge.app.data.parse.ReplyParser
 import io.noties.markwon.image.AsyncDrawableScheduler
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -35,7 +40,9 @@ class ScreenshotFormulaRenderTest {
     @Before
     fun setUp() { JLatexMathAndroid.init(context) }
 
-    private fun newView() = createMarkdownTextView(context, Color.BLACK, Color.BLUE, fontSizePx = 22f)
+    private fun newView() = createMarkdownTextView(context, Color.BLACK, Color.BLUE, fontSizePx = 22f).apply {
+        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
 
     private fun spans(view: TextView): List<BaselineLatexSpan> {
         AsyncDrawableScheduler.unschedule(view)
@@ -120,6 +127,42 @@ class ScreenshotFormulaRenderTest {
         assertEquals(probability, span.drawable.destination)
         assertTrue(view.text.endsWith("。继续讲解"))
         assertSpanDraws(view, span, 900)
+    }
+
+    @Test
+    fun `Jacobian screenshot with escaped trailing breaks renders and copies in saved and streaming replies`() {
+        val formulas = listOf(
+            """\left|\frac{\partial(x,y)}{\partial(t,m)}\right|""",
+            """=\left|\det\begin{pmatrix}1/2&1/2\\1/2&-1/2\end{pmatrix}\right|""",
+            """=\frac{1}{2},""",
+        )
+        val source = "Jacobi 行列式为\n\n" + formulas.mapIndexed { index, formula ->
+            "\$\$$formula${if (index < 2) "\\n" else ""}\n\$\$"
+        }.joinToString("\n\n")
+        val raw = buildJsonObject { put("reply", source) }.toString()
+        val decoder = IncrementalReplyDecoder()
+        for (char in raw) decoder.append(char.toString())
+        for (width in listOf(320, 900)) {
+            for (body in listOf(source, ReplyParser.parse(raw).reply, decoder.finish())) {
+                val view = newView()
+                for (streaming in listOf(false, true)) {
+                    if (streaming) {
+                        val snapshot = StreamingMarkdownTokenizer().update(body)
+                        val merged = snapshot.copy(blocks = emptyList(), tail = body, tailStart = 0,
+                            visibleEnd = body.length)
+                        renderStreamingMarkdown(view, merged, width, Color.BLACK, Color.BLUE)
+                    } else renderMarkdown(view, body, width, Color.BLACK, Color.BLUE)
+                    val rendered = spans(view)
+                    assertEquals(formulas, rendered.map { it.drawable.destination.trim() })
+                    for (span in rendered) {
+                        val text = view.text as Spanned
+                        assertEquals(span.drawable.destination.trim(),
+                            selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)).trim())
+                        assertSpanDraws(view, span, width)
+                    }
+                }
+            }
+        }
     }
 
     @Test
