@@ -407,7 +407,7 @@ private fun AnswerFooter(
 private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit, actionsEnabled: Boolean, onShare: () -> Unit, onSave: () -> Unit) {
     val strings = rememberAppStrings()
     Column(Modifier.fillMaxWidth()) {
-        usageLabel(item.usageJson, strings)?.let { label ->
+        usageLabel(item.usageJson, strings, durationMs = item.durationMs)?.let { label ->
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),

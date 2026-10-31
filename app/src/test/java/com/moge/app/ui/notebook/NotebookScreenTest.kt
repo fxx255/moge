@@ -50,10 +50,20 @@ class NotebookScreenTest {
                         onSelectAll = { state.value = state.value.copy(selectedIds = setOf("a", "b")) },
                         onOpenEntry = { opened = it }, onCloseEntry = {}, onMove = { moved = it }, onDelete = { deleted++ },
                         onCreateCategory = { created = it }, onRenameCategory = { _, _ -> }, onReorderCategory = { _, _ -> },
-                        onDeleteCategory = { categoryDeleted = it }, onRetry = {}, onDismissMessage = {})
+                        onDeleteCategory = { categoryDeleted = it }, onRetry = {},
+                        onDismissMessage = { state.value = state.value.copy(message = null) })
                 }
             }
         }
+    }
+
+    @Test fun `notebook removal feedback is consumed while the snackbar remains visible`() {
+        val message = "已移出 1 个收藏，历史对话仍保留"
+        state.value = state.value.copy(message = message)
+        render()
+        compose.onNodeWithText(message).assertIsDisplayed()
+        compose.runOnIdle { assertNull(state.value.message) }
+        compose.onNodeWithText(message).assertIsDisplayed()
     }
     @Test fun `tap opens snapshot and batch move picks a custom category`() {
         render()

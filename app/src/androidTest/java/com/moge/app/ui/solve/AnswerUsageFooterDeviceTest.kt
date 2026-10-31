@@ -46,14 +46,20 @@ class AnswerUsageFooterDeviceTest {
             ) {
                 Box(Modifier.width(360.dp).padding(12.dp)) {
                     AnswerSheet(SolveItem.Answer("usage", AnswerState.COMPLETED, "累计用量测试",
-                        usageJson = saved.value, regenerateRequestId = "request"), {}, {}, true, { _, _ -> })
+                        usageJson = saved.value, durationMs = 120_000, regenerateRequestId = "request"), {}, {}, true, { _, _ -> })
                 }
             }
         } }
         for (appearance in listOf(Appearance.PAPER, Appearance.CHALK)) {
             for ((name, json) in listOf("total" to AnswerUsageCodec.encode(usage), "partial" to AnswerUsageCodec.encode(usage.plus(null)))) {
                 compose.runOnIdle { theme.value = appearance; saved.value = json }
-                val expected = requireNotNull(usageLabel(json))
+                val expected = requireNotNull(usageLabel(json, durationMs = 120_000))
+                assertTrue(expected.startsWith("输入 "))
+                assertTrue(expected.contains("缓存 ") && expected.contains("输出 "))
+                assertFalse("Request counts must not appear in the footer", expected.contains("次）"))
+                assertFalse("The removed answer-total prefix must stay hidden", expected.contains("本次累计"))
+                if (name == "total") assertTrue(expected.endsWith("平均 200.0 tokens/s"))
+                else assertFalse("Incomplete output cannot claim an average speed", expected.contains("tokens/s"))
                 val footer = compose.onNodeWithText(expected).assertIsDisplayed()
                 val layouts = mutableListOf<TextLayoutResult>()
                 footer.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

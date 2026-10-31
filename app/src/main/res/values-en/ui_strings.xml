@@ -215,7 +215,7 @@
     <string name="ui_input_1_s_d5982">"Input %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"Cached %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"Output %1$s"</string>
-    <string name="ui_usage_answer_total">"Answer total (%1$d calls)"</string>
+    <string name="ui_usage_average_output_speed">"Avg %1$s tokens/s"</string>
     <string name="ui_usage_legacy_request">"Legacy request"</string>
     <string name="ui_usage_unknown">"Unknown"</string>
     <string name="ui_usage_unavailable">"Usage unavailable"</string>

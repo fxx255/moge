@@ -92,9 +92,7 @@ internal fun NotebookContent(
     var moveOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); onDismissMessage() }
-    }
+    SnackbarMessageEffect(state.message, snackbar, onConsumed = onDismissMessage)
     val detail = state.openEntryId != null
     val back: () -> Unit = { if (drag.held) drag.release(cancelled = true) else if (detail) onCloseEntry() else if (state.selecting && !state.busy) onClearSelection() else onBack() }
     BackHandler(drag.held || detail || (state.selecting && !state.busy), onBack = { back(); Unit })

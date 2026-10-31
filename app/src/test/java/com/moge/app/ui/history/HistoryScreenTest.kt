@@ -1,8 +1,11 @@
 package com.moge.app.ui.history
 
 import android.app.Application
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
@@ -30,22 +33,61 @@ class HistoryScreenTest {
     private var opened: String? = null
     private var renamed: String? = null
     private var deletes = 0
+    private val historyVisible = mutableStateOf(true)
+    private var openedNotebook: String? = null
 
-    private fun render(largeChalk: Boolean = false) {
+    private fun render(largeChalk: Boolean = false, navigateOnOpen: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeChalk) 1.8f else 1f)) {
                 MogeTheme(if (largeChalk) Appearance.CHALK else Appearance.PAPER) {
-                    HistoryContent(state.value, onBack = {}, onOpenConversation = { opened = it },
+                    if (historyVisible.value) HistoryContent(state.value, onBack = {}, onOpenConversation = {
+                        opened = it
+                        if (navigateOnOpen) historyVisible.value = false
+                    },
                         onQuery = { state.value = state.value.copy(query = it) },
                         onToggleSelection = { id -> state.value = state.value.copy(selectedIds =
                             if (id in state.value.selectedIds) state.value.selectedIds - id else state.value.selectedIds + id) },
                         onClearSelection = { state.value = state.value.copy(selectedIds = emptySet()) },
                         onSelectAll = { state.value = state.value.copy(selectedIds = setOf("a", "b")) },
-                        onRename = { renamed = it }, onPin = {}, onDelete = { deletes++ }, onRetry = {}, onDismissMessage = {})
+                        onRename = { renamed = it }, onPin = {}, onDelete = { deletes++ }, onRetry = {},
+                        onDismissMessage = { state.value = state.value.copy(message = null) },
+                        onOpenNotebook = { openedNotebook = it },
+                        onDismissSavedFavorite = { state.value = state.value.copy(savedFavoriteId = null) })
+                    else Text("返回历史", Modifier.clickable { historyVisible.value = true })
                 }
             }
         }
+    }
+
+    @Test fun `delete feedback stays visible after consumption but never replays when reopening history`() {
+        val message = "已删除 1 个对话"
+        state.value = state.value.copy(message = message)
+        render(navigateOnOpen = true)
+        compose.onNodeWithText(message).assertIsDisplayed()
+        compose.runOnIdle { assertNull(state.value.message) }
+        repeat(3) {
+            compose.onNodeWithText(if (it % 2 == 0) "数学题" else "物理题").performClick()
+            compose.onNodeWithText("返回历史").performClick()
+            compose.onNodeWithText(message).assertDoesNotExist()
+        }
+        // A subsequent deletion with the same wording is a new notification.
+        compose.runOnIdle { state.value = state.value.copy(message = message) }
+        compose.onNodeWithText(message).assertIsDisplayed()
+        compose.runOnIdle { assertNull(state.value.message) }
+    }
+
+    @Test fun `saved feedback keeps its original notebook action after pending state is cleared`() {
+        state.value = state.value.copy(message = "已收藏 1 道题", savedFavoriteId = "saved-a")
+        render()
+        compose.onNodeWithText("已收藏 1 道题").assertIsDisplayed()
+        compose.runOnIdle {
+            assertNull(state.value.message)
+            assertNull(state.value.savedFavoriteId)
+            state.value = state.value.copy(query = "无关的重组")
+        }
+        compose.onNodeWithText("查看题册").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals("saved-a", openedNotebook) }
     }
 
     @Test fun `history reading viewport extends behind the paper while filters remain inset`() {

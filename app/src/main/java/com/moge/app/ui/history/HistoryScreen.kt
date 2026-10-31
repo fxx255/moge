@@ -117,15 +117,12 @@ internal fun HistoryContent(
     var renameOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(state.message, state.savedFavoriteId) {
-        state.message?.let { message ->
-            val saved = state.savedFavoriteId
-            val result = snackbar.showSnackbar(message, actionLabel = if (message.startsWith(strings.text(R.string.ui_saved_c7e9a))) strings.text(R.string.ui_view_notebook_aeb82) else null)
-            if (result == SnackbarResult.ActionPerformed) onOpenNotebook(saved)
-            onDismissMessage()
-            onDismissSavedFavorite()
-        }
-    }
+    val saved = state.savedFavoriteId
+    SnackbarMessageEffect(state.message, snackbar,
+        onConsumed = { onDismissMessage(); onDismissSavedFavorite() },
+        actionLabel = if (state.message?.startsWith(strings.text(R.string.ui_saved_c7e9a)) == true)
+            strings.text(R.string.ui_view_notebook_aeb82) else null,
+        onAction = { onOpenNotebook(saved) })
     BackHandler(drag.held || (state.selecting && !state.busy)) {
         if (drag.held) drag.release(cancelled = true) else onClearSelection()
     }

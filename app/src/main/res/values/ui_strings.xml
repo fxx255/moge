@@ -215,7 +215,7 @@
     <string name="ui_input_1_s_d5982">"输入 %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"缓存 %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"输出 %1$s"</string>
-    <string name="ui_usage_answer_total">"本次累计（%1$d次）"</string>
+    <string name="ui_usage_average_output_speed">"平均 %1$s tokens/s"</string>
     <string name="ui_usage_legacy_request">"旧版单次"</string>
     <string name="ui_usage_unknown">"未知"</string>
     <string name="ui_usage_unavailable">"用量未返回"</string>

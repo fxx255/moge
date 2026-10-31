@@ -16,7 +16,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.moge.app.R
+import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.Routes
 import com.moge.app.ui.components.LocalPaperNavigationScope
 import com.moge.app.ui.components.PaperHeaderMinHeight
@@ -55,12 +58,15 @@ internal fun SharedImageNavigation(nav: NavHostController, vm: SharedImagesViewM
     }
     val share = pending.firstOrNull()
     if (share != null) {
+        var cropModeName by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
+        var newModeName by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
+        var targetEntryId by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
         val solve: SolveViewModel? = entry?.takeIf { it.destination.route == Routes.SOLVE }?.let { hiltViewModel(it) }
         val state = solve?.uiState?.collectAsStateWithLifecycle()?.value
         val focus = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
         LaunchedEffect(share.id) { focus.clearFocus(); keyboard?.hide() }
-        BackHandler { if (!busy) vm.dismiss() }
+        BackHandler { if (!busy && cropModeName == null) vm.dismiss() }
         val density = LocalDensity.current
         val paper = LocalPaperNavigationScope.current
         val composerHeight = if (state != null) paper?.composerHeight ?: 0 else 0
@@ -74,16 +80,35 @@ internal fun SharedImageNavigation(nav: NavHostController, vm: SharedImagesViewM
             val available = (maxHeight - bottom - PaperHeaderMinHeight).coerceAtLeast(0.dp)
             SharedImageAttachmentPanel(share, state?.conversationMode, state?.title,
                 state != null && state.draftLoaded && !state.submitting && !state.switchingBranch && !state.importingPhotos,
-                busy, error,
+                busy || cropModeName != null, error,
                 onConfirm = { mode ->
-                    vm.deliver(mode, current = { batch ->
-                        check(nav.currentBackStackEntry == entry && solve != null) { "当前对话已改变，请重新选择" }
-                        solve.acceptSharedImages(batch)
-                    })
+                    val photoMode = mode ?: state?.conversationMode
+                    if (photoMode != null) {
+                        newModeName = mode?.name
+                        targetEntryId = entry?.id
+                        cropModeName = photoMode.name
+                    }
                 }, onDismiss = vm::dismiss,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = bottom)
                     .widthIn(max = 600.dp).fillMaxWidth().heightIn(max = available)
                     .aboveMovingPages(enabled = true, zIndex = 4f))
+        }
+        cropModeName?.let { name ->
+            val photoMode = ConversationMode.fromName(name)
+            SharedImageCropSequence(share,
+                onComplete = {
+                    cropModeName = null
+                    vm.deliver(newModeName?.let(ConversationMode::fromName), current = { batch ->
+                        check(nav.currentBackStackEntry?.id == targetEntryId && solve != null) {
+                            "当前对话已改变，请重新选择"
+                        }
+                        solve.acceptSharedImages(batch)
+                    })
+                },
+                onDismiss = { cropModeName = null },
+                onCropStarted = { vm.onPhotoCropStarted(it, photoMode) },
+                onCropClosed = vm::onPhotoCropClosed,
+                saveCrop = { path, edit -> vm.savePhotoCrop(path, photoMode, edit) })
         }
     } else if (error != null) {
         val strings = rememberAppStrings()

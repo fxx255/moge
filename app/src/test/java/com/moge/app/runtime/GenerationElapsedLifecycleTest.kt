@@ -41,7 +41,8 @@ class GenerationElapsedLifecycleTest {
             coEvery { preparer.prepare(any(), any(), any()) } coAnswers {
                 advance(3000)
                 GenerationPreparer.Prepared("题目", listOf(ChatMessage("user", "题目")), emptyList(),
-                    SolveMode.DETAILED, false, false, snapshot.toPolicy(), snapshot.copy(prepared = true))
+                    SolveMode.DETAILED, false, false, snapshot.toPolicy(), snapshot.copy(prepared = true,
+                        preparationUsage = AnswerUsage().plus(UsageSample(200, 0, 60))))
             }
             val proseStarted = CompletableDeferred<Unit>()
             val finishModel = CompletableDeferred<Unit>()
@@ -55,6 +56,7 @@ class GenerationElapsedLifecycleTest {
                 event(StreamEvent.AnswerDelta(body))
                 proseStarted.complete(Unit)
                 finishModel.await()
+                arg<(UsageSample?) -> Unit>(5)(UsageSample(1000, 500, 200, reasoningTokens = 120))
                 ReplyParser.parse(body)
             }
             val renderer = object : FigureRenderer {
@@ -77,6 +79,8 @@ class GenerationElapsedLifecycleTest {
             withTimeout(5000) { completed.await() }
             val answer = db.requestDao().getMessage(record.answerMessageId)!!
             assertEquals(13000L, answer.durationMs)
+            assertEquals("输入 1.2k · 缓存 500 · 输出 260 · 平均 20.0 tokens/s",
+                com.moge.app.ui.solve.usageLabel(answer.usageJson, durationMs = answer.durationMs))
             assertEquals(RequestStatus.COMPLETED.name, repository.get(record.requestId)!!.status)
             assertFalse(repository.saveCompletedDuration(record.requestId, "old-attempt", record.answerMessageId, 999999))
             assertEquals(13000L, db.requestDao().getMessage(record.answerMessageId)!!.durationMs)

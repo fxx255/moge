@@ -42,7 +42,7 @@ class SharedImagesViewModelTest {
         val copied = CompletableDeferred<SharedImages?>()
         coEvery { importer.import(any()) } coAnswers { copied.await() }
         val handle = SavedStateHandle()
-        val vm = SharedImagesViewModel(handle, importer)
+        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true))
         val source = Intent(Intent.ACTION_SEND).setType("image/png")
         assertTrue(vm.receive(source))
         val recreatedIntent = Intent(source)
@@ -52,7 +52,7 @@ class SharedImagesViewModelTest {
         dispatcher.scheduler.runCurrent()
         coVerify(exactly = 1) { importer.import(any()) }
         assertEquals(1, vm.pending.value.size)
-        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer)
+        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true))
         assertTrue(restored.receive(recreatedIntent))
         dispatcher.scheduler.runCurrent()
         assertEquals(vm.pending.value, restored.pending.value)
@@ -75,7 +75,7 @@ class SharedImagesViewModelTest {
         coEvery { importer.import(any()) } returns SharedImages("generated", listOf("/private/image.png"))
         coEvery { importer.createDraft(any(), ConversationMode.CHAT) } returns "new-chat-id"
         val handle = SavedStateHandle()
-        val vm = SharedImagesViewModel(handle, importer)
+        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true))
         repeat(2) { vm.receive(Intent(Intent.ACTION_SEND).setType("image/png")) }
         dispatcher.scheduler.runCurrent()
         assertEquals(2, vm.pending.value.size)
@@ -83,7 +83,7 @@ class SharedImagesViewModelTest {
         dispatcher.scheduler.runCurrent()
         assertEquals("new-chat-id", vm.destination.value)
         assertEquals(1, vm.pending.value.size)
-        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer)
+        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true))
         assertEquals("new-chat-id", restored.destination.value)
         assertEquals(vm.pending.value, restored.pending.value)
         restored.destinationOpened()

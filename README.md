@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.7.1**（`versionCode = 52`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.7.1.md)。
+当前正式版本：**0.7.2**（`versionCode = 53`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.7.2.md)。
 
 ## 功能
 

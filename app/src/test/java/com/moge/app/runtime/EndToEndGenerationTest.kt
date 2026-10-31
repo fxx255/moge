@@ -621,7 +621,7 @@ class EndToEndGenerationTest {
         assertEquals(6000L, total.inputTokens)
         assertEquals(4600L, total.cachedInputTokens)
         assertEquals(600L, total.outputTokens)
-        assertEquals("本次累计（3次） · 输入 6k · 缓存 4.6k · 输出 600", com.moge.app.ui.solve.usageLabel(saved.usageJson))
+        assertEquals("输入 6k · 缓存 4.6k · 输出 600", com.moge.app.ui.solve.usageLabel(saved.usageJson))
     }
 
     @Test fun `recognition and main answer usage are summed and recognition is saved in the snapshot`() = runBlocking {

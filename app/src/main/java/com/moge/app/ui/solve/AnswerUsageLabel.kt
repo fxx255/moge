@@ -2,6 +2,7 @@ package com.moge.app.ui.solve
 
 import com.moge.app.R
 import com.moge.app.core.TextResources
+import com.moge.app.data.llm.AnswerUsage
 import com.moge.app.data.llm.AnswerUsageCodec
 import java.util.Locale
 import kotlinx.serialization.json.Json
@@ -10,7 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 /** Formatting only: the runtime persists totals and field coverage, including missing HTTP usage. */
-internal fun usageLabel(usageJson: String, strings: TextResources? = null): String? {
+internal fun usageLabel(usageJson: String, strings: TextResources? = null, durationMs: Long = 0): String? {
     if (usageJson.isBlank()) return null
     val total = AnswerUsageCodec.decode(usageJson)
     fun text(id: Int, fallback: String, vararg args: Any) = strings?.text(id, *args) ?: fallback
@@ -28,7 +29,6 @@ internal fun usageLabel(usageJson: String, strings: TextResources? = null): Stri
             else -> compactCount(value)
         }
         return buildList {
-            add(text(R.string.ui_usage_answer_total, "本次累计（${total.requestCount}次）", total.requestCount))
             if (total.inputTokens == null && total.cachedInputTokens == null && total.outputTokens == null) {
                 add(text(R.string.ui_usage_unavailable, "用量未返回"))
             } else {
@@ -37,6 +37,10 @@ internal fun usageLabel(usageJson: String, strings: TextResources? = null): Stri
                 add(output(count(total.outputTokens, total.outputSamples)))
                 if (total.inputSamples < total.requestCount || total.outputSamples < total.requestCount) {
                     add(text(R.string.ui_usage_partial, "部分用量未返回"))
+                }
+                averageOutputTokensPerSecond(total, durationMs)?.let { speed ->
+                    val value = if (speed > 0 && speed < 0.1) "<0.1" else String.format(Locale.ROOT, "%.1f", speed)
+                    add(text(R.string.ui_usage_average_output_speed, "平均 $value tokens/s", value))
                 }
             }
             if (total.priorUsageUnknown) add(text(R.string.ui_usage_prior_unknown, "前段用量缺失"))
@@ -55,6 +59,15 @@ internal fun usageLabel(usageJson: String, strings: TextResources? = null): Stri
     return parts.takeIf { it.isNotEmpty() }?.let {
         (listOf(text(R.string.ui_usage_legacy_request, "旧版单次")) + it).joinToString(" · ")
     }
+}
+
+/** End-to-end throughput: all reported output (including reasoning/tools) over the whole answer time. */
+internal fun averageOutputTokensPerSecond(usage: AnswerUsage, durationMs: Long): Double? {
+    if (durationMs <= 0 || usage.requestCount <= 0 || usage.priorUsageUnknown ||
+        usage.outputSamples != usage.requestCount) return null
+    val output = usage.outputTokens?.takeIf { it >= 0 } ?: return null
+    // Convert before multiplying so large token totals cannot overflow a Long.
+    return output.toDouble() * 1000.0 / durationMs.toDouble()
 }
 
 internal fun compactCount(value: Long): String = when {

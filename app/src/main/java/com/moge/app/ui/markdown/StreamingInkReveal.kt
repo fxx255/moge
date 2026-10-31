@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.graphics.Canvas
 import android.graphics.Path
 import android.text.Spanned
+import android.text.style.LeadingMarginSpan
 import android.view.animation.LinearInterpolator
 import android.widget.TextView
 
@@ -69,6 +70,23 @@ internal class StreamingInkReveal {
             val right = x + (target - x) * fraction
             path.addRect(minOf(x, right), layout.getLineTop(line).toFloat(),
                 maxOf(x, right), layout.getLineBottom(line).toFloat(), Path.Direction.CW)
+        }
+        // Selection paths cover glyphs, but list numbers/bullets and quote rules
+        // are drawn in paragraph margins. Reveal them with their first character.
+        val text = view.text as? Spanned
+        if (text != null && visible > 0f) {
+            val revealedEnd = kotlin.math.ceil(visible.toDouble()).toInt().coerceAtMost(text.length)
+            val lastLine = layout.getLineForOffset((revealedEnd - 1).coerceAtLeast(0))
+            for (line in 0..lastLine) {
+                val lineStart = layout.getLineStart(line)
+                val lineEnd = minOf(revealedEnd, layout.getLineEnd(line))
+                if (lineStart >= lineEnd || text.getSpans(lineStart, lineEnd, LeadingMarginSpan::class.java).isEmpty()) continue
+                val textStart = layout.getPrimaryHorizontal(lineStart)
+                val left = if (layout.getParagraphDirection(line) > 0) 0f else textStart
+                val right = if (layout.getParagraphDirection(line) > 0) textStart else layout.width.toFloat()
+                if (left < right) path.addRect(left, layout.getLineTop(line).toFloat(), right,
+                    layout.getLineBottom(line).toFloat(), Path.Direction.CW)
+            }
         }
         path.offset((view.totalPaddingLeft - view.scrollX).toFloat(), (view.totalPaddingTop - view.scrollY).toFloat())
         canvas.clipPath(path)

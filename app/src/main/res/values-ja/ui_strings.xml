@@ -215,7 +215,7 @@
     <string name="ui_input_1_s_d5982">"入力 %1$s"</string>
     <string name="ui_cached_1_s_bc1e4">"キャッシュ %1$s"</string>
     <string name="ui_output_1_s_0f7f9">"出力 %1$s"</string>
-    <string name="ui_usage_answer_total">"今回の合計（%1$d回）"</string>
+    <string name="ui_usage_average_output_speed">"平均 %1$s tokens/s"</string>
     <string name="ui_usage_legacy_request">"旧版の単一リクエスト"</string>
     <string name="ui_usage_unknown">"不明"</string>
     <string name="ui_usage_unavailable">"使用量の報告なし"</string>

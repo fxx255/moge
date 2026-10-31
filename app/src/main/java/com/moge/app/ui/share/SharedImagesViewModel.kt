@@ -4,7 +4,9 @@ import android.content.Intent
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.domain.ConversationMode
+import com.moge.app.runtime.QuestionPhotoPreparation
 import com.moge.app.runtime.SharedImageImporter
 import com.moge.app.runtime.SharedImages
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +24,7 @@ import javax.inject.Inject
 class SharedImagesViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val importer: SharedImageImporter,
+    private val photoPreparation: QuestionPhotoPreparation,
 ) : ViewModel() {
     private val codec = Json { ignoreUnknownKeys = true }
     private val serializer = ListSerializer(SharedImages.serializer())
@@ -62,6 +65,11 @@ class SharedImagesViewModel @Inject constructor(
     }
 
     fun clearError() { _error.value = null }
+
+    fun onPhotoCropStarted(path: String, mode: ConversationMode) = photoPreparation.beginCrop(path, mode)
+    fun onPhotoCropClosed(path: String) = photoPreparation.endCrop(path)
+    suspend fun savePhotoCrop(path: String, mode: ConversationMode, edit: PhotoCropEdit) =
+        photoPreparation.saveCrop(path, mode, edit)
 
     /** Complete delivery before dequeuing; a failed destination leaves the imported batch available. */
     fun deliver(mode: ConversationMode?, current: suspend (SharedImages) -> Unit) {
