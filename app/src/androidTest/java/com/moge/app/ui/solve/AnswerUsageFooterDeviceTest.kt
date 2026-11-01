@@ -37,11 +37,12 @@ class AnswerUsageFooterDeviceTest {
 
     @Test fun totalsAndIncompleteUsageWrapBesideActionsInBothThemesAtLargeFont() {
         val theme = mutableStateOf(Appearance.PAPER)
+        val fontScale = mutableStateOf(1.6f)
         val usage = AnswerUsage().plus(UsageSample(7100, 5800, 18100)).plus(UsageSample(15700, 15500, 5900))
         val saved = mutableStateOf(AnswerUsageCodec.encode(usage))
         compose.setContent { MogeTheme(theme.value) {
             CompositionLocalProvider(
-                LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.6f),
+                LocalDensity provides Density(LocalDensity.current.density, fontScale = fontScale.value),
                 LocalContentColor provides MaterialTheme.colorScheme.onSurface,
             ) {
                 Box(Modifier.width(360.dp).padding(12.dp)) {
@@ -51,22 +52,34 @@ class AnswerUsageFooterDeviceTest {
             }
         } }
         for (appearance in listOf(Appearance.PAPER, Appearance.CHALK)) {
-            for ((name, json) in listOf("total" to AnswerUsageCodec.encode(usage), "partial" to AnswerUsageCodec.encode(usage.plus(null)))) {
-                compose.runOnIdle { theme.value = appearance; saved.value = json }
+            for ((name, json, scale) in listOf(
+                Triple("compact", AnswerUsageCodec.encode(AnswerUsage().plus(UsageSample(5200, 0, 2300))), 1f),
+                Triple("total", AnswerUsageCodec.encode(usage), 1.6f),
+                Triple("partial", AnswerUsageCodec.encode(usage.plus(null)), 1.6f),
+            )) {
+                compose.runOnIdle { theme.value = appearance; saved.value = json; fontScale.value = scale }
                 val expected = requireNotNull(usageLabel(json, durationMs = 120_000))
                 assertTrue(expected.startsWith("输入 "))
-                assertTrue(expected.contains("缓存 ") && expected.contains("输出 "))
+                assertTrue(expected.contains("输出 "))
+                if (name != "compact") assertTrue(expected.contains("缓存 "))
                 assertFalse("Request counts must not appear in the footer", expected.contains("次）"))
                 assertFalse("The removed answer-total prefix must stay hidden", expected.contains("本次累计"))
-                if (name == "total") assertTrue(expected.endsWith("平均 200.0 tokens/s"))
-                else assertFalse("Incomplete output cannot claim an average speed", expected.contains("tokens/s"))
+                if (name == "total") assertTrue(expected.endsWith("200.0 tps"))
+                if (name == "partial") assertFalse("Incomplete output cannot claim an average speed", expected.contains("tps"))
                 val footer = compose.onNodeWithText(expected).assertIsDisplayed()
                 val layouts = mutableListOf<TextLayoutResult>()
                 footer.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                 assertTrue(layouts.isNotEmpty())
                 assertFalse("Usage text must wrap without clipping", layouts.single().hasVisualOverflow)
+                if (name == "compact") assertTrue("Normal usage should fit within two lines", layouts.single().lineCount <= 2)
                 compose.onNodeWithContentDescription("重新生成").assertIsDisplayed()
                 compose.onNodeWithContentDescription("收藏到题册").assertIsDisplayed()
+                compose.onNodeWithContentDescription("分享对话图片").assertIsDisplayed()
+                val usageBounds = footer.fetchSemanticsNode().boundsInRoot
+                val actionBounds = compose.onNodeWithContentDescription("重新生成").fetchSemanticsNode().boundsInRoot
+                assertTrue("Usage must sit to the left of the three actions", usageBounds.right <= actionBounds.left)
+                assertTrue("Usage and actions must share a row", usageBounds.top < actionBounds.bottom &&
+                    usageBounds.bottom > actionBounds.top)
                 val instrumentation = InstrumentationRegistry.getInstrumentation()
                 instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
                     try {

@@ -79,7 +79,7 @@ class GenerationElapsedLifecycleTest {
             withTimeout(5000) { completed.await() }
             val answer = db.requestDao().getMessage(record.answerMessageId)!!
             assertEquals(13000L, answer.durationMs)
-            assertEquals("输入 1.2k · 缓存 500 · 输出 260 · 平均 20.0 tokens/s",
+            assertEquals("输入 1.2k · 缓存 500 · 输出 260 · 20.0 tps",
                 com.moge.app.ui.solve.usageLabel(answer.usageJson, durationMs = answer.durationMs))
             assertEquals(RequestStatus.COMPLETED.name, repository.get(record.requestId)!!.status)
             assertFalse(repository.saveCompletedDuration(record.requestId, "old-attempt", record.answerMessageId, 999999))

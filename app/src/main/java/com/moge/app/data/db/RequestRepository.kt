@@ -97,7 +97,12 @@ class RequestRepository @Inject constructor(
     }
 
     suspend fun forMessages(conversationId: String, messageIds: List<String>): List<RequestEntity> = withContext(io) {
-        if (messageIds.isEmpty()) emptyList() else dao.getRequestsForMessages(conversationId, messageIds)
+        // The query binds this list twice. Batch full conversation histories within
+        // older Android SQLite's 999-parameter limit, retaining each request once.
+        messageIds.distinct().chunked(400)
+            .flatMap { dao.getRequestsForMessages(conversationId, it) }
+            .distinctBy { it.requestId }
+            .sortedBy { it.createdAt }
     }
 
     /**

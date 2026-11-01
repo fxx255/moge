@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -172,10 +173,11 @@ internal fun FollowUpNote(item: SolveItem.Question,
     onEdit: (String) -> Unit = {}, onSwitchVersion: (String) -> Unit = {}, enabled: Boolean = true,
     onOpenImages: (List<String>, Int) -> Unit) {
     val strings = rememberAppStrings()
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        val noteMaxWidth = maxWidth * 0.85f
         Column(horizontalAlignment = Alignment.End) {
         TornPaperNote(
-            Modifier.widthIn(max = 300.dp), enabled = enabled,
+            Modifier.widthIn(max = noteMaxWidth), enabled = enabled,
             onClickLabel = strings.text(R.string.ui_edit_input_695fa), onClick = { onEdit(item.id) },
         ) {
             QuestionPhotos(item.photoPaths, onOpenImages)
@@ -236,7 +238,7 @@ internal fun AnswerSheet(
     LaunchedEffect(item.id, motion, generating) {
         if (motion && generating) lineProgress.animateTo(1f, tween(1200)) else lineProgress.snapTo(1f)
     }
-    PreserveMarkdownReadingPosition(generating) {
+    PreserveMarkdownReadingPosition(generating, reflowKey = showSummary to summary) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -402,30 +404,29 @@ private fun AnswerFooter(
     }
 }
 
-/** 页脚累计用量占满宽度，操作按钮独立排列，兼容较长统计和大字体。 */
+/** 累计用量在操作按钮左侧换行，保留按钮的触控空间。 */
 @Composable
 private fun AnswerActions(item: SolveItem.Answer, onRegenerate: (String) -> Unit, actionsEnabled: Boolean, onShare: () -> Unit, onSave: () -> Unit) {
     val strings = rememberAppStrings()
-    Column(Modifier.fillMaxWidth()) {
-        usageLabel(item.usageJson, strings, durationMs = item.durationMs)?.let { label ->
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            item.regenerateRequestId?.let { requestId ->
-                RegenerateButton(enabled = actionsEnabled) { onRegenerate(requestId) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).padding(end = 8.dp)) {
+            usageLabel(item.usageJson, strings, durationMs = item.durationMs)?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = MonoFamily),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            if (item.text.isNotBlank()) {
-                IconButton(onClick = onSave) {
-                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = strings.text(R.string.ui_save_to_notebook_fd727))
-                }
-                IconButton(onClick = onShare) {
-                    Icon(Icons.Outlined.Share, contentDescription = strings.text(R.string.ui_share_conversation_image_e5c0f))
-                }
+        }
+        item.regenerateRequestId?.let { requestId ->
+            RegenerateButton(enabled = actionsEnabled) { onRegenerate(requestId) }
+        }
+        if (item.text.isNotBlank()) {
+            IconButton(onClick = onSave) {
+                Icon(Icons.Outlined.BookmarkBorder, contentDescription = strings.text(R.string.ui_save_to_notebook_fd727))
+            }
+            IconButton(onClick = onShare) {
+                Icon(Icons.Outlined.Share, contentDescription = strings.text(R.string.ui_share_conversation_image_e5c0f))
             }
         }
     }

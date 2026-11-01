@@ -16,6 +16,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.moge.app.data.prefs.Appearance
@@ -68,10 +71,12 @@ class FollowUpMathLayoutTest {
         for (case in cases) {
             compose.runOnIdle { current.value = case }
             compose.onNodeWithContentDescription("复制题目原文").assertDoesNotExist()
+            val noteWidth = compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+                .fetchSemanticsNode().boundsInRoot.width
             compose.runOnIdle {
                 val root = compose.activity.findViewById<ViewGroup>(android.R.id.content)
                 val view = nativeMathViews(root).single()
-                val maximumWidth = ((minOf(case.width, 300) - 28) * view.resources.displayMetrics.density).roundToInt()
+                val maximumWidth = (noteWidth - 28 * view.resources.displayMetrics.density).roundToInt() + 1
                 assertTrue("Native content must use the bubble width", view.width in 1..maximumWidth)
                 assertTrue(view.isTextSelectable)
                 AsyncDrawableScheduler.unschedule(view)

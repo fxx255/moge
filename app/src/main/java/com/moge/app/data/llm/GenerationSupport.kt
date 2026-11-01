@@ -8,10 +8,6 @@ import com.moge.app.data.parse.replaceFigureAnchors
  * 避免「界面按一套规则合并、管理器按另一套规则合并」这种会悄悄撕坏长回答的分裂。
  */
 
-/** 发给模型的历史上限：条数与总字符双限，超长时从最早的消息开始丢。 */
-const val HISTORY_MAX_MESSAGES = 24
-const val HISTORY_MAX_CHARS = 24_000
-
 /** 自动续写时回传给模型的「已生成内容」尾部长度。 */
 const val CONTINUATION_ECHO_CHARS = 12_000
 

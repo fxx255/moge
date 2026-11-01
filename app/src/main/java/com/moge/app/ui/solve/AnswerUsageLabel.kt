@@ -40,7 +40,7 @@ internal fun usageLabel(usageJson: String, strings: TextResources? = null, durat
                 }
                 averageOutputTokensPerSecond(total, durationMs)?.let { speed ->
                     val value = if (speed > 0 && speed < 0.1) "<0.1" else String.format(Locale.ROOT, "%.1f", speed)
-                    add(text(R.string.ui_usage_average_output_speed, "平均 $value tokens/s", value))
+                    add(text(R.string.ui_usage_average_output_speed, "$value tps", value))
                 }
             }
             if (total.priorUsageUnknown) add(text(R.string.ui_usage_prior_unknown, "前段用量缺失"))

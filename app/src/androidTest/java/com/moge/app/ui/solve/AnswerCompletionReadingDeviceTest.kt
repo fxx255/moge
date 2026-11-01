@@ -76,8 +76,7 @@ class AnswerCompletionReadingDeviceTest {
         return location[1] + view.totalPaddingTop + view.layout.getLineTop(view.layout.getLineForOffset(offset)).toFloat()
     }
 
-    private fun finish(state: AnswerState = AnswerState.COMPLETED, summary: String = "",
-        paths: List<String> = answer.value.figurePaths) {
+    private fun preserveReading(update: () -> Unit) {
         lateinit var before: Mark
         val frames = mutableListOf<Float>()
         var checking = true
@@ -88,15 +87,22 @@ class AnswerCompletionReadingDeviceTest {
         compose.runOnIdle {
             before = mark()
             root.viewTreeObserver.addOnDrawListener(listener)
-            answer.value = answer.value.copy(state = state, reasoning = "", finalAnswer = summary, figurePaths = paths)
+            update()
         }
         compose.waitForIdle()
         compose.runOnIdle {
             checking = false
             root.viewTreeObserver.removeOnDrawListener(listener)
-            assertEquals("reading line moved on $state", before.y, y(before), 2f)
+            assertEquals("reading line moved during reflow", before.y, y(before), 2f)
             assertTrue("must observe completion frames", frames.isNotEmpty())
             frames.forEach { assertEquals("intermediate completion frame jumped", before.y, it, 2f) }
+        }
+    }
+
+    private fun finish(state: AnswerState = AnswerState.COMPLETED, summary: String = "",
+        paths: List<String> = answer.value.figurePaths) {
+        preserveReading {
+            answer.value = answer.value.copy(state = state, reasoning = "", finalAnswer = summary, figurePaths = paths)
         }
         compose.onNodeWithTag("answer-scratch-pad").assertDoesNotExist()
     }
@@ -106,6 +112,15 @@ class AnswerCompletionReadingDeviceTest {
         // End the navigation pin just as a real reader scrolling during streaming would.
         compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(durationMillis = 600) }
         finish()
+    }
+
+    @Test fun finalStreamingSummaryKeepsVisibleLineBeforeCompletion() {
+        render()
+        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(durationMillis = 600) }
+        preserveReading {
+            answer.value = answer.value.copy(finalAnswer = "最后一批流式数据中的摘要。".repeat(40))
+        }
+        finish(summary = answer.value.finalAnswer)
     }
 
     @Test fun expandedDraftRemovalAndSummaryInsertionKeepVisibleLine() {

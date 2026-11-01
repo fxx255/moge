@@ -36,11 +36,11 @@ internal class ReadingScrollHost(val scrollBy: (Float) -> Float) {
 
 /** Keep only an ephemeral on-screen anchor; reasoning and reading text are never persisted here. */
 @Composable
-internal fun PreserveMarkdownReadingPosition(generating: Boolean, content: @Composable () -> Unit) {
+internal fun PreserveMarkdownReadingPosition(generating: Boolean, reflowKey: Any? = null, content: @Composable () -> Unit) {
     val host = LocalReadingScrollHost.current
     val view = LocalView.current
     val position = remember(host, view) { host?.let { MarkdownReadingPosition(it, view) } }
-    SideEffect { position?.setGenerating(generating) }
+    SideEffect { position?.update(generating, reflowKey) }
     DisposableEffect(position, view) {
         val observer = view.viewTreeObserver
         if (position != null) observer.addOnPreDrawListener(position)
@@ -96,6 +96,7 @@ internal fun markdownReadingBlockModifier(contentKey: String): Modifier {
 private data class ReadingAnchor(
     val block: ReadingBlock,
     val text: CharSequence?,
+    val layout: android.text.Layout?,
     val offset: Int,
     val y: Float,
     val readerScrollY: Float,
@@ -112,15 +113,18 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
     ViewTreeObserver.OnPreDrawListener {
     val blocks = mutableListOf<ReadingBlock>()
     private var generating = false
+    private var reflowKey: Any? = null
     private var last: ReadingAnchor? = null
     private var restoring: ReadingAnchor? = null
     private var started = 0L
     private var frames = 0
     private var stableFrames = 0
 
-    fun setGenerating(value: Boolean) {
-        if (generating && !value) {
-            restoring = last
+    fun update(value: Boolean, key: Any?) {
+        if (generating && (!value || reflowKey != key)) {
+            // A summary can arrive in the last streaming update, before the saved
+            // answer changes state. Keep an in-progress correction across that boundary.
+            restoring = restoring ?: last
             last = null
             started = -1L
             frames = 0
@@ -130,6 +134,7 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
             restoring = null
         }
         generating = value
+        reflowKey = key
     }
 
     override fun onPreDraw(): Boolean {
@@ -138,10 +143,21 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
             restoring = null
             return true
         }
-        if (generating) {
-            // Observe every frame, including lazy placement that reuses a recorded draw layer.
-            last = capture()
-            return true
+        if (generating && restoring == null) {
+            val anchor = last
+            // A new native layout means existing prose may have reflowed (for example
+            // when the final summary is prepended). Pure list motion keeps this layout
+            // instance, so normal browsing only refreshes the anchor.
+            val reflowed = anchor != null &&
+                (anchor.block !in blocks || anchor.block.view?.layout !== anchor.layout)
+            if (!reflowed) {
+                last = capture()
+                return true
+            }
+            restoring = anchor
+            started = -1L
+            frames = 0
+            stableFrames = 0
         }
         val anchor = restoring ?: return true
         // Recreating a long native table can itself take over a second. The settling window
@@ -150,11 +166,13 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         if (started < 0) started = now
         if (anchor.version != host.contentVersion || ++frames > 120 || now - started > 2_000) {
             restoring = null
+            last = if (generating) capture() else null
             return true
         }
         val y = locate(anchor)
         if (y == null) {
             restoring = null
+            last = if (generating) capture() else null
             return true
         }
         val target = anchor.y + host.readerScrollY - anchor.readerScrollY
@@ -178,6 +196,7 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
             if (stableFrames >= 3 && now - started >= 300) restoring = null
             else root.postInvalidateOnAnimation()
         }
+        if (generating && restoring == null) last = capture()
         return true
     }
 
@@ -196,7 +215,7 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         val layout = view?.layout
         val textTop = bounds.top + (view?.totalPaddingTop ?: 0) - (view?.scrollY ?: 0)
         val line = layout?.getLineForVertical((viewport.top - textTop).toInt().coerceAtLeast(0))
-        return ReadingAnchor(block, view?.text, line?.let { layout.getLineStart(it) } ?: 0,
+        return ReadingAnchor(block, view?.text, layout, line?.let { layout.getLineStart(it) } ?: 0,
             if (line != null) textTop + layout.getLineTop(line) else bounds.top,
             host.readerScrollY, host.contentVersion, block.contentKey)
     }

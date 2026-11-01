@@ -194,18 +194,21 @@ class EndToEndGenerationTest {
                     }) })
                 }.toString()))
         }
-        val photo = java.io.File.createTempFile("supplemental-constellation", ".png")
+        val photos = List(4) { java.io.File.createTempFile("supplemental-constellation-$it", ".png") }
         try {
-            val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
-            photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
-            bitmap.recycle()
+            photos.forEachIndexed { index, photo ->
+                val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.rgb(index * 70, 255 - index * 70, 30))
+                photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
             val firstReply = "请补发星座图，以确认第3问的判决域。"
             enqueueReply("""{"reply":"$firstReply"}""")
-            val first = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath)))
+            val first = manager.submit(GenerationManager.Submission("c1", "", photos.take(3).map { it.absolutePath }))
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(first.requestId).status)
             withTimeout(3_000) { while (manager.isRunning()) delay(10) }
             enqueueReply("""{"reply":"根据补图，更正第3问的边界。"}""")
-            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photo.absolutePath),
+            val second = manager.submit(GenerationManager.Submission("c1", "", listOf(photos.last().absolutePath),
                 solveMode = com.moge.app.domain.SolveMode.CHECK_WORK))
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(second.requestId).status)
             withTimeout(3_000) { while (manager.isRunning()) delay(10) }
@@ -216,24 +219,33 @@ class EndToEndGenerationTest {
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(third.requestId).status)
             withTimeout(3_000) { while (manager.isRunning()) delay(10) }
 
-            val bodies = List(3) { Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject }
+            // Move the first images beyond the former eight-message lookback window.
+            repeat(4) { round ->
+                enqueueReply("""{"reply":"继续回答第$round 轮追问。"}""")
+                val next = manager.submit(GenerationManager.Submission("c1", "继续追问$round", emptyList()))
+                assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(next.requestId).status)
+                withTimeout(3_000) { while (manager.isRunning()) delay(10) }
+            }
+            val bodies = List(7) { Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject }
             fun messages(index: Int) = bodies[index][if (protocol == AiApiProtocol.RESPONSES) "input" else "messages"]!!
                 .jsonArray.map { it.jsonObject }
             fun imageText(message: kotlinx.serialization.json.JsonObject) =
                 message["content"]!!.jsonArray.first().jsonObject["text"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n")
-            for (index in 1..2) {
+            for (index in 1 until bodies.size) {
                 val previous = messages(index - 1)
                 assertEquals("$protocol must append to the exact prior input, including turn instructions and image bytes",
                     previous, messages(index).take(previous.size))
             }
             if (protocol == AiApiProtocol.RESPONSES) {
-                assertEquals(bodies[0]["instructions"], bodies[1]["instructions"])
-                assertEquals(bodies[1]["instructions"], bodies[2]["instructions"])
+                assertTrue(bodies.all { it["instructions"] == bodies[0]["instructions"] })
             }
             val secondMessages = messages(1)
             val exchange = secondMessages.filter { it["role"]!!.jsonPrimitive.content != "system" }
             assertEquals(listOf("user", "assistant", "user"), exchange.map { it["role"]!!.jsonPrimitive.content })
             assertEquals(PhotoTurnPrompt.INITIAL_QUESTION, imageText(exchange[0]))
+            val originalImageBlocks = exchange[0]["content"]!!.jsonArray.drop(1)
+            assertEquals(3, originalImageBlocks.size)
+            assertEquals(3, originalImageBlocks.distinct().size)
             assertTrue(exchange[1]["content"]!!.jsonPrimitive.content.contains(firstReply))
             assertEquals(PhotoTurnPrompt.FOLLOW_UP, imageText(exchange[2]))
             val blocks = exchange[2]["content"]!!.jsonArray.map { it.jsonObject }
@@ -248,7 +260,7 @@ class EndToEndGenerationTest {
             assertEquals(PhotoTurnPrompt.FOLLOW_UP, imageText(historicalUsers[1]))
             assertEquals("右上角标的是什么？", historicalUsers[2]["content"]!!.jsonPrimitive.content.substringAfter("\n\n【用户消息】\n"))
             assertEquals("", db.requestDao().getMessage(second.userMessageId)!!.content)
-        } finally { photo.delete() }
+        } finally { photos.forEach { it.delete() } }
     }
 
     @Test fun `chat resume restores partial prose without adding solving instructions`() = runBlocking {

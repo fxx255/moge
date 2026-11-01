@@ -3,8 +3,6 @@ package com.moge.app.runtime
 import com.moge.app.data.db.MessageEntity
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
-import com.moge.app.data.llm.HISTORY_MAX_CHARS
-import com.moge.app.data.llm.HISTORY_MAX_MESSAGES
 import com.moge.app.data.llm.RequestSnapshot
 import com.moge.app.data.llm.SnapshotCodec
 import com.moge.app.data.llm.SnapshotHistoryMessage
@@ -33,7 +31,7 @@ internal object ModelHistorySnapshot {
                 }
             }
         }
-        val messages = source.filterNot { it.role == "assistant" && it.content.isBlank() }.map { message ->
+        return source.filterNot { it.role == "assistant" && it.content.isBlank() }.map { message ->
             val prepared = preparedUsers[message.id]
             when {
                 message.role == "user" && prepared != null -> {
@@ -63,14 +61,5 @@ internal object ModelHistorySnapshot {
                 )
             }
         }
-        var chars = 0
-        val kept = ArrayDeque<SnapshotHistoryMessage>()
-        for (message in messages.takeLast(HISTORY_MAX_MESSAGES).asReversed()) {
-            val cost = message.text.length + message.turnContext.length + 8
-            if (kept.isNotEmpty() && chars + cost > HISTORY_MAX_CHARS) break
-            kept.addFirst(message)
-            chars += cost
-        }
-        return kept.toList()
     }
 }

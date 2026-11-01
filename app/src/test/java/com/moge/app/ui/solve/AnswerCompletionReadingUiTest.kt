@@ -132,4 +132,17 @@ class AnswerCompletionReadingUiTest {
         compose.waitForIdle()
         assertEquals(before, compose.onNodeWithTag("answer-header").fetchSemanticsNode().boundsInRoot.top, 1f)
     }
+
+    @Test fun `summary arriving in the final streaming update keeps the reading line`() {
+        render()
+        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(durationMillis = 600) }
+        lateinit var before: Mark
+        compose.runOnIdle {
+            before = mark()
+            answer.value = answer.value.copy(finalAnswer = "流式收尾时先收到的结论。".repeat(30))
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals("Final streaming summary moved the reading line", before.y, y(before), 2f) }
+        finish(summary = answer.value.finalAnswer)
+    }
 }

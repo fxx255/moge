@@ -48,7 +48,7 @@ data class RequestSnapshot(
     val visionEndpointIdentity: String = "",
     /** [PHOTO_ROUTE_NONE] / [PHOTO_ROUTE_DIRECT] / [PHOTO_ROUTE_TRANSCRIBE]。 */
     val photoRoute: String = PHOTO_ROUTE_NONE,
-    /** 提交时钉下的有界历史（不含本轮问题与回答位）。 */
+    /** 提交时钉下的当前分支完整历史（不含本轮问题与回答位）。 */
     val originalHistory: List<SnapshotHistoryMessage> = emptyList(),
     /** Visible saved prefix for an explicit resume; independent of the bounded model echo. */
     val continuationText: String = "",

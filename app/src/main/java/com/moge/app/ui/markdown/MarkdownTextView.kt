@@ -121,6 +121,14 @@ internal fun createMarkdownTextView(
         override fun getOffsetForPosition(x: Float, y: Float): Int =
             formulaOffsetForPosition(this, x, y) ?: super.getOffsetForPosition(x, y)
 
+        override fun scrollTo(x: Int, y: Int) {
+            // Compose measures the entire text and owns browsing/selection scrolling.
+            // During a reflow, MovementMethod/Editor can see the new Layout before
+            // AndroidView receives its taller slot. Never retain that transient native
+            // offset: it hides lines inside an otherwise correctly measured answer.
+            super.scrollTo(0, 0)
+        }
+
         override fun onDraw(canvas: Canvas) {
             val saved = canvas.save()
             inkReveal?.clip(canvas, this)

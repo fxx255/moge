@@ -370,7 +370,7 @@ class SubmitPathTest {
     }
 
     @Test
-    fun `vision follow up includes a bounded prior photo`() = runBlocking {
+    fun `vision follow up and retry retain every prior photo`() = runBlocking {
         stubCapturing(visionEnabled = true)
         every { aiCredentialStore.resolveActiveIdentity() } returns
             primaryIdentity.copy(visionEnabled = true)
@@ -389,11 +389,34 @@ class SubmitPathTest {
             ))
             assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(followUp.requestId))
             val prior = capturedMessages.last().single { it.role == "user" && it.content.contains("看图作答") }
-            assertEquals(2, prior.imageBase64s.size)
+            assertEquals(3, prior.imageBase64s.size)
+            assertEquals(preparer.prepareRetry(requestRepository.get(first.requestId)!!).imageBase64s,
+                prior.imageBase64s)
+            assertEquals(capturedMessages.last(), preparer.prepareRetry(requestRepository.get(followUp.requestId)!!).history)
             assertTrue(prior.content.contains("看图作答"))
         } finally {
             photo.delete()
         }
+    }
+
+    @Test
+    fun `submit retains every ancestor and long early answer before appending the new question`() = runBlocking {
+        var parent: String? = null
+        val expected = (1..15).flatMap { index ->
+            val question = "历史问题$index"
+            val answer = if (index == 1) "长".repeat(30_000) else "历史回答$index"
+            val record = requestRepository.createRequest("c1", "u$index", "a$index", "at$index",
+                question, emptyList(), "", parentMessageId = parent)
+            assertTrue(requestRepository.complete(record.requestId, record.attemptId, record.answerMessageId, answer))
+            parent = record.answerMessageId
+            listOf(question, answer)
+        }
+        stubCapturing()
+        val next = manager.submit(GenerationManager.Submission("c1", "追加问题", emptyList()))
+        assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(next.requestId))
+        assertEquals(expected + "追加问题", capturedMessages.single().map { it.content })
+        val snapshot = SnapshotCodec.decode(requestRepository.get(next.requestId)!!.snapshotJson)!!
+        assertEquals(expected, snapshot.originalHistory.map { it.text })
     }
 
     @Test

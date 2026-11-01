@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.TextView
+import com.moge.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -105,7 +106,10 @@ class SelectionHandleCrossingTest {
     }
 
     private fun handle(start: Boolean): View = WindowInspector.getGlobalWindowViews()
-        .flatMap(::descendants).single { it.contentDescription == if (start) "选区起点" else "选区终点" }
+        .flatMap(::descendants).single {
+            it.contentDescription == it.context.getString(
+                if (start) R.string.ui_selection_start_4fc2b else R.string.ui_selection_end_08e19)
+        }
 
     private fun descendants(view: View): List<View> = listOf(view) + if (view is ViewGroup) {
         (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }

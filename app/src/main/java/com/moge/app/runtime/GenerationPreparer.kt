@@ -9,7 +9,6 @@ import com.moge.app.data.db.RequestRepository
 import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.llm.ChatMessage
 import com.moge.app.data.llm.AnswerUsage
-import com.moge.app.data.llm.HISTORY_MAX_MESSAGES
 import com.moge.app.data.llm.PromptAssembler
 import com.moge.app.data.llm.VisionInputImageStore
 import com.moge.app.data.llm.ModelClient
@@ -28,9 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private const val HISTORY_IMAGE_LOOKBACK_MESSAGES = 8
-private const val HISTORY_IMAGE_LIMIT = 2
 
 /**
  * 生成前的**准备阶段**：转写照片、组历史、定联网。
@@ -143,7 +139,7 @@ class GenerationPreparer @Inject constructor(
     }
 
     /**
-     * **网络之前**钉下的初始快照：原问题、原历史（有界）、照片路线、主/识题档案身份、
+     * **网络之前**钉下的初始快照：原问题、当前分支完整历史、照片路线、主/识题档案身份、
      * 推理与联网设置、解题模式。随 `createRequest` 一起落库，
      * 这样「准备阶段被打断」也有东西可重试。**不含**密钥与图片 base64。
      */
@@ -172,8 +168,7 @@ class GenerationPreparer @Inject constructor(
             ConversationBranches.visible(allMessages, conversationDao.getBranchSelections(conversationId))
         else ConversationBranches.ancestors(allMessages, submission.parentMessageId)
         val eligible = sourceHistory.filterNot { it.id == userMessageId || it.id == answerMessageId }
-            .takeLast(HISTORY_MAX_MESSAGES)
-        val bounded = ModelHistorySnapshot.capture(eligible,
+        val history = ModelHistorySnapshot.capture(eligible,
             requestRepository.forMessages(conversationId, eligible.map { it.id }), conversationMode)
         val visionDirect = identity?.visionEnabled ?: false
         val recognizer = if (visionDirect || conversationMode == ConversationMode.CHAT) null else credentialStore.questionVisionProfileId()
@@ -207,7 +202,7 @@ class GenerationPreparer @Inject constructor(
             visionModel = recognizer?.model.orEmpty(),
             visionEndpointIdentity = recognizer?.let { endpointIdentityOf(it.baseUrl) }.orEmpty(),
             photoRoute = route,
-            originalHistory = bounded,
+            originalHistory = history,
             prompt = PromptAssembler.assemble(ModelClient.SYSTEM_PROMPT, prefs.nickname,
                 identity?.reasoningEffort ?: AiReasoningEffort.LOW, submission.solveMode,
                 conversationMode = conversationMode, answerLanguage = prefs.answerLanguage),
@@ -390,17 +385,14 @@ class GenerationPreparer @Inject constructor(
     }
 
     /**
-     * 快照历史 → 发给模型的消息。主模型能看图时回带最近的 [HISTORY_IMAGE_LIMIT] 张历史图
-     * （与首次发送复用相同编码）；超出历史附件预算时附说明，避免模型以为图不存在。
+     * 快照历史 → 发给模型的消息。主模型能看图时回带全部历史用户图片，
+     * 与首次发送复用相同编码和顺序，使后续追问只在既有上下文之后追加。
      */
     private suspend fun historyFromSnapshot(snapshot: RequestSnapshot): List<ChatMessage> {
         val pathsByIndex = if (snapshot.primaryVisionEnabled) {
-            snapshot.originalHistory.withIndex().toList().takeLast(HISTORY_IMAGE_LOOKBACK_MESSAGES).asReversed()
-                .filter { it.value.role == "user" }
-                .flatMap { message -> message.value.imagePaths.asReversed().map { message.index to it } }
-                .take(HISTORY_IMAGE_LIMIT)
-                .groupBy({ it.first }, { it.second })
-                .mapValues { (_, paths) -> paths.asReversed() }
+            snapshot.originalHistory.withIndex()
+                .filter { it.value.role == "user" && it.value.imagePaths.isNotEmpty() }
+                .associate { it.index to it.value.imagePaths }
         } else emptyMap()
         val imagesByIndex = if (pathsByIndex.isEmpty()) emptyMap() else withContext(Dispatchers.Default) {
             pathsByIndex.mapValues { (_, paths) ->
