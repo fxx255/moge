@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.document.*
 import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.AppLanguage
+import com.moge.app.data.prefs.DisplaySettings
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.SettingsRepository
@@ -38,7 +39,8 @@ class DocumentPreviewActivity : ComponentActivity() {
         val settings = SettingsRepository(applicationContext)
         setContent {
             val prefs by settings.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
-            DocumentPreviewTheme(settings.appearance, font = prefs.font, language = prefs.interfaceLanguage, onSystemBars = { chalk ->
+            DocumentPreviewTheme(settings.appearance, font = prefs.font, language = prefs.interfaceLanguage,
+                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent, onSystemBars = { chalk ->
                 val style = if (chalk) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                     else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
@@ -69,6 +71,8 @@ internal fun DocumentPreviewTheme(
     onSystemBars: (Boolean) -> Unit,
     font: AppFont = AppFont.SYSTEM,
     language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
+    bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
+    uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
     content: @Composable () -> Unit,
 ) {
     val selected by appearance.collectAsStateWithLifecycle(initialValue = Appearance.SYSTEM)
@@ -77,7 +81,8 @@ internal fun DocumentPreviewTheme(
         onSystemBars(chalk)
         onDispose { }
     }
-    MogeTheme(appearance = selected, font = font, language = language, content = content)
+    MogeTheme(appearance = selected, font = font, language = language,
+        bodyTextSizeSp = bodyTextSizeSp, uiScalePercent = uiScalePercent, content = content)
 }
 
 @Composable

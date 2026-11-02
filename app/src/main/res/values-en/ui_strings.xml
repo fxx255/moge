@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ui_display_settings">Display and text</string>
+    <string name="ui_body_text_size">Body text size</string>
+    <string name="ui_interface_scale">Interface scale</string>
     <string name="ui_settings_7debf">"Settings"</string>
     <string name="ui_cancel_4d0b4">"Cancel"</string>
     <string name="ui_save_fadf2">"Save"</string>

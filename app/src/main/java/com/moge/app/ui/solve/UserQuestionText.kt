@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import com.moge.app.ui.theme.LocalAppTypeface
+import com.moge.app.ui.theme.LocalBodyTextSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -33,7 +34,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.ui.markdown.MARKDOWN_TEXT_SIZE_SP
 import com.moge.app.ui.markdown.LocalSelectionScrollHost
@@ -88,8 +88,10 @@ private fun UserTextBody(source: String, renderMath: Boolean, color: Color, onCl
     val bodyTypeface = LocalAppTypeface.current
     val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
     val style = MaterialTheme.typography.bodyLarge
-    val fontSizePx = with(density) { if (renderMath) MARKDOWN_TEXT_SIZE_SP.sp.toPx() else style.fontSize.toPx() }
-    val lineHeightPx = with(density) { style.lineHeight.toPx() }
+    val bodyTextSize = LocalBodyTextSize.current
+    val textScale = bodyTextSize.value / MARKDOWN_TEXT_SIZE_SP
+    val fontSizePx = with(density) { if (renderMath) bodyTextSize.toPx() else (style.fontSize * textScale).toPx() }
+    val lineHeightPx = with(density) { (style.lineHeight * textScale).toPx() }
     val editLabel = rememberAppStrings().text(R.string.ui_edit_input_695fa)
     val width = if (renderMath) Modifier.fillMaxWidth() else Modifier
     BoxWithConstraints(width.clipToBounds()) {

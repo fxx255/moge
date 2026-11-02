@@ -1,6 +1,5 @@
 package com.moge.app.ui.markdown
 
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -13,6 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.moge.app.ui.theme.LocalAppTypeface
+import com.moge.app.ui.theme.LocalBodyTextSize
+import com.moge.app.data.prefs.DisplaySettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -46,7 +47,7 @@ internal fun isReplyPlaceholder(content: String): Boolean =
  */
 
 /** 正文 Markdown 字号（sp）。估算表格自然宽度时必须与 TextView 的实际字号一致。 */
-internal const val MARKDOWN_TEXT_SIZE_SP = 17f
+internal val MARKDOWN_TEXT_SIZE_SP = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP.toFloat()
 
 /**
  * 估算表格宽度时的安全余量。
@@ -333,7 +334,8 @@ internal fun MarkdownChunk(
     val density = LocalDensity.current
     val bodyTypeface = LocalAppTypeface.current
     val localeTag = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
-    val fontSizePx = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
+    val bodyTextSize = LocalBodyTextSize.current
+    val fontSizePx = with(density) { bodyTextSize.toPx() }
     val widthModifier = if (fixedWidthPx != null) {
         Modifier.width(with(density) { fixedWidthPx.coerceAtLeast(1).toDp() })
     } else {

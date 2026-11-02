@@ -166,6 +166,28 @@ class ScreenshotFormulaRenderTest {
     }
 
     @Test
+    fun `wide polynomial rejoins continuation terms with real TeX widths and rewraps when narrowed`() {
+        val formula = """\begin{aligned}
+            c(x)\bmod g(x)&=c_6(x^2+1)+c_5(x^2+x+1)\\
+            &+c_4(x^2+x)+1\\
+            &=(c_6+c_5+c_4)x^2\\
+            &+(c_5+c_4)x+(c_6+c_5+1).
+            \end{aligned}""".trimIndent()
+        val view = newView()
+        val source = "$$\n$formula\n$$"
+        renderMarkdown(view, source, 1600, Color.BLACK, Color.BLUE)
+        val wide = spans(view).single()
+        assertEquals("Keep two equality steps, with no isolated continuation terms", 1,
+            Regex("""\\\\""").findAll(wide.drawable.destination).count())
+        assertSpanDraws(view, wide, 1600)
+        renderMarkdown(view, source, 320, Color.BLACK, Color.BLUE)
+        val narrow = spans(view)
+        assertTrue("Narrow display must regain line breaks", narrow.size > 1 ||
+            Regex("""\\\\""").findAll(narrow.single().drawable.destination).count() > 1)
+        narrow.forEach { assertSpanDraws(view, it, 320) }
+    }
+
+    @Test
     fun `failed formula fallback lays out complete TeX including Chinese and the final line`() {
         val latex = "\\unknownMogeCommand{1}+" + "x_{1}+".repeat(30) + probability + "\n判0发1"
         val error = runCatching { JLatexMathDrawable.builder(latex).textSize(22f).build() }.exceptionOrNull()

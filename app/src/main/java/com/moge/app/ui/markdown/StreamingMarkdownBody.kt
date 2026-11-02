@@ -17,12 +17,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.R
 import com.moge.app.data.parse.prepareReplyMarkdown
 import com.moge.app.data.parse.wrapLongFormulas
 import com.moge.app.ui.theme.LocalAppTypeface
+import com.moge.app.ui.theme.LocalBodyTextSize
 import com.moge.app.ui.theme.MogeTheme
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.delay
@@ -118,7 +118,8 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     val surface = MaterialTheme.colorScheme.surface.toArgb()
     val typeface = LocalAppTypeface.current
     val locale = LocalConfiguration.current.locales.toLanguageTags()
-    val fontSize = with(LocalDensity.current) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
+    val bodyTextSize = LocalBodyTextSize.current
+    val fontSize = with(LocalDensity.current) { bodyTextSize.toPx() }
     val reveal = remember { StreamingInkReveal() }
     reveal.enabled = animate
     BoxWithConstraints(Modifier.fillMaxWidth()) {

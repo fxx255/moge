@@ -1,6 +1,7 @@
 package com.moge.app.ui.markdown
 
 import com.moge.app.ui.theme.LocalAppTypeface
+import com.moge.app.ui.theme.LocalBodyTextSize
 import android.graphics.Paint
 import android.text.TextPaint
 import android.view.View
@@ -39,7 +40,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.moge.app.core.LatexEngine
 import com.moge.app.data.parse.prepareReplyMarkdown
@@ -59,7 +59,8 @@ internal fun MarkdownTableBlock(source: String, animateRows: Boolean = false, ca
     }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val textSize = with(density) { MARKDOWN_TEXT_SIZE_SP.sp.toPx() }
+    val bodyTextSize = LocalBodyTextSize.current
+    val textSize = with(density) { bodyTextSize.toPx() }
     val bodyTypeface = LocalAppTypeface.current
     val paint = remember(textSize, bodyTypeface) { TextPaint(Paint.ANTI_ALIAS_FLAG).apply { this.textSize = textSize; typeface = bodyTypeface } }
     val measureFormula = remember(context, textSize) {

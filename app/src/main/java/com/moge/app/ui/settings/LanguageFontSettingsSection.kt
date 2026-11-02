@@ -93,7 +93,7 @@ internal fun LanguageFontSettingsSection(
 /** Anchor choices in the settings card, using the same field and paper menu as model selection. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PreferenceDropdown(
+internal fun PreferenceDropdown(
     title: String,
     value: String,
     expanded: Boolean,
@@ -139,7 +139,7 @@ private fun PreferenceDropdown(
 }
 
 @Composable
-private fun PickerOption(label: String, selected: Boolean, font: AppFont? = null, onClick: () -> Unit) {
+internal fun PickerOption(label: String, selected: Boolean, font: AppFont? = null, onClick: () -> Unit) {
     val typeface = rememberAppTypeface(font ?: AppFont.SYSTEM)
     DropdownMenuItem(
         text = { Text(label, maxLines = 2, overflow = TextOverflow.Ellipsis,

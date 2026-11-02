@@ -270,7 +270,7 @@ private fun wrapInlineLine(line: String, maxWidthPx: Int, measure: (String) -> I
 
 /** 优先在独立公式、顶层关系符和加减号处换行，最后才处理过长的括号组。 */
 internal fun splitFormula(latex: String, maxWidthPx: Int, measure: (String) -> Int): List<String> {
-    val value = trimSegment(latex)
+    val value = reflowFormulaContinuations(trimSegment(latex), maxWidthPx, measure)
     if (value.isEmpty()) return emptyList()
     if (measure(value) <= maxWidthPx) return listOf(value)
     wrapFormulaGroup(value, FormulaGroupKind.Frame, maxWidthPx, measure)?.let { return it }
@@ -416,7 +416,7 @@ private fun stripLeadingGroup(body: String): String {
 }
 
 /** 在「括号深度 0」（与 splitPoints 同一套 ()[]{} 规则）的 `\\` 处把环境体切成行；深度 > 0 处的 `\\` 跳过并上报。 */
-private fun splitTopLevelRows(body: String): Pair<List<String>, Boolean> {
+internal fun splitTopLevelRows(body: String): Pair<List<String>, Boolean> {
     val rows = mutableListOf<String>()
     val current = StringBuilder()
     var depth = 0

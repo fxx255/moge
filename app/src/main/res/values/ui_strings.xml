@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ui_display_settings">显示与字号</string>
+    <string name="ui_body_text_size">正文字号</string>
+    <string name="ui_interface_scale">界面缩放</string>
     <string name="ui_settings_7debf">"设置"</string>
     <string name="ui_cancel_4d0b4">"取消"</string>
     <string name="ui_save_fadf2">"保存"</string>

@@ -81,7 +81,13 @@ object PromptAssembler {
             val name = nickname.trim()
             if (name.isNotEmpty()) {
                 append("\n\n## 称呼\n")
-                append("用「").append(name).append("」称呼用户，自然使用即可，不要每段都叫。")
+                append("用户的称呼是「").append(name).append("」。")
+                if (conversationMode == ConversationMode.SOLVE) {
+                    append("解题默认直接作答，answer 不使用称呼或问候，reply 直接承接讲解；")
+                    append("只有澄清、交流或鼓励确实需要时才自然称呼一次，同一轮最多一次。")
+                } else {
+                    append("仅在交流确实需要时自然使用，不必每轮问候，同一轮最多称呼一次。")
+                }
             }
             if (conversationMode == ConversationMode.SOLVE) {
                 append("\n\n## 推理设定\n").append(reasoningInstruction(reasoningEffort))

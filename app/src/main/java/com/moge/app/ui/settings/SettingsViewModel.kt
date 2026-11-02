@@ -134,6 +134,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setFont(value) }
     }
 
+    fun setBodyTextSizeSp(value: Int) {
+        viewModelScope.launch { settings.setBodyTextSizeSp(value) }
+    }
+
+    fun setUiScalePercent(value: Int) {
+        viewModelScope.launch { settings.setUiScalePercent(value) }
+    }
+
     fun setDefaultSolveMode(value: SolveMode) {
         viewModelScope.launch { settings.setDefaultSolveMode(value) }
     }

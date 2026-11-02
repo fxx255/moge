@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.AppLanguage
+import com.moge.app.data.prefs.DisplaySettings
 import com.moge.app.ui.localization.AppLanguageProvider
 
 val LocalPaperColors = staticCompositionLocalOf { PaperExtras }
@@ -37,23 +38,27 @@ fun MogeTheme(
     appearance: Appearance = Appearance.SYSTEM,
     font: AppFont = AppFont.SYSTEM,
     language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
+    bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
+    uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
     content: @Composable () -> Unit,
 ) {
     val chalk = usesChalk(appearance, isSystemInDarkTheme())
     val motionEnabled = rememberPaperMotionEnabled()
     val typeface = rememberAppTypeface(font)
-    AppLanguageProvider(language) {
-        CompositionLocalProvider(
-            LocalAppTypeface provides typeface,
-            LocalPaperColors provides if (chalk) ChalkExtras else PaperExtras,
-            LocalPaperMotionEnabled provides motionEnabled,
-        ) {
-            MaterialTheme(
-                colorScheme = if (chalk) ChalkColorScheme else PaperColorScheme,
-                typography = typographyWithFont(if (font == AppFont.SYSTEM) null else appFontFamily(typeface), language.tag),
-                shapes = MogeShapes,
-                content = content,
-            )
+    AppDisplayScale(bodyTextSizeSp, uiScalePercent) {
+        AppLanguageProvider(language) {
+            CompositionLocalProvider(
+                LocalAppTypeface provides typeface,
+                LocalPaperColors provides if (chalk) ChalkExtras else PaperExtras,
+                LocalPaperMotionEnabled provides motionEnabled,
+            ) {
+                MaterialTheme(
+                    colorScheme = if (chalk) ChalkColorScheme else PaperColorScheme,
+                    typography = typographyWithFont(if (font == AppFont.SYSTEM) null else appFontFamily(typeface), language.tag),
+                    shapes = MogeShapes,
+                    content = content,
+                )
+            }
         }
     }
 }

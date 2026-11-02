@@ -67,7 +67,8 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose { }
             }
-            MogeTheme(appearance = appearance, font = prefs.font, language = prefs.interfaceLanguage) {
+            MogeTheme(appearance = appearance, font = prefs.font, language = prefs.interfaceLanguage,
+                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent) {
                 CompositionLocalProvider(LocalFigurePathResolver provides figureResolver) {
                     val routes by sharedRoutes.collectAsStateWithLifecycle()
                     MogeNavHost(sharedRoute = routes.firstOrNull(),

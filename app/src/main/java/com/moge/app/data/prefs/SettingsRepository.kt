@@ -30,6 +30,8 @@ data class UserSettings(
     val interfaceLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     val answerLanguage: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     val font: AppFont = AppFont.SYSTEM,
+    val bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
+    val uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
     val defaultSolveMode: SolveMode = SolveMode.DETAILED,
     val webSearchEnabled: Boolean = false,
     /** 提示词里对用户的称呼；空串表示不称呼。 */
@@ -57,6 +59,10 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             interfaceLanguage = AppLanguage.fromName(prefs[KEY_INTERFACE_LANGUAGE]),
             answerLanguage = AppLanguage.fromName(prefs[KEY_ANSWER_LANGUAGE]),
             font = AppFont.fromName(prefs[KEY_FONT]),
+            bodyTextSizeSp = (prefs[KEY_BODY_TEXT_SIZE] ?: DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP)
+                .coerceIn(DisplaySettings.bodyTextSizeRange),
+            uiScalePercent = (prefs[KEY_UI_SCALE] ?: DisplaySettings.DEFAULT_UI_SCALE_PERCENT)
+                .coerceIn(DisplaySettings.uiScaleRange),
             appearance = prefs[KEY_APPEARANCE]
                 ?.let { name -> Appearance.entries.firstOrNull { it.name == name } }
                 ?: Appearance.SYSTEM,
@@ -92,6 +98,16 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
 
     suspend fun setFont(value: AppFont) {
         store.edit { it[KEY_FONT] = value.name }
+    }
+
+    suspend fun setBodyTextSizeSp(value: Int) {
+        require(value in DisplaySettings.bodyTextSizeRange)
+        store.edit { it[KEY_BODY_TEXT_SIZE] = value }
+    }
+
+    suspend fun setUiScalePercent(value: Int) {
+        require(value in DisplaySettings.uiScaleRange)
+        store.edit { it[KEY_UI_SCALE] = value }
     }
 
     suspend fun setDefaultSolveMode(value: SolveMode) {
@@ -135,6 +151,8 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         val KEY_INTERFACE_LANGUAGE = stringPreferencesKey("interface_language")
         val KEY_ANSWER_LANGUAGE = stringPreferencesKey("answer_language")
         val KEY_FONT = stringPreferencesKey("font")
+        val KEY_BODY_TEXT_SIZE = intPreferencesKey("body_text_size_sp")
+        val KEY_UI_SCALE = intPreferencesKey("ui_scale_percent")
         const val MAX_NICKNAME_CHARS = 16
         val KEY_APPEARANCE = stringPreferencesKey("appearance")
         val KEY_SOLVE_MODE = stringPreferencesKey("default_solve_mode")
