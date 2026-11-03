@@ -54,14 +54,14 @@ internal class CameraExposureControl(private val executor: Executor) {
         requestFraction(value)
     }
 
-    /** A small absolute AE bias; repeated focus taps never add brightness or erase a manual choice. */
+    /** Paper-friendly absolute AE bias; repeated taps never accumulate or erase a manual choice. */
     fun applyMeteringDefault() {
         if (!supported || manuallyAdjusted) return
         val state = camera?.cameraInfo?.exposureState ?: return
         val step = state.exposureCompensationStep.toFloat()
         if (!step.isFinite() || step <= 0f) return
         val range = state.exposureCompensationRange
-        val index = (1f / 3f / step).roundToInt().coerceIn(range.lower, range.upper)
+        val index = (METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper)
         if (index <= 0) return
         requestFraction((index.toFloat() - range.lower) / (range.upper.toFloat() - range.lower))
     }
@@ -101,5 +101,9 @@ internal class CameraExposureControl(private val executor: Executor) {
     private fun logFailure(error: Throwable) {
         if (error !is CameraControl.OperationCanceledException && error !is java.util.concurrent.CancellationException)
             Log.w("Viewfinder", "exposure compensation unavailable", error)
+    }
+
+    companion object {
+        const val METERING_BIAS_EV = 2f / 3f
     }
 }

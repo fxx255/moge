@@ -118,6 +118,17 @@ class CameraTapMeteringTest {
         assertTrue(metering.focusAt(factory, Offset(200f, 300f)))
     }
 
+    @Test fun `shutter removes the overlay without cancelling the focus used by the photo`() {
+        attach()
+        metering.focusAt(factory, Offset(100f, 200f))
+        metering.hide()
+        assertNull(metering.target)
+        assertFalse(requests.single().isCancelled)
+        requests.single().set(mockk(relaxed = true))
+        assertNull(metering.target)
+        verify(exactly = 0) { control.cancelFocusAndMetering() }
+    }
+
     @Test fun `disposing an older binding cannot cancel the next camera`() {
         attach()
         metering.focusAt(factory, Offset(100f, 200f))

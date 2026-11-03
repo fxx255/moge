@@ -77,7 +77,7 @@ class CameraTapMeteringDeviceTest {
         if (exposure.isExposureCompensationSupported && range.upper > range.lower) {
             val step = exposure.exposureCompensationStep.toFloat()
             val defaultIndex = if (step.isFinite() && step > 0f)
-                (1f / 3f / step).roundToInt().coerceIn(range.lower, range.upper) else 0
+                (CameraExposureControl.METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper) else 0
             if (defaultIndex > 0) compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex == defaultIndex }
             compose.onNodeWithTag("camera-exposure-sun").assertIsEnabled().performClick()
             compose.onNodeWithTag("camera-exposure-slider").performSemanticsAction(

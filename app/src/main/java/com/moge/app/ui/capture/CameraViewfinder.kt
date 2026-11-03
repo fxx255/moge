@@ -12,6 +12,7 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -48,6 +49,7 @@ import java.io.File
 @Stable
 class ViewfinderController {
     internal var imageCapture: ImageCapture? = null
+    internal var onCaptureStarted: (() -> Unit)? = null
     var ready by mutableStateOf(false)
         internal set
     var failed by mutableStateOf(false)
@@ -74,6 +76,7 @@ class ViewfinderController {
         val capture = imageCapture ?: return onError(context.getString(R.string.ui_camera_is_not_ready_1ade9))
         if (busy) return
         busy = true
+        onCaptureStarted?.invoke()
         val options = ImageCapture.OutputFileOptions.Builder(target).build()
         capture.takePicture(
             options,
@@ -118,6 +121,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
     val metering = remember(previewView) { CameraTapMetering(ContextCompat.getMainExecutor(context)) }
     val zoom = remember(previewView) { CameraPreviewZoom(ContextCompat.getMainExecutor(context)) }
     val exposure = remember(previewView) { CameraExposureControl(ContextCompat.getMainExecutor(context)) }
+    var paperFocus by remember(previewView) { mutableStateOf<CameraPaperFocus?>(null) }
     val strings = rememberAppStrings()
     val focusLabel = strings.text(R.string.ui_camera_focus_and_meter)
 
@@ -129,6 +133,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         var provider: ProcessCameraProvider? = null
         var preview: Preview? = null
         var capture: ImageCapture? = null
+        var analysis: ImageAnalysis? = null
         var camera: Camera? = null
         var sensorRotation: Int? = null
         var targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
@@ -138,6 +143,7 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         fun updateRotation(rotation: Int) {
             if (disposed || rotation == targetRotation) return
             metering.reset()
+            paperFocus?.reset()
             targetRotation = rotation
             controller.targetRotation = rotation
             preview?.targetRotation = rotation
@@ -175,7 +181,9 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                     updateDisplayRotation()
                     startOrientation()
                 }
-                Lifecycle.Event.ON_PAUSE -> { stopOrientation(); metering.reset(); zoom.reset(); exposure.reset() }
+                Lifecycle.Event.ON_PAUSE -> {
+                    stopOrientation(); metering.reset(); zoom.reset(); exposure.reset(); paperFocus?.reset()
+                }
                 else -> Unit
             }
         }
@@ -215,13 +223,37 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                     .setTargetRotation(targetRotation)
                     .setFlashMode(if (controller.torchOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF)
                     .build().also { capture = it }
-                camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, boundPreview, boundCapture)
+                val pageFocus = CameraPaperFocus(previewView, executor,
+                    canFocus = { !disposed && controller.ready && !controller.busy && metering.target == null &&
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) },
+                    onFocus = { position ->
+                        if (metering.target == null && metering.focusAt(previewView.meteringPointFactory, position))
+                            exposure.applyMeteringDefault()
+                    })
+                paperFocus = pageFocus
+                analysis = pageFocus.analysis
+                val boundCamera = try {
+                    cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA,
+                        boundPreview, boundCapture, pageFocus.analysis)
+                } catch (unsupported: IllegalArgumentException) {
+                    // Older cameras may support only preview + full-resolution capture.
+                    pageFocus.close()
+                    paperFocus = null
+                    cameraProvider.unbind(boundPreview, boundCapture, pageFocus.analysis)
+                    analysis = null
+                    Log.i("Viewfinder", "paper analysis unavailable; retaining camera autofocus", unsupported)
+                    cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, boundPreview, boundCapture)
+                }
+                camera = boundCamera
                     .also(metering::attach)
                     .also(zoom::attach)
                     .also(exposure::attach)
                 controller.imageCapture = boundCapture
+                controller.onCaptureStarted = { metering.hide(); paperFocus?.suppress() }
                 controller.ready = true
             }.onFailure {
+                paperFocus?.close()
+                paperFocus = null
                 Log.w("Viewfinder", "bind camera failed", it)
                 controller.failed = true
             }
@@ -235,12 +267,15 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
             metering.detach(camera)
             zoom.detach(camera)
             exposure.detach(camera)
+            paperFocus?.close()
+            paperFocus = null
             if (controller.imageCapture === capture) {
                 controller.imageCapture = null
+                controller.onCaptureStarted = null
                 controller.ready = false
             }
             // 仅解绑本预览持有的用例，避免影响随后打开的新相机路由。
-            runCatching { provider?.unbind(*listOfNotNull<UseCase>(preview, capture).toTypedArray()) }
+            runCatching { provider?.unbind(*listOfNotNull<UseCase>(preview, capture, analysis).toTypedArray()) }
         }
     }
 
@@ -248,20 +283,23 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         fun canControlCamera() = controller.ready && !controller.busy && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         val uninstall = installCameraPreviewGestures(previewView, focusLabel,
             onTap = { position ->
-                if (canControlCamera() && metering.focusAt(previewView.meteringPointFactory, position))
-                    exposure.applyMeteringDefault()
+                if (canControlCamera()) {
+                    paperFocus?.suppress()
+                    if (metering.focusAt(previewView.meteringPointFactory, position)) exposure.applyMeteringDefault()
+                }
             },
             onZoomStart = {
-                if (canControlCamera()) { metering.reset(); zoom.beginGesture() }
+                if (canControlCamera()) { paperFocus?.suppress(); metering.reset(); zoom.beginGesture() }
             },
-            onZoom = { factor -> if (canControlCamera()) zoom.scaleBy(factor) },
+            onZoom = { factor -> if (canControlCamera()) { paperFocus?.suppress(); zoom.scaleBy(factor) } },
         )
         onDispose { uninstall() }
     }
-    Box(modifier.clipToBounds().onSizeChanged { metering.reset() }) {
+    Box(modifier.clipToBounds().onSizeChanged { metering.reset(); paperFocus?.reset() }) {
         AndroidView(factory = { previewView }, modifier = Modifier.matchParentSize().testTag("camera-preview"))
         CameraMeteringOverlay(metering.target, exposure.fraction, exposure.supported,
             enabled = controller.ready && !controller.busy && lifecycleState.isAtLeast(Lifecycle.State.RESUMED),
-            onValue = exposure::adjustTo, onFinished = metering::dismiss, modifier = Modifier.matchParentSize())
+            onValue = { paperFocus?.suppress(); exposure.adjustTo(it) },
+            onFinished = metering::dismiss, modifier = Modifier.matchParentSize())
     }
 }

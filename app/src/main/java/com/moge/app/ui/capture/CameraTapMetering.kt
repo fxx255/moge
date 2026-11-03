@@ -68,6 +68,9 @@ internal class CameraTapMetering(private val executor: Executor) {
         if (target?.id == id) target = null
     }
 
+    /** Shutter hides controls immediately, retaining the metering already used by the capture. */
+    fun hide() { target = null }
+
     /** Used on pause, rotation and disposal; hiding the frame alone must not cancel metering. */
     fun reset() {
         target = null

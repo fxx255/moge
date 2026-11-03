@@ -1,13 +1,15 @@
 package com.moge.app.ui.capture
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -20,10 +22,11 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /** Only the sun and its open slider intercept touches; the preview keeps tap/pinch ownership. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CameraMeteringOverlay(target: CameraMeteringTarget?, value: Float, supported: Boolean,
     enabled: Boolean, onValue: (Float) -> Unit, onFinished: (Long) -> Unit, modifier: Modifier = Modifier) {
-    if (target == null) return
+    if (target == null || !enabled) return
     val strings = rememberAppStrings()
     var expanded by remember(target.id) { mutableStateOf(false) }
     var dragging by remember(target.id) { mutableStateOf(false) }
@@ -43,7 +46,7 @@ internal fun CameraMeteringOverlay(target: CameraMeteringTarget?, value: Float, 
             .coerceIn(0f, (width - sunSize).coerceAtLeast(0f))
         val sunY = (target.position.y - sunSize / 2).coerceIn(0f, (height - sunSize).coerceAtLeast(0f))
         IconButton(onClick = { expanded = !expanded }, enabled = enabled && supported,
-            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = .3f),
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent,
                 contentColor = yellow, disabledContentColor = yellow.copy(alpha = .4f)),
             modifier = Modifier.offset { IntOffset(sunX.roundToInt(), sunY.roundToInt()) }
                 .size(48.dp).testTag("camera-exposure-sun")) {
@@ -57,16 +60,27 @@ internal fun CameraMeteringOverlay(target: CameraMeteringTarget?, value: Float, 
             val sliderX = (sunX + sunSize / 2 - sliderPixels / 2).coerceIn(0f, (width - sliderPixels).coerceAtLeast(0f))
             val sliderY = (if (sunY + sunSize + sliderHeight <= height) sunY + sunSize
                 else sunY - sliderHeight).coerceIn(0f, (height - sliderHeight).coerceAtLeast(0f))
-            Surface(shape = RoundedCornerShape(16.dp), color = Color.Black.copy(alpha = .8f),
-                modifier = Modifier.offset { IntOffset(sliderX.roundToInt(), sliderY.roundToInt()) }
-                    .width(sliderWidth).height(56.dp)) {
-                Slider(value, onValueChange = { dragging = true; onValue(it) },
+            Slider(value, onValueChange = { dragging = true; onValue(it) },
                     onValueChangeFinished = { dragging = false }, enabled = enabled && supported,
-                    modifier = Modifier.padding(horizontal = 12.dp).testTag("camera-exposure-slider")
+                    modifier = Modifier.offset { IntOffset(sliderX.roundToInt(), sliderY.roundToInt()) }
+                        .width(sliderWidth).height(56.dp).padding(horizontal = 12.dp)
+                        .testTag("camera-exposure-slider")
                         .semantics { contentDescription = strings.text(R.string.ui_camera_brightness) },
-                    colors = SliderDefaults.colors(thumbColor = yellow, activeTrackColor = yellow,
-                        inactiveTrackColor = Color.White.copy(alpha = .3f)))
-            }
+                    thumb = {
+                        Canvas(Modifier.size(2.dp, 18.dp)) {
+                            drawLine(yellow, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height),
+                                strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        }
+                    },
+                    track = { state ->
+                        Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+                            val y = size.height / 2
+                            drawLine(Color.White.copy(alpha = .55f), Offset(0f, y), Offset(size.width, y),
+                                strokeWidth = 1.dp.toPx(), cap = StrokeCap.Round)
+                            drawLine(yellow, Offset(0f, y), Offset(size.width * state.value.coerceIn(0f, 1f), y),
+                                strokeWidth = 1.dp.toPx(), cap = StrokeCap.Round)
+                        }
+                    })
         }
     }
 }

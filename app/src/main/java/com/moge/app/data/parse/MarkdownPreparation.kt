@@ -55,10 +55,11 @@ private fun normalizeStandaloneEscapedBreaks(source: String): String {
             mathBraceDepth = 0
             if (inMath && !source.hasCodeIndentAt(token.range.first)) {
                 // Also repair older saved replies whose JSON decoder already converted newline+e
-                // into \ne. Only a formula opener followed by the invalid \ne= sequence qualifies.
-                val assignment = LEADING_E_ASSIGNMENT.matchAt(source, token.range.last + 1)
-                if (assignment != null) {
-                    val slash = assignment.range.first + assignment.value.indexOf('\\')
+                // into \ne. Only a leading assignment or exponential qualifies.
+                val leadingE = LEADING_E_COMMAND.matchAt(source, token.range.last + 1)
+                if (leadingE != null && isNewlineBeforeEExpression("ne",
+                        source.getOrNull(leadingE.range.last + 1), atFormulaStart = true)) {
+                    val slash = leadingE.range.first + leadingE.value.indexOf('\\')
                     out.append(source, copiedUntil, slash).append('\n')
                     copiedUntil = slash + 2 // leave the variable e and the assignment intact
                 }
@@ -78,7 +79,7 @@ private fun normalizeStandaloneEscapedBreaks(source: String): String {
 }
 
 private val STANDALONE_BREAK_TOKENS = Regex("""\$\$|[{}]|\\n(?=[ \t]*(?:\r?\n|$|\$\$))""")
-private val LEADING_E_ASSIGNMENT = Regex("""[ \t\r\n]*\\ne(?=[ \t]*=)""")
+private val LEADING_E_COMMAND = Regex("""[ \t\r\n]*\\ne(?![A-Za-z])[ \t]*""")
 
 private val CODE_TOKEN = Regex("(?m)^[ \\t]{0,3}(`{3,}|~{3,})[^\\n]*(?:\\n|$)|`+")
 

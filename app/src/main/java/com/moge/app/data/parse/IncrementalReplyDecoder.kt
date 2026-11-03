@@ -95,7 +95,7 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
     private var pendingSink = 0
     /** 挂起转义是否是 `\n`（`\n` 需要按命令表精确匹配，见 [N_COMMANDS]）。 */
     private val pendingLetters = StringBuilder()
-    /** Wait across spaces after ambiguous \ne until an assignment or a real operand arrives. */
+    /** Wait across spaces after ambiguous \ne until an assignment, exponent or operand arrives. */
     private val pendingNSpaces = StringBuilder()
 
     private var sawReply = false
@@ -249,7 +249,9 @@ class IncrementalReplyDecoder(private val targetKey: String = "reply") {
         val word = pendingLetters.toString()
         pendingLetters.setLength(0)
         awaitingNWord = false
-        if (word.isNotEmpty() && word in N_COMMANDS && !isNewlineBeforeAssignment(word, following)) {
+        val prefix: CharSequence = when (pendingSink) { 0 -> out; 1 -> keyBuffer; else -> "" }
+        if (word.isNotEmpty() && word in N_COMMANDS &&
+            !isNewlineBeforeEExpression(word, following, hasTrailingFormulaOpener(prefix))) {
             // 命令名整体按字面量输出（含开头的 `\`）。
             emitPending('\\')
             for (c in word) emitCurrentAsPlain(c)

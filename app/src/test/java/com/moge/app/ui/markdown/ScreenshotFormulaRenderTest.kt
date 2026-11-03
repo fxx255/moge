@@ -166,6 +166,41 @@ class ScreenshotFormulaRenderTest {
     }
 
     @Test
+    fun `exponential screenshot retains e through JSON streaming saved rendering and copy`() {
+        val formula = """e^{-j2\pi n t/T_s}=e^{-j2\pi n(u+kT_s)/T_s}=e^{-j2\pi n u/T_s}e^{-j2\pi nk}=e^{-j2\pi n u/T_s},"""
+        val correct = "指数部分则变为\n\n$$\n$formula\n$$\n\n" +
+            "最后一步用到了 \$\$n,k\$\$ 都是整数，所以 \$\$e^{-j2\\pi nk}=1\$\$。"
+        val old = correct.replace("$$\n$formula", "$$\\n$formula")
+        for (source in listOf(correct, old)) {
+            val raw = buildJsonObject { put("reply", source) }.toString()
+            val decoder = IncrementalReplyDecoder()
+            for (char in raw) decoder.append(char.toString())
+            for (body in listOf(source, ReplyParser.parse(raw).reply, decoder.finish())) {
+                for (width in listOf(320, 1800)) {
+                    for (streaming in listOf(false, true)) {
+                        val view = newView()
+                        if (streaming) {
+                            val snapshot = StreamingMarkdownTokenizer().update(body).copy(blocks = emptyList(),
+                                tail = body, tailStart = 0, visibleEnd = body.length)
+                            renderStreamingMarkdown(view, snapshot, width, Color.BLACK, Color.BLUE)
+                        } else renderMarkdown(view, body, width, Color.BLACK, Color.BLUE)
+                        val rendered = spans(view)
+                        assertTrue("All formulas must render", rendered.size >= 3)
+                        assertTrue(rendered.first().drawable.destination.contains("e^{-j2\\pi n t/T_s}"))
+                        for (span in rendered) {
+                            assertFalse("Exponential must never become an inequality", span.drawable.destination.contains("\\ne"))
+                            val text = view.text as Spanned
+                            assertEquals(span.drawable.destination.trim(),
+                                selectedMarkdownText(text, text.getSpanStart(span), text.getSpanEnd(span)).trim())
+                            assertSpanDraws(view, span, width)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `wide polynomial rejoins continuation terms with real TeX widths and rewraps when narrowed`() {
         val formula = """\begin{aligned}
             c(x)\bmod g(x)&=c_6(x^2+1)+c_5(x^2+x+1)\\

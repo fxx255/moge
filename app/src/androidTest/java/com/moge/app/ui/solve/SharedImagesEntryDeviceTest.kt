@@ -9,8 +9,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.core.content.FileProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -96,14 +94,8 @@ class SharedImagesEntryDeviceTest {
         try {
             share(listOf(files[0]), firstNote)
             assertPanelAboveComposer()
-            selectDestination("新对话")
-            compose.onNodeWithText("对话", substring = false).performScrollTo().assertIsDisplayed().performClick()
-            compose.waitUntil(15_000) {
-                compose.onAllNodes(hasText("对话") and isSelected()).fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithText("对话", substring = false).assertIsSelected()
             snapshot("share-images-new-chat.png")
-            compose.onNodeWithText("添加到输入框").performClick()
+            compose.onNodeWithTag("share-join-new-chat").performClick()
             waitForCrop()
             compose.onNodeWithContentDescription("待发的第 1 张照片").assertDoesNotExist()
             compose.onNodeWithText("逆时针 90°").performClick()
@@ -135,26 +127,18 @@ class SharedImagesEntryDeviceTest {
                 resumed
             }
             compose.waitUntil(15_000) { compose.onAllNodesWithText("添加分享图片").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("share-destination-picker").performScrollTo().performClick()
             compose.waitUntil(15_000) {
-                compose.onAllNodes(destination("当前对话") and isEnabled()).fetchSemanticsNodes().size == 1
-            }
-            compose.onNode(destination("当前对话")).performScrollTo().performClick()
-            try {
-                compose.waitUntil(15_000) { compose.onAllNodesWithText("当前类型：对话").fetchSemanticsNodes().isNotEmpty() }
-            } catch (error: Throwable) {
-                snapshot("share-images-recreation-failure.png")
-                throw AssertionError(compose.onRoot().printToString(), error)
+                compose.onAllNodes(hasTestTag("share-join-current") and isEnabled()).fetchSemanticsNodes().size == 1
             }
             assertPanelAboveComposer()
             snapshot("share-images-current-chat.png")
-            compose.onNodeWithText("添加到输入框").performClick()
+            compose.onNodeWithTag("share-join-current").performClick()
             waitForCrop()
             compose.onNodeWithText("取消", substring = false).performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithText("裁剪照片").fetchSemanticsNodes().isEmpty() }
-            compose.onNodeWithText("添加到输入框").assertIsEnabled()
+            compose.onNodeWithTag("share-join-current").assertIsEnabled()
             assertEquals(listOf(rotated), runBlocking { drafts.load(chat.id)!!.photoPaths })
-            compose.onNodeWithText("添加到输入框").performClick()
+            compose.onNodeWithTag("share-join-current").performClick()
             confirmCrop()
             waitForCrop()
             assertEquals(listOf(rotated), runBlocking { drafts.load(chat.id)!!.photoPaths })
@@ -170,9 +154,7 @@ class SharedImagesEntryDeviceTest {
             compose.onNodeWithContentDescription("待发的第 4 张照片").assertDoesNotExist()
             snapshot("share-images-draft.png")
             share(listOf(files[0]), solveNote)
-            selectDestination("新对话")
-            compose.onNodeWithText("解题", substring = false).performScrollTo().performClick()
-            compose.onNodeWithText("添加到输入框").performClick()
+            compose.onNodeWithTag("share-join-new-question").performClick()
             confirmCrop()
             compose.waitUntil(15_000) { compose.onAllNodesWithText("添加分享图片").fetchSemanticsNodes().isEmpty() }
             waitForInput(solveNote)
@@ -231,23 +213,14 @@ class SharedImagesEntryDeviceTest {
         }
     }
 
-    private fun destination(label: String) = hasText(label) and
-        SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
-
-    private fun selectDestination(label: String) {
-        compose.onNodeWithTag("share-destination-picker").performScrollTo().performClick()
-        compose.onNode(destination(label)).performScrollTo().performClick()
-    }
-
     private fun assertPanelAboveComposer() {
         val panel = compose.onNodeWithTag("shared-image-panel").fetchSemanticsNode().boundsInRoot
         val input = compose.onNodeWithTag("composer-surface").fetchSemanticsNode().boundsInRoot
         assertTrue("The attachment panel must stay above the actual input area", panel.bottom <= input.top)
         compose.onNodeWithTag("conversation-input").assertIsDisplayed()
-        compose.onNodeWithTag("share-add-to-input").assertIsDisplayed()
-        val picker = compose.onNodeWithTag("share-destination-picker").getUnclippedBoundsInRoot()
-        val confirm = compose.onNodeWithTag("share-add-to-input").getUnclippedBoundsInRoot()
-        assertTrue("The destination must be fully above the confirm action", picker.bottom <= confirm.top)
+        listOf("current", "new-question", "new-chat").forEach {
+            compose.onNodeWithTag("share-join-$it").assertIsDisplayed()
+        }
     }
 
     private fun waitForInput(text: String) {

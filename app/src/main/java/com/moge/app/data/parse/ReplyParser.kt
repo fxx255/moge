@@ -104,7 +104,7 @@ internal fun sanitizeJsonEscapes(raw: String): String {
             // 字面反斜杠 n——换行被吃掉、文字连成一片，正文里直接冒出 \nf(x)、\nuv。
             next == 'n' ->
                 // 从 n 本身开始取词（i 指向反斜杠），否则 \nabla 会被截成 abla
-                if (isLatexNCommand(raw, i + 1)) {
+                if (isLatexNCommand(raw, i + 1, out)) {
                     out.append("\\\\"); i++
                 } else {
                     out.append(c).append(next); i += 2
@@ -124,7 +124,7 @@ internal fun sanitizeJsonEscapes(raw: String): String {
  * 用精确匹配而不是前缀匹配：所有命令都是完整单词（`\nabla`、`\neq`、`\notin`），
  * 而换行后的英文单词（`network`、`next`）拼出来是别的东西，不会误判。
  */
-private fun isLatexNCommand(raw: String, start: Int): Boolean {
+private fun isLatexNCommand(raw: String, start: Int, prefix: CharSequence): Boolean {
     val word = StringBuilder()
     var i = start
     while (i < raw.length && (raw[i] in 'a'..'z' || raw[i] in 'A'..'Z')) {
@@ -133,7 +133,7 @@ private fun isLatexNCommand(raw: String, start: Int): Boolean {
     }
     while (raw.getOrNull(i) == ' ' || raw.getOrNull(i) == '\t') i++
     return word.isNotEmpty() && word.toString() in LATEX_N_COMMANDS &&
-        !isNewlineBeforeAssignment(word.toString(), raw.getOrNull(i))
+        !isNewlineBeforeEExpression(word.toString(), raw.getOrNull(i), hasTrailingFormulaOpener(prefix))
 }
 
 /**

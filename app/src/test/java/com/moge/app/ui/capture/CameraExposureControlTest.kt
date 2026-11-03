@@ -47,25 +47,25 @@ class CameraExposureControlTest {
         assertEquals(1f, exposure.fraction, 0f)
     }
 
-    @Test fun `tap metering gets a small positive bias without accumulating or replacing manual brightness`() {
+    @Test fun `tap metering gets two thirds EV without accumulating or replacing manual brightness`() {
         attach()
         repeat(3) { exposure.applyMeteringDefault() }
-        assertEquals(listOf(1), indices)
-        assertEquals(7f / 12f, exposure.fraction, .001f)
+        assertEquals(listOf(2), indices)
+        assertEquals(8f / 12f, exposure.fraction, .001f)
         exposure.adjustTo(.25f)
         exposure.applyMeteringDefault()
-        assertEquals(listOf(1, -3), indices)
+        assertEquals(listOf(2, -3), indices)
         exposure.reset()
         exposure.refresh()
         exposure.applyMeteringDefault()
-        assertEquals("Pausing does not erase the manual choice", listOf(1, -3), indices)
+        assertEquals("Pausing does not erase the manual choice", listOf(2, -3), indices)
     }
 
     @Test fun `metering bias respects actual EV steps hardware limits and unsupported compensation`() {
         attach(-3, 9)
         every { state.exposureCompensationStep } returns Rational(1, 6)
         exposure.applyMeteringDefault()
-        assertEquals(listOf(2), indices)
+        assertEquals(listOf(4), indices)
         exposure.detach(camera)
         attach(-1, 1)
         exposure.applyMeteringDefault()
@@ -85,7 +85,8 @@ class CameraExposureControlTest {
         assertEquals(2, indices.size)
         every { state.exposureCompensationStep } returns Rational(1, 1)
         exposure.applyMeteringDefault()
-        assertEquals("A coarse camera step must not over-brighten the image", 2, indices.size)
+        assertEquals("A one EV hardware step rounds to the nearest supported positive bias", 1, indices.last())
+        assertEquals(3, indices.size)
     }
 
     @Test fun `unsupported and invalid input do not submit requests and fractional movement is retained between steps`() {
