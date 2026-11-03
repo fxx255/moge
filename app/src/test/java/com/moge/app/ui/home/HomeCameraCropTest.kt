@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.camera.core.Camera
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.Preview
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.MutableLiveData
@@ -39,6 +42,7 @@ class HomeCameraCropTest {
     private val state = MutableStateFlow(HomeUiState())
     private val vm = mockk<HomeViewModel>(relaxed = true)
     private val provider = mockk<ProcessCameraProvider>(relaxed = true)
+    private val camera = mockk<Camera>(relaxed = true)
     private lateinit var future: SettableFuture<ProcessCameraProvider>
 
     @Before fun setUp() {
@@ -46,9 +50,9 @@ class HomeCameraCropTest {
         mockkObject(ProcessCameraProvider.Companion)
         future = SettableFuture.create<ProcessCameraProvider>().apply { set(provider) }
         every { ProcessCameraProvider.getInstance(any()) } answers { future }
-        val camera = mockk<Camera>(relaxed = true)
         every { camera.cameraInfo.zoomState } returns MutableLiveData<ZoomState>()
         every { provider.bindToLifecycle(any(), any(), any(), any()) } returns camera
+        every { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) } returns camera
         every { vm.state } returns state
         every { vm.onRetake() } answers {
             state.value = state.value.copy(cropQueue = state.value.cropQueue.drop(1))
@@ -85,15 +89,15 @@ class HomeCameraCropTest {
             .performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.runOnIdle { state.value = state.value.copy(cropQueue = listOf(photo())) }
         compose.onNodeWithText("裁剪照片").assertExists()
-        verify(exactly = 1) { provider.unbind(any(), any()) }
-        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 1) { provider.unbind(any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
+        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
 
         clickText("重拍")
         compose.onNodeWithText("裁剪照片").assertDoesNotExist()
         compose.onNodeWithContentDescription("拍照").assertIsEnabled()
         compose.onNodeWithContentDescription("关闭闪光灯").assertExists()
         verify(exactly = 1) { vm.onRetake() }
-        verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
     }
 
     @Test fun `camera stays closed for the entire crop queue and final confirm opens confirmation`() {
@@ -107,7 +111,7 @@ class HomeCameraCropTest {
         compose.onNodeWithText("裁剪照片").assertDoesNotExist()
         compose.onNodeWithText("使用照片").assertExists()
         verify(exactly = 2) { vm.onCropDone() }
-        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
     }
 
     @Test fun `editing an accepted photo also closes the camera and cancel restores confirmation`() {
@@ -116,11 +120,11 @@ class HomeCameraCropTest {
         compose.onNodeWithContentDescription("裁剪第 1 张照片")
             .performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("裁剪照片").assertExists()
-        verify(exactly = 1) { provider.unbind(any(), any()) }
+        verify(exactly = 1) { provider.unbind(any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
         clickText("取消")
         compose.onNodeWithText("裁剪照片").assertDoesNotExist()
         compose.onNodeWithText("使用照片").assertExists()
-        verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
     }
 
     @Test fun `provider completing during crop cannot reopen the camera before retake`() {
@@ -131,8 +135,25 @@ class HomeCameraCropTest {
         compose.runOnIdle { future.set(provider) }
         compose.waitForIdle()
         verify(exactly = 0) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 0) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
         clickText("重拍")
         compose.onNodeWithContentDescription("拍照").assertIsEnabled()
-        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any(), any()) }
+        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
+    }
+
+    @Test fun `camera without paper analysis still closes for crop and restores capture on retake`() {
+        every { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) } throws
+            IllegalArgumentException("Analysis use case is unsupported")
+        mount()
+        compose.onNodeWithContentDescription("拍照").assertIsEnabled()
+        verify(exactly = 1) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>()) }
+        verify(exactly = 1) { provider.unbind(any<Preview>(), any<ImageCapture>(), any<ImageAnalysis>()) }
+
+        compose.runOnIdle { state.value = state.value.copy(cropQueue = listOf(photo())) }
+        compose.onNodeWithText("裁剪照片").assertExists()
+        verify(exactly = 1) { provider.unbind(any<Preview>(), any<ImageCapture>()) }
+        clickText("重拍")
+        compose.onNodeWithContentDescription("拍照").assertIsEnabled()
+        verify(exactly = 2) { provider.bindToLifecycle(any(), any(), any<Preview>(), any<ImageCapture>()) }
     }
 }
