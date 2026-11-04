@@ -69,6 +69,9 @@ class ExportDeliveryTest {
         assertEquals(2, media.rows.size)
         assertTrue(media.rows.values.all { it.pending == 0 && it.file.length() > 0 })
         assertEquals(2, media.rows.values.map { it.name }.distinct().size)
+        paths.zip(media.rows.values).forEach { (original, saved) ->
+            assertArrayEquals("Saving must copy the original PNG without recompression", original.readBytes(), saved.file.readBytes())
+        }
     }
 
     @Test fun `failure of later page rolls back earlier pages and pending rows`() = runTest {

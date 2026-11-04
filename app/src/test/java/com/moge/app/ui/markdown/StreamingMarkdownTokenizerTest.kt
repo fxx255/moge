@@ -6,6 +6,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingMarkdownTokenizerTest {
+    @Test fun `cached paragraph scans match a fresh scan at every receive boundary`() {
+        val sources = listOf(
+            "**结构：****recommend** 后接正文。\n\n\n## 标题\n\n" +
+                "21. ${'$'}x=2${'$'} 和 `code`。\n\n未闭合 **重点\n\n新的段落。",
+            "引言\n\n| 列一 | 列二 |\n| --- | --- |\n| ${'$'}x${'$'} | y |\n正文\n\n结束",
+            "第一段\n\n```kotlin\n\nval x = \"**\"\n```\n\n> 引用\n\n${'$'}${'$'}x\n\ny${'$'}${'$'}\n\n尾部",
+            "前文\r\n\r\n[链接](https://example.com)\n\n---\n\n\\[a+b\\]\n\n  ",
+        )
+        for (source in sources) for (step in listOf(1, 3, 13)) {
+            val tokenizer = StreamingMarkdownTokenizer()
+            for (end in (0..source.length step step).toList() + source.length) {
+                val received = source.take(end)
+                assertEquals("Boundary $end, chunk size $step: $source",
+                    StreamingMarkdownTokenizer().update(received), tokenizer.update(received))
+                assertEquals("Repeated/forced flush must keep the same safety scan",
+                    StreamingMarkdownTokenizer().update(received, flush = true), tokenizer.update(received, flush = true))
+            }
+        }
+    }
+
+    @Test fun adjacentStrongSpansCloseAsOneRangeWhileNestedLongerRunsStillCloseIndependently() {
+        val tokenizer = StreamingMarkdownTokenizer()
+        val prefix = "**结构：****recommend**"
+        assertTrue(tokenizer.update("**结构：****recommend").waiting)
+        val complete = tokenizer.update("$prefix 后接建议的内容。")
+        assertEquals("$prefix 后接建议的内容。", visible(complete))
+        assertEquals(prefix, complete.tail.take(complete.renderedPrefixEnd))
+        for (source in listOf("**outer ****nested**** end**", "**outer ****nested****end**", "****nested strong****")) {
+            val nested = StreamingMarkdownTokenizer().update(source)
+            assertEquals(source, visible(nested))
+            assertTrue(!nested.waiting)
+        }
+    }
+
     private fun visible(snapshot: StreamingMarkdownSnapshot): String = snapshot.tail.take(
         (snapshot.visibleEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length))
 

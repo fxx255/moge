@@ -3,6 +3,7 @@ package com.moge.app.ui.export
 import com.moge.app.R
 
 import com.moge.app.ui.markdown.splitFigureSegments
+import com.moge.app.ui.solve.userMathSource
 
 /** Only the selected, completed question/answer snapshot belongs here. Never pass reasoning or logs. */
 data class AnswerExportContent(
@@ -115,11 +116,11 @@ internal sealed interface ExportPart {
 internal fun exportParts(content: AnswerExportContent, choice: ExportChoice, strings: com.moge.app.core.TextResources? = null): List<ExportPart> = buildList {
     add(ExportPart.Text(content.title.ifBlank { (strings?.text(R.string.ui_question_solution_94121) ?: "题目与解答") }, markdown = false, heading = true))
     add(ExportPart.Text((strings?.text(R.string.ui_question_bfd7c) ?: "题目"), markdown = false, heading = true))
-    if (content.questionText.isNotBlank()) add(ExportPart.Text(content.questionText, markdown = false))
+    if (content.questionText.isNotBlank()) add(exportQuestionText(content.questionText))
     content.questionPhotos.forEachIndexed { index, path -> add(ExportPart.Image(path, (strings?.text(R.string.ui_question_photo_1_s_22570, index + 1) ?: "题目照片 ${index + 1}"), false)) }
     if (content.questionTranscript.isNotBlank()) {
         add(ExportPart.Text((strings?.text(R.string.ui_recognized_text_available_145e8) ?: "已有识别文本"), markdown = false, heading = true))
-        add(ExportPart.Text(content.questionTranscript, markdown = false))
+        add(exportQuestionText(content.questionTranscript))
     }
     add(ExportPart.Text(if (choice == ExportChoice.FULL) (strings?.text(R.string.ui_full_solution_b8fde) ?: "完整解答") else (strings?.text(R.string.ui_final_answer_e1c1c) ?: "最终答案"), markdown = false, heading = true))
     val used = mutableSetOf<Int>()
@@ -146,4 +147,10 @@ internal fun exportParts(content: AnswerExportContent, choice: ExportChoice, str
             if (index !in used) add(ExportPart.Image(path, (strings?.text(R.string.ui_generated_figure_1_s_3af49, index + 1) ?: "生成图 ${index + 1}"), true))
         }
     }
+}
+
+/** Match sent questions: render complete math, keeping literal and unfinished input intact. */
+private fun exportQuestionText(source: String): ExportPart.Text {
+    val math = userMathSource(source)?.takeUnless { it.incomplete }
+    return ExportPart.Text(math?.renderSource ?: source, markdown = math != null)
 }

@@ -5,6 +5,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownPreparationTest {
+    @Test fun strongBoundaryEditsPreserveLongLiteralRangesAndSupplementaryCharacters() {
+        val literal = "正文 😀 𠮷 与 literal words。".repeat(300)
+        val source = literal + "**结构：****recommend** " + literal + "**重点。**𠮷后文"
+        val expected = literal + "**结构：recommend** " + literal + "**重点。**&#134071;后文"
+        val prepared = prepareReplyMarkdown(source)
+        assertEquals(expected, prepared)
+        assertEquals(prepared, prepareReplyMarkdown(prepared))
+    }
+
+    @Test fun completedAdjacentStrongSpansMergeWithoutChangingLiteralOrNestedMarkers() {
+        for ((source, expected) in listOf(
+            "**结构：****recommend** 后文" to "**结构：recommend** 后文",
+            "**结构：****recommend****用法。**next" to "**结构：recommend用法。**&#110;ext",
+            "**结构：`code`****recommend**" to "**结构：`code`recommend**",
+            "**结构：\$\$x\$\$****recommend**" to "**结构：\$\$x\$\$recommend**",
+        )) {
+            val prepared = prepareReplyMarkdown(source)
+            assertEquals(expected, prepared)
+            assertEquals(prepared, prepareReplyMarkdown(prepared))
+        }
+        for (source in listOf(
+            "`**结构：****recommend**`", "```text\n**结构：****recommend**\n```",
+            "    **结构：****recommend**", "\t**结构：****recommend**",
+            "\$\$\\text{**结构：****recommend**}\$\$", "\\*\\*结构：\\*\\*\\*\\*recommend\\*\\*",
+            "**结构：****recommend", "**结构：****recommend **", "**结构：****\n\nrecommend**",
+            "***bold italic***", "****nested strong****", "**outer ****nested**** end**",
+            "**outer ***nested*** end**", "**outer ****nested****end**",
+        )) assertEquals(source, prepareReplyMarkdown(source))
+    }
+
     @Test fun standaloneEscapedBreakBeforeFormulaOrAtParagraphEndDoesNotLeakIntoProse() {
         val paragraph = "又在 \$\$\\theta\\in[0,\\frac{\\pi}{4}]\$\$ 上，\$\$\\sqrt2\\cos\\theta\\ge 1\$\$，" +
             "所以每个方向都要在 \$\$r=1\$\$ 处拆开绝对值："

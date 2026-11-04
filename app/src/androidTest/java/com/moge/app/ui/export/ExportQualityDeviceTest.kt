@@ -4,6 +4,10 @@ import android.graphics.Color
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
+import android.net.Uri
+import android.content.Intent
+import android.text.Spanned
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.size
@@ -18,8 +22,16 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.NoMatchingViewException
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
+import androidx.test.platform.app.InstrumentationRegistry
 import com.moge.app.ui.markdown.FigurePathResolver
 import com.moge.app.ui.theme.MogeTheme
+import com.moge.app.ui.viewer.imageShareIntent
+import io.noties.markwon.image.AsyncDrawableSpan
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
@@ -30,6 +42,62 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class ExportQualityDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun questionConfirmationPreviewUsesRenderedMath() {
+        val question = "我怎么算的\$\$\\lambda=-2\$\$时，xy分别为2和-1啊"
+        compose.setContent { MogeTheme {
+            AnswerExportDialog(AnswerExportContent("追问公式预览", question, answerText = "解答"), onDismiss = {})
+        } }
+        // AndroidView's TextView is native; inspect it with Espresso rather than Compose semantics.
+        compose.waitUntil(10_000) {
+            var ready = false
+            try {
+                onView(withContentDescription(question)).check { view, error ->
+                    if (error != null) throw error
+                    val text = (view as TextView).text
+                    ready = text is Spanned && text.getSpans(0, text.length, AsyncDrawableSpan::class.java)
+                        .any { it.drawable.hasResult() } && !text.contains('$')
+                }
+            } catch (_: NoMatchingViewException) { }
+            ready
+        }
+        onView(withContentDescription(question)).check(matches(isDisplayed()))
+        val qa = File(compose.activity.filesDir, "export-quality-qa").apply { mkdirs() }
+        InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+            try { File(qa, "follow-up-math-confirmation.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            finally { bitmap.recycle() }
+        }
+    }
+
+    @Test fun followUpQuestionMathRendersAndSharingReadsTheOriginalPng(): Unit = runBlocking {
+        val context = compose.activity
+        val question = "我怎么算的\$\$\\lambda=-2\$\$时，xy分别为2和-1啊"
+        val content = AnswerExportContent("追问公式导出", question,
+            questionTranscript = "已知 \\(x+y=1\\)，求 \$x^2+y^2+xy\$。",
+            answerText = "将 \\(\\lambda=-2\\) 代入方程，检查 \\(x=2,y=-1\\) 是否满足条件。")
+        compose.runOnUiThread {
+            com.moge.app.core.LatexEngine.init(context)
+            val part = exportParts(content, ExportChoice.FULL).filterIsInstance<ExportPart.Text>().single { it.source == question }
+            val view = exportTextView(context, part.source, ExportLimits.CONTENT_WIDTH, markdown = part.markdown)
+            val text = view.text as Spanned
+            val formula = text.getSpans(0, text.length, AsyncDrawableSpan::class.java).single()
+            assertEquals("\\lambda=-2", formula.drawable.destination)
+            assertTrue(formula.drawable.hasResult())
+            assertFalse(text.contains('$'))
+        }
+        val result = renderAnswerExport(context, content, ExportChoice.FULL, FigurePathResolver { _, _ -> null }) { }
+        try {
+            assertTrue("Unexpected export warnings: ${result.warnings}", result.warnings.isEmpty())
+            val page = result.pages.single()
+            val intent = imageShareIntent(context, listOf(page.path))
+            @Suppress("DEPRECATION")
+            val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)!!
+            val shared = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+            assertArrayEquals("The share URI must expose the original PNG bytes", page.readBytes(), shared)
+            val qa = File(context.filesDir, "export-quality-qa").apply { mkdirs() }
+            page.copyTo(File(qa, "follow-up-math-export.png"), overwrite = true)
+        } finally { result.files.close(force = true) }
+    }
 
     @Test fun longPngRegionsKeepPixelsAndPreviewScrollsAndZooms(): Unit = runBlocking {
         val context = compose.activity

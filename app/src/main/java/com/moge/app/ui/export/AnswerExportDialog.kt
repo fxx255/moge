@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +61,8 @@ import com.moge.app.data.image.QuestionPhotoFiles
 import com.moge.app.ui.viewer.galleryNeedsLegacyPermission
 import com.moge.app.ui.viewer.saveImagesToGallery
 import com.moge.app.ui.viewer.shareImages
+import com.moge.app.ui.solve.UserQuestionText
+import com.moge.app.ui.solve.userMathSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -161,13 +164,13 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(strings.text(R.string.ui_check_question_ac111), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(content.title.ifBlank { strings.text(R.string.ui_question_solution_94121) }, style = MaterialTheme.typography.titleLarge)
-                    if (content.questionText.isNotBlank()) Text(content.questionText)
+                    if (content.questionText.isNotBlank()) ExportQuestionPreview(content.questionText)
                     // Display one selected photo at a time so proofing many attachments
                     // never retains one decoded bitmap per question photo.
                     if (content.questionPhotos.isNotEmpty()) QuestionPhotos(content.questionPhotos)
                     if (content.questionTranscript.isNotBlank()) {
                         Text(strings.text(R.string.ui_recognized_text_available_145e8), style = MaterialTheme.typography.titleSmall)
-                        Text(content.questionTranscript)
+                        ExportQuestionPreview(content.questionTranscript)
                     }
                 }
                 Button(onClick = { confirmed = true; render() }, enabled = !busy,
@@ -231,6 +234,13 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("export-message")) }
         }
     }
+}
+
+@Composable
+private fun ExportQuestionPreview(source: String) {
+    val math = remember(source) { userMathSource(source) }
+    if (math == null || math.incomplete) Text(source)
+    else UserQuestionText(source, color = LocalContentColor.current, showSourceCopy = false)
 }
 
 private class ExportDialogSession {

@@ -2,6 +2,7 @@ package com.moge.app.ui.markdown
 
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.SpannedString
 import android.util.Log
 import android.widget.TextView
 import androidx.compose.foundation.layout.Arrangement
@@ -61,8 +62,9 @@ internal fun StreamingMarkdownBody(
     val visiblePaths = remember(imagePaths) { imagePaths.filter(String::isNotBlank) }
     // Keep consecutive paragraphs in one native view so selection can continue
     // across them. Only actual tables and figures divide the reading surface.
-    val displayed = renderedContent.take(snapshot.visibleEnd.coerceIn(0, renderedContent.length))
-        .trimEnd('\r', '\n')
+    val displayed = remember(renderedContent, snapshot.visibleEnd) {
+        renderedContent.take(snapshot.visibleEnd.coerceIn(0, renderedContent.length)).trimEnd('\r', '\n')
+    }
     val seen = remember(displayed) { mutableSetOf<String>() }
     val segments = remember(displayed) { splitFigureSegments(displayed, 512, seen) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -83,11 +85,12 @@ internal fun StreamingMarkdownBody(
                             if (chunk.isTable) MarkdownTableBlock(chunk.text, animateRows = animate,
                                 catchingUp = !streaming, modifier = markdownReadingBlockModifier(chunk.text))
                             else {
-                                val raw = remember(chunk.text) { StreamingMarkdownTokenizer().update(chunk.text) }
+                                val chunkTokenizer = remember { StreamingMarkdownTokenizer() }
+                                val raw = remember(chunk.text) { chunkTokenizer.update(chunk.text) }
                                 val whole = !streaming || index < segments.lastIndex || chunkIndex < chunks.lastIndex
-                                val ink = raw.copy(blocks = emptyList(), tail = chunk.text, tailStart = 0,
+                                val ink = remember(raw, whole) { raw.copy(blocks = emptyList(), tail = chunk.text, tailStart = 0,
                                     visibleEnd = chunk.text.length,
-                                    renderedPrefixEnd = if (whole) chunk.text.length else raw.renderedPrefixEnd)
+                                    renderedPrefixEnd = if (whole) chunk.text.length else raw.renderedPrefixEnd) }
                                 StreamingMarkdownChunk(ink, animate, catchingUp = !streaming)
                             }
                         } }
@@ -105,7 +108,7 @@ internal fun StreamingMarkdownBody(
 }
 
 private data class StreamingMarkdownRenderCache(
-    val tailId: Long, val prefix: String, val widthPx: Int,
+    val tailId: Long, val prefix: String, val visibleTail: String, val widthPx: Int,
     val textColor: Int, val linkColor: Int, val renderedPrefix: Spanned,
 )
 
@@ -130,6 +133,7 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
                 createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSize,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = surface,
                     bodyTypeface = typeface, inkReveal = reveal).also {
+                    it.setSpannableFactory(StreamingTextBufferFactory)
                     readingBlock?.view = it
                     renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)
                     reveal.update(it, catchingUp)
@@ -151,7 +155,7 @@ internal fun renderStreamingMarkdown(view: TextView, snapshot: StreamingMarkdown
     view.setTextColor(textColor)
     view.setLinkTextColor(linkColor)
     val prefixLength = (snapshot.renderedPrefixEnd - snapshot.tailStart).coerceIn(0, tail.length)
-    if (prefixLength == 0 || widthPx <= 0) {
+    if (widthPx <= 0) {
         if (view.text.toString() != tail) view.text = tail
         view.setTag(R.id.streaming_markdown_cache, null)
         return
@@ -163,6 +167,23 @@ internal fun renderStreamingMarkdown(view: TextView, snapshot: StreamingMarkdown
     val cached = previous?.takeIf {
         it.tailId == snapshot.tailId && it.prefix == source && it.widthPx == widthPx &&
             it.textColor == textColor && it.linkColor == linkColor
+    }
+    // AndroidView can update again for the same safe ink (including an unfinished
+    // formula arriving). Avoid copying every span just to discover that it is unchanged.
+    if (cached?.visibleTail == tail) return
+    val buffer = view.text as? SpannableStringBuilder
+    if (cached != null && buffer != null && tail.startsWith(cached.visibleTail)) {
+        // Closed syntax and its spans have not changed. DynamicLayout updates only
+        // the affected paragraph; selection and the existing formula ink survive.
+        buffer.append(tail.substring(cached.visibleTail.length))
+        view.setTag(R.id.streaming_markdown_cache, cached.copy(visibleTail = tail))
+        return
+    }
+    if (prefixLength == 0) {
+        if (view.text.toString() != tail) view.text = tail
+        view.setTag(R.id.streaming_markdown_cache,
+            StreamingMarkdownRenderCache(snapshot.tailId, source, tail, widthPx, textColor, linkColor, SpannedString("")))
+        return
     }
     val prefix = cached?.renderedPrefix ?: runCatching {
         val prepared = wrapLongFormulas(prepareReplyMarkdown(source),
@@ -182,13 +203,12 @@ internal fun renderStreamingMarkdown(view: TextView, snapshot: StreamingMarkdown
         appendRenderErrorLog(view.context, tail, it)
     }.getOrNull()
     if (prefix == null) { view.text = tail; return }
-    if (cached == null) view.setTag(R.id.streaming_markdown_cache,
-        StreamingMarkdownRenderCache(snapshot.tailId, source, widthPx, textColor, linkColor, prefix))
     val combined = SpannableStringBuilder(prefix).append(tail.substring(prefixLength))
-    if (cached != null && view.text.toString() == combined.toString()) return
     runCatching {
         (view.tag as Markwon).setParsedMarkdown(view, combined)
         view.scrollTo(0, 0)
+        view.setTag(R.id.streaming_markdown_cache,
+            StreamingMarkdownRenderCache(snapshot.tailId, source, tail, widthPx, textColor, linkColor, prefix))
     }.onFailure {
         Log.e(RENDER_LOG_TAG, "buffered markdown display failed", it)
         appendRenderErrorLog(view.context, tail, it)

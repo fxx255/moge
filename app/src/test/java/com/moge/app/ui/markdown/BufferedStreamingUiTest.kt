@@ -163,6 +163,50 @@ class BufferedStreamingUiTest {
         compose.runOnIdle { assertSame(paragraph, native().first()); assertEquals(lineBottom, paragraph.layout.getLineBottom(0)) }
     }
 
+    @Test fun `each arrival updates the same reading view and retains formatted selectable paragraphs`() {
+        text = "**结构：****recommend** 的用法 ${'$'}x=2${'$'}。"
+        render()
+        lateinit var paragraph: TextView
+        compose.runOnIdle {
+            paragraph = native().single()
+        }
+        tick()
+        repeat(3) { index ->
+            compose.runOnIdle { text += "\n\n第 $index 段 ${'$'}y=$index${'$'} **完整加粗**。" }
+            tick()
+            compose.runOnIdle {
+                assertSame(paragraph, native().single())
+                assertTrue("Each arrival must become visible without waiting for completion", paragraph.text.contains("第 $index 段"))
+            }
+        }
+        compose.runOnIdle { status = AnswerState.COMPLETED }
+        tick()
+        compose.runOnIdle {
+            assertSame(paragraph, native().single())
+            assertTrue(paragraph.text.contains("第 2 段"))
+            assertTrue(!paragraph.text.contains("**"))
+            val rendered = paragraph.text as Spanned
+            assertEquals(4, rendered.getSpans(0, rendered.length, BaselineLatexSpan::class.java).size)
+            assertTrue(rendered.getSpans(0, rendered.length, BaselineLatexSpan::class.java).all { it.drawable.hasResult() })
+        }
+    }
+
+    @Test fun `an interrupted stream immediately flushes its unfinished source in either theme`() {
+        text = "先前已显示的段落。"
+        render()
+        for (theme in listOf(Appearance.PAPER, Appearance.CHALK)) {
+            compose.runOnIdle { appearance = theme; status = AnswerState.STREAMING }
+            tick()
+            compose.runOnIdle { text += "\n\n未完成 ${'$'}\\frac{x+1"; status = AnswerState.STOPPED }
+            tick()
+            compose.runOnIdle {
+                assertTrue(native().single().text.toString().endsWith("${'$'}\\frac{x+1"))
+                text = "下一轮的已显示段落。"
+            }
+            tick()
+        }
+    }
+
     private fun snapshot(name: String) {
         compose.runOnIdle {
             val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)

@@ -1,5 +1,7 @@
 package com.moge.app.ui.markdown
 
+import com.moge.app.data.parse.isAdjacentStrongBoundary
+
 /**
  * A piece of a streamed answer that is safe to hand to Markwon.
  *
@@ -44,6 +46,7 @@ internal data class StreamingMarkdownSnapshot(
 internal class StreamingMarkdownTokenizer {
 
     private var previousContent = ""
+    private var previousScan: ScanResult? = null
     private var generation = 0L
 
     fun update(content: String, flush: Boolean = false): StreamingMarkdownSnapshot {
@@ -53,10 +56,18 @@ internal class StreamingMarkdownTokenizer {
         if (!content.startsWith(previousContent) && !content.startsWith(previousContent.trimEnd())) {
             generation++
         }
+        // A blank paragraph resets all scanner state. Revisit only the open suffix;
+        // keep a cut only once its following character has arrived, since another
+        // newline can still extend the final cut in the preceding receive buffer.
+        val prior = previousScan
+        val restart = if (prior != null && content.startsWith(previousContent))
+            prior.safeCuts.lastOrNull { it < previousContent.length } ?: 0 else 0
+        val scanned = if (content == previousContent && prior != null) prior else scan(content, restart, prior)
         previousContent = content
+        previousScan = scanned
 
         if (content.isEmpty()) return StreamingMarkdownSnapshot(emptyList(), "", tailId = generation * GENERATION_KEY_STRIDE)
-        val scan = scan(content).let { scanned ->
+        val scan = scanned.let { scanned ->
             val tableCuts = tableEndCuts(content, scanned.tablePipes).filter { it <= scanned.openSyntaxStart }
             scanned.copy(safeCuts = (scanned.safeCuts + tableCuts).distinct().sorted(),
                 lastSafeCut = maxOf(scanned.lastSafeCut, tableCuts.maxOrNull() ?: 0))
@@ -168,16 +179,16 @@ internal class StreamingMarkdownTokenizer {
         BRACKET,
     }
 
-    private fun scan(content: String): ScanResult {
-        val cuts = ArrayList<Int>()
+    private fun scan(content: String, restart: Int, previous: ScanResult?): ScanResult {
+        val cuts = ArrayList(previous?.safeCuts.orEmpty().takeWhile { it <= restart })
         var fence: String? = null
         var math = MathDelimiter.NONE
-        var index = 0
+        var index = restart
         var lineStart = true
-        var lastSafe = 0
-        val closedInlineEnds = ArrayList<Int>()
+        var lastSafe = restart
+        val closedInlineEnds = ArrayList(previous?.closedInlineEnds.orEmpty().takeWhile { it <= restart })
         var openMathStart = -1
-        val tablePipes = ArrayList<Int>()
+        val tablePipes = ArrayList(previous?.tablePipes.orEmpty().takeWhile { it < restart })
         var codeTicks = 0
         val openMarks = mutableMapOf<String, Int>()
         var fenceStart = -1
@@ -309,6 +320,15 @@ internal class StreamingMarkdownTokenizer {
                     var end = index + 1
                     while (content.getOrNull(end) == marker) end++
                     val token = content.substring(index, end)
+                    // Adjacent **label:****term** is one continuous bold range after preparation.
+                    // Keep its original opener until the final ** closes; **** is not a new style.
+                    val strongOpening = openMarks["**"]
+                    if (token == "****" && strongOpening != null && "****" !in openMarks &&
+                        content.isAdjacentStrongBoundary(strongOpening, index, end)) {
+                        index = end
+                        lineStart = false
+                        continue
+                    }
                     val intraword = marker == '_' && content.getOrNull(index - 1)?.isLetterOrDigit() == true &&
                         content.getOrNull(end)?.isLetterOrDigit() == true
                     val bullet = token == "*" && lineStart && content.getOrNull(end)?.isWhitespace() == true

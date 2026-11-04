@@ -9,10 +9,15 @@ package com.moge.app.data.parse
  * Encode only the adjacent word character or fullwidth symbol as a numeric character reference:
  * the parser sees a punctuation boundary, then decodes exactly the original text. This retains
  * bold punctuation without inserting spaces or invisible characters into displayed/copied text.
+ * Completed adjacent spans such as **结构：****recommend** become one continuous strong span;
+ * isolated/nested longer runs and unfinished spans retain their original delimiters.
  */
 internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<IntRange>): String {
     if ("**" !in source) return source
     val encodedCharacters = sortedSetOf<Int>()
+    val joinedMarkers = mutableSetOf<Int>()
+    val pendingJoins = mutableListOf<Int>()
+    var canJoin = true
     var codeIndex = 0
     var inMath = false
     var opener: Int? = null
@@ -25,31 +30,58 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
             "**" -> if (!inMath) {
                 if (source.hasCodeIndentAt(start)) {
                     opener = null
+                    pendingJoins.clear()
                     continue
                 }
                 val end = token.range.last + 1
                 val opening = opener
                 if (opening != null && start > opening + 2 && !source[start - 1].isWhitespace()) {
                     collectStrongBoundaryCharacters(source, opening, start, encodedCharacters)
+                    if (canJoin) joinedMarkers.addAll(pendingJoins)
                     opener = null
+                    pendingJoins.clear()
                 } else if (source.getOrNull(end)?.isWhitespace() == false) {
                     opener = start
+                    pendingJoins.clear()
+                    canJoin = true
                 }
             }
-            else -> if (!inMath && token.value.first() != '*') opener = null // Paragraph boundary.
+            "****" -> if (!inMath && opener != null) {
+                val opening = pendingJoins.lastOrNull()?.plus(2) ?: opener
+                if (source.isAdjacentStrongBoundary(opening, start, token.range.last + 1)) pendingJoins += start
+                else canJoin = false
+            }
+            else -> if (!inMath) {
+                if (token.value.first() == '*') canJoin = false
+                else { // Paragraph boundary.
+                    opener = null
+                    pendingJoins.clear()
+                }
+            }
         }
     }
-    if (encodedCharacters.isEmpty()) return source
+    if (encodedCharacters.isEmpty() && joinedMarkers.isEmpty()) return source
     return buildString(source.length + encodedCharacters.size * 8) {
-        var index = 0
-        while (index < source.length) {
-            val character = source.codePointAt(index)
-            if (index in encodedCharacters) append("&#").append(character).append(';')
-            else appendCodePoint(character)
-            index += Character.charCount(character)
+        var copiedUntil = 0
+        // Only the marker/character boundaries change. Bulk-copy the surrounding
+        // prose instead of decoding every code point on each streaming reparse.
+        for (index in (encodedCharacters + joinedMarkers).sorted()) {
+            if (index < copiedUntil) continue
+            append(source, copiedUntil, index)
+            if (index in joinedMarkers) copiedUntil = index + 4
+            else {
+                val character = source.codePointAt(index)
+                append("&#").append(character).append(';')
+                copiedUntil = index + Character.charCount(character)
+            }
         }
+        append(source, copiedUntil, source.length)
     }
 }
+
+/** Merge touching, completed strong spans without adding spacing or changing copied text. */
+internal fun String.isAdjacentStrongBoundary(opening: Int, start: Int, end: Int): Boolean =
+    start > opening + 2 && !this[start - 1].isWhitespace() && getOrNull(end)?.isWhitespace() == false
 
 /** Leave four-column indented code (and ambiguous list continuations) to CommonMark. */
 internal fun String.hasCodeIndentAt(index: Int): Boolean {
