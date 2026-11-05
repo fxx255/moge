@@ -244,6 +244,9 @@ private fun escapeTableRowPipes(row: String): String {
 
 /** Converts common model LaTeX delimiters to the double-dollar syntax used by Markwon. */
 private fun normalizeMathDelimiters(markdown: String): String {
+    // Every supported math form needs a dollar or backslash. Ordinary prose must
+    // not run the per-character TeX scanners again at each streaming paragraph.
+    if ('$' !in markdown && '\\' !in markdown) return markdown
     var fence: String? = null
     var inMath = false
     return markdown.split('\n').joinToString("\n") { line ->
@@ -276,6 +279,7 @@ private fun normalizeMathDelimiters(markdown: String): String {
 
 /** Count canonical delimiters with the same code/escape rules as inline normalization. */
 private fun canonicalMathDelimiterCount(line: String): Int {
+    if ("$$" !in line) return 0
     var count = 0
     var ticks = 0
     var index = 0
@@ -284,7 +288,7 @@ private fun canonicalMathDelimiterCount(line: String): Int {
             val run = line.runLength(index, '`')
             ticks = if (ticks == 0) run else if (ticks == run) 0 else ticks
             index += run
-        } else if (ticks == 0 && line.startsWith("$$", index) && !line.isEscaped(index)) {
+        } else if (ticks == 0 && line[index] == '$' && line.getOrNull(index + 1) == '$' && !line.isEscaped(index)) {
             count++
             index += 2
         } else index++
@@ -298,6 +302,7 @@ private fun canonicalMathDelimiterCount(line: String): Int {
  * paths, code, unfinished output and already delimited formulas fail closed.
  */
 private fun looksLikeBareLatexContinuation(line: String): Boolean {
+    if (!line.trimStart().startsWith('=')) return false
     val value = mathOutsideTextArguments(line.trim()) ?: return false
     if (!value.startsWith('=')) return false
     val groups = ArrayList<Char>()
@@ -376,6 +381,7 @@ private fun mathOutsideTextArguments(latex: String): String? {
 }
 
 private fun normalizeInlineMathDelimiters(line: String): String {
+    if ('$' !in line && '\\' !in line) return line
     val output = StringBuilder(line.length + 16)
     var index = 0
     var inlineCodeTicks = 0
@@ -391,7 +397,7 @@ private fun normalizeInlineMathDelimiters(line: String): String {
             index += tickCount
             continue
         }
-        if (inlineCodeTicks == 0 && !line.isEscaped(index)) {
+        if (inlineCodeTicks == 0 && (line[index] == '$' || line[index] == '\\') && !line.isEscaped(index)) {
             val opening = when {
                 line.startsWith("\\(", index) -> "\\("
                 line.startsWith("\\[", index) -> "\\["

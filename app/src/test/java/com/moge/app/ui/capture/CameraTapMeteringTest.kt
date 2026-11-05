@@ -45,13 +45,29 @@ class CameraTapMeteringTest {
         attach()
         assertTrue(metering.focusAt(factory, Offset(100f, 450f)))
         val action = actions.single()
-        assertSame(action.meteringPointsAf.single(), action.meteringPointsAe.single())
+        assertEquals(action.meteringPointsAf.single().x, action.meteringPointsAe.single().x, 0f)
+        assertEquals(action.meteringPointsAf.single().y, action.meteringPointsAe.single().y, 0f)
+        assertEquals(.08f, action.meteringPointsAe.single().size, .001f)
+        assertTrue(action.meteringPointsAe.single().size < action.meteringPointsAf.single().size)
         assertEquals(.25f, action.meteringPointsAf.single().x, .001f)
         assertEquals(.75f, action.meteringPointsAe.single().y, .001f)
         assertTrue(action.meteringPointsAwb.isEmpty())
         assertTrue(action.isAutoCancelEnabled)
         assertEquals(5_000L, action.autoCancelDurationInMillis)
         assertEquals(Offset(100f, 450f), metering.target!!.position)
+    }
+
+    @Test fun `paper autofocus and shaded exposure use separate points without moving the focus indicator`() {
+        attach()
+        assertTrue(metering.focusAt(factory, Offset(200f, 300f), Offset(100f, 450f)))
+        val action = actions.single()
+        assertEquals(.5f, action.meteringPointsAf.single().x, .001f)
+        assertEquals(.5f, action.meteringPointsAf.single().y, .001f)
+        assertEquals(.25f, action.meteringPointsAe.single().x, .001f)
+        assertEquals(.75f, action.meteringPointsAe.single().y, .001f)
+        assertEquals(Offset(200f, 300f), metering.target!!.position)
+        assertFalse(metering.focusAt(factory, Offset(200f, 300f), Offset(-20f, 200f)))
+        assertEquals(1, actions.size)
     }
 
     @Test fun `unready previews invalid transforms and black bars do not submit camera requests`() {

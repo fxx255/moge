@@ -44,6 +44,8 @@ import ru.noties.jlatexmath.JLatexMathDrawable
 private data class MarkdownRenderSource(val markdown: String, val formulaWidthPx: Int)
 private interface MarkdownRenderSourceOwner {
     var renderSource: MarkdownRenderSource?
+    var appendOnlyRender: Boolean
+    var textSnapshot: String?
     var onTextTap: (() -> Unit)?
     val selectionController: MarkdownSelectionController?
 }
@@ -58,7 +60,17 @@ internal fun setMarkdownTextTap(view: TextView, onTap: (() -> Unit)?) {
 
 /** Retain the complete render input before normalization/sanitization for failure diagnostics. */
 internal fun rememberMarkdownRenderSource(view: TextView, source: String, widthPx: Int) {
-    (view as? MarkdownRenderSourceOwner)?.renderSource = MarkdownRenderSource(source, formulaMaxWidthPx(view, widthPx))
+    val owner = view as? MarkdownRenderSourceOwner ?: return
+    val width = formulaMaxWidthPx(view, widthPx)
+    val previous = owner.renderSource
+    owner.appendOnlyRender = previous != null && previous.formulaWidthPx == width && source.startsWith(previous.markdown)
+    owner.renderSource = MarkdownRenderSource(source, width)
+}
+
+/** Share one immutable copy per edit between reveal animation and reading-position tracking. */
+internal fun markdownTextSnapshot(view: TextView): String {
+    val owner = view as? MarkdownRenderSourceOwner ?: return view.text.toString()
+    return owner.textSnapshot ?: view.text.toString().also { owner.textSnapshot = it }
 }
 
 // Compose supplies all colors and typography directly; an AppCompat view would
@@ -74,6 +86,7 @@ internal fun createMarkdownTextView(
     selectionSurfaceColor: Int = android.graphics.Color.WHITE,
     bodyTypeface: android.graphics.Typeface = android.graphics.Typeface.DEFAULT,
     inkReveal: StreamingInkReveal? = null,
+    incrementalUpdates: Boolean = false,
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         init {
@@ -81,6 +94,8 @@ internal fun createMarkdownTextView(
             textLocales = context.resources.configuration.locales
         }
         @Volatile override var renderSource: MarkdownRenderSource? = null
+        override var appendOnlyRender = false
+        override var textSnapshot: String? = null
         override var onTextTap: (() -> Unit)? = null
         private var adjustingSelection = false
         private var selectionActionMode: ActionMode? = null
@@ -94,6 +109,10 @@ internal fun createMarkdownTextView(
         override val selectionController = if (selectable && selectionScrollHost != null)
             MarkdownSelectionController(this, selectionScrollHost, linkColor, selectionSurfaceColor) else null
         private val conversationSelection = selectionController
+        override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
+            textSnapshot = null
+            super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        }
         private val tapDetector by lazy {
             GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(event: MotionEvent) = true
@@ -301,7 +320,9 @@ internal fun createMarkdownTextView(
                     }
                 }
                 val theme = (view.tag as Markwon).configuration().theme()
-                view.setText(baselineAlignedLatex(markdown, theme), bufferType)
+                val aligned = baselineAlignedLatex(markdown, theme)
+                if (!incrementalUpdates || !((view as? MarkdownRenderSourceOwner)?.appendOnlyRender == true) ||
+                    !updateStreamingTextBuffer(view, aligned)) view.setText(aligned, bufferType)
                 onComplete.run()
             }
             .usePlugin(MarkwonInlineParserPlugin.create())

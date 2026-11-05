@@ -16,7 +16,7 @@ internal class StreamingInkReveal {
     private val segment = Path()
 
     fun update(view: TextView, catchingUp: Boolean) {
-        val text = view.text.toString()
+        val text = markdownTextSnapshot(view)
         if (text == previous) {
             if (!enabled) finish(view)
             return

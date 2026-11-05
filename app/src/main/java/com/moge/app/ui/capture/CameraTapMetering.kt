@@ -36,12 +36,15 @@ internal class CameraTapMetering(private val executor: Executor) {
         this.camera = null
     }
 
-    fun focusAt(factory: MeteringPointFactory, position: Offset): Boolean {
+    fun focusAt(factory: MeteringPointFactory, position: Offset, exposurePosition: Offset = position): Boolean {
         val activeCamera = camera ?: return false
-        if (!position.x.isFinite() || !position.y.isFinite()) return false
+        if (!position.x.isFinite() || !position.y.isFinite() ||
+            !exposurePosition.x.isFinite() || !exposurePosition.y.isFinite()) return false
         // PreviewView's factory accounts for FIT_CENTER, rotation and sensor crop.
         val point = factory.createPoint(position.x, position.y)
-        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+        val exposurePoint = factory.createPoint(exposurePosition.x, exposurePosition.y, .08f)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .addPoint(exposurePoint, FocusMeteringAction.FLAG_AE)
             .setAutoCancelDuration(5, TimeUnit.SECONDS)
             .build()
         // CameraX also rejects invalid points from an unready transform or the black bars.

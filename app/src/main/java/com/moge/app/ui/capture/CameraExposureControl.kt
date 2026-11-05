@@ -54,14 +54,16 @@ internal class CameraExposureControl(private val executor: Executor) {
         requestFraction(value)
     }
 
-    /** Paper-friendly absolute AE bias; repeated taps never accumulate or erase a manual choice. */
-    fun applyMeteringDefault() {
-        if (!supported || manuallyAdjusted) return
+    /** Automatic refocusing respects the slider; an explicit tap starts a new metering choice. */
+    fun applyMeteringDefault(luminance: Int? = null, userInitiated: Boolean = false) {
+        if (!supported) return
+        if (userInitiated) manuallyAdjusted = false
+        else if (manuallyAdjusted) return
         val state = camera?.cameraInfo?.exposureState ?: return
         val step = state.exposureCompensationStep.toFloat()
         if (!step.isFinite() || step <= 0f) return
         val range = state.exposureCompensationRange
-        val index = (METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper)
+        val index = (paperMeteringBiasEv(luminance) / step).roundToInt().coerceIn(range.lower, range.upper)
         if (index <= 0) return
         requestFraction((index.toFloat() - range.lower) / (range.upper.toFloat() - range.lower))
     }
@@ -104,6 +106,6 @@ internal class CameraExposureControl(private val executor: Executor) {
     }
 
     companion object {
-        const val METERING_BIAS_EV = 2f / 3f
+        const val METERING_BIAS_EV = PAPER_METERING_BIAS_EV
     }
 }

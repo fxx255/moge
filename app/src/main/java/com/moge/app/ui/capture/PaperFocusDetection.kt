@@ -4,7 +4,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-internal data class PaperFocusCandidate(val x: Float, val y: Float, val coverage: Float)
+internal data class PaperFocusCandidate(val x: Float, val y: Float, val coverage: Float,
+    val exposure: PaperExposureSample? = null)
 
 /** Small luminance grid only: a broad light region containing dark printed strokes. */
 internal fun detectPaperFocus(luma: ByteArray, width: Int, height: Int): PaperFocusCandidate? {
@@ -59,7 +60,8 @@ internal fun detectPaperFocus(luma: ByteArray, width: Int, height: Int): PaperFo
     }
     if (strokes < area * .008f || strokes > area * .25f) return null
     return PaperFocusCandidate((strokeX / strokes + .5f) / width,
-        (strokeY / strokes + .5f) / height, area.toFloat() / luma.size)
+        (strokeY / strokes + .5f) / height, area.toFloat() / luma.size,
+        paperShadowSample(luma, width, height, left, top, right, bottom, paperLevel))
 }
 
 /** Stable page acquisition, with no periodic refocusing of an unchanged page. Pure and clock-injected. */

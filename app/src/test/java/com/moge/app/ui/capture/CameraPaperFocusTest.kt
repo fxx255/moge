@@ -26,7 +26,8 @@ class CameraPaperFocusTest {
     private val queue = ArrayDeque<Runnable>()
     private val preview = mockk<PreviewView>(relaxed = true)
     private val focused = mutableListOf<Offset>()
-    private val focus = CameraPaperFocus(preview, Executor(queue::addLast), { true }, focused::add)
+    private var allowFocus = true
+    private val focus = CameraPaperFocus(preview, Executor(queue::addLast), { allowFocus }, { point, _, _ -> focused += point })
 
     private fun image(): ImageProxy {
         val width = 64; val height = 48
@@ -82,6 +83,32 @@ class CameraPaperFocusTest {
             every { broken.close() } returns Unit
             focus.analyze(broken)
             verify(exactly = 1) { broken.close() }
+        } finally { focus.close() }
+    }
+
+    @Test fun `manual metering samples paper through the preview transform while autofocus is suppressed`() {
+        try {
+            every { preview.width } returns 64
+            every { preview.height } returns 48
+            every { preview.outputTransform } returns ImageProxyTransformFactory().getOutputTransform(image())
+            allowFocus = false
+            assertNull(focus.luminanceAt(Offset(32f, 24f)))
+            sample()
+            while (queue.isNotEmpty()) queue.removeFirst().run()
+            assertTrue(focused.isEmpty())
+            assertEquals(220, focus.luminanceAt(Offset(32f, 24f)))
+            assertEquals(45, focus.luminanceAt(Offset(2f, 2f)))
+            assertNull(focus.luminanceAt(Offset(-20f, 24f)))
+            ShadowSystemClock.advanceBy(Duration.ofMillis(1_300))
+            assertNull(focus.luminanceAt(Offset(32f, 24f)))
+            sample()
+            while (queue.isNotEmpty()) queue.removeFirst().run()
+            focus.suppress()
+            assertNull(focus.luminanceAt(Offset(32f, 24f)))
+            sample()
+            focus.reset()
+            while (queue.isNotEmpty()) queue.removeFirst().run()
+            assertNull(focus.luminanceAt(Offset(32f, 24f)))
         } finally { focus.close() }
     }
 }

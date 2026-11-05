@@ -1,6 +1,7 @@
 package com.moge.app.ui.home
 
 import com.moge.app.R
+import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.localization.rememberAppStrings
 
 import android.Manifest
@@ -104,6 +105,7 @@ fun HomeScreen(
 ) {
     val strings = rememberAppStrings()
     val state by vm.state.collectAsStateWithLifecycle()
+    val systemOnly = state.conversationMode == ConversationMode.CHAT
     val context = LocalContext.current
     val controller = remember { ViewfinderController() }
     var viewer by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -111,6 +113,9 @@ fun HomeScreen(
     var cameraGranted by remember { mutableStateOf(hasCameraPermission(context)) }
     val cameraPrefs = remember(context) { context.getSharedPreferences("capture_permissions", android.content.Context.MODE_PRIVATE) }
     var askedOnce by rememberSaveable { mutableStateOf(cameraPrefs.getBoolean("camera_requested", false)) }
+    var systemAfterPermission by rememberSaveable { mutableStateOf(false) }
+    var systemStarted by rememberSaveable { mutableStateOf(false) }
+    var systemRetakeRequested by rememberSaveable { mutableStateOf(false) }
     var levelEnabled by rememberSaveable { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         cameraGranted = hasCameraPermission(context)
@@ -120,23 +125,42 @@ fun HomeScreen(
         cameraGranted = granted
         askedOnce = true
         cameraPrefs.edit().putBoolean("camera_requested", true).apply()
+        if (!granted && systemAfterPermission) {
+            systemAfterPermission = false
+            vm.showMessage(strings.text(R.string.ui_camera_permission_needed_30a59))
+        }
     }
     fun grantCamera() {
         if (askedOnce) openAppSettings(context) else cameraPermission.launch(Manifest.permission.CAMERA)
     }
 
-    // 系统相机兜底；目标路径跨 Activity 重建保存，返回后仍进入原裁剪队列。
+    // 普通对话直接使用系统相机；拍题相机不可用时也以此兜底。
+    // 目标路径跨 Activity 重建保存，返回后仍进入原裁剪队列。
     var pendingSystemShot by rememberSaveable { mutableStateOf<String?>(null) }
     val systemCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val path = pendingSystemShot
         pendingSystemShot = null
         if (path == null) return@rememberLauncherForActivityResult
         val file = File(path)
-        if (ok && file.length() > 0) vm.onCaptured(path) else file.delete()
+        if (ok && file.length() > 0) vm.onCaptured(path)
+        else {
+            file.delete()
+            if (systemOnly) {
+                if (state.photos.isNotEmpty()) vm.openConfirm() else onAskByText()
+            }
+        }
     }
     fun launchSystemCamera() {
+        if (pendingSystemShot != null) return
         if (!state.canAddMore) {
             vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
+            return
+        }
+        // This app declares CAMERA for question capture, so Android also requires
+        // that grant when it delegates ACTION_IMAGE_CAPTURE to another camera app.
+        if (!cameraGranted) {
+            systemAfterPermission = true
+            grantCamera()
             return
         }
         val target = vm.newCameraFile()
@@ -148,6 +172,19 @@ fun HomeScreen(
             pendingSystemShot = null
             target.delete()
             vm.showMessage(strings.text(R.string.ui_no_camera_app_available_f648a))
+        }
+    }
+    LaunchedEffect(systemOnly, cameraGranted, systemAfterPermission, systemRetakeRequested, state.cropQueue.isEmpty()) {
+        if (systemOnly && !systemStarted) {
+            systemStarted = true
+            if (pendingSystemShot == null && state.photos.isEmpty() && state.cropQueue.isEmpty()) launchSystemCamera()
+        } else if (systemAfterPermission && cameraGranted) {
+            systemAfterPermission = false
+            launchSystemCamera()
+        } else if (systemOnly && systemRetakeRequested && state.cropQueue.isEmpty()) {
+            // Wait for the discarded crop to leave the count before checking the photo limit.
+            systemRetakeRequested = false
+            launchSystemCamera()
         }
     }
     val pickPhotos = rememberLauncherForActivityResult(
@@ -163,6 +200,7 @@ fun HomeScreen(
     fun shoot() {
         when {
             !state.canAddMore -> vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
+            systemOnly -> launchSystemCamera()
             !cameraGranted -> grantCamera()
             controller.ready -> controller.takePicture(
                 context,
@@ -175,7 +213,7 @@ fun HomeScreen(
     }
 
     val cropping = state.cropQueue.isNotEmpty() || editingPhoto?.let { it in state.photos } == true
-    val useViewfinder = cameraGranted && !controller.failed
+    val useViewfinder = !systemOnly && cameraGranted && !controller.failed
     val cameraActive = useViewfinder && !cropping
     val backdrop = if (useViewfinder) Color.Black else MaterialTheme.colorScheme.background
     CameraLayout(
@@ -189,7 +227,7 @@ fun HomeScreen(
                 }
             } else {
                 GridPaper(Modifier.fillMaxSize()) { }
-                Box(Modifier.fillMaxSize().padding(top = 56.dp, bottom = 32.dp), contentAlignment = Alignment.Center) {
+                if (!systemOnly) Box(Modifier.fillMaxSize().padding(top = 56.dp, bottom = 32.dp), contentAlignment = Alignment.Center) {
                     CameraUnavailable(
                         cameraFailed = cameraGranted && controller.failed,
                         onGrant = ::grantCamera,
@@ -226,11 +264,12 @@ fun HomeScreen(
                 sideControls = sideControls,
                 levelEnabled = levelEnabled,
                 onLevel = { levelEnabled = it },
-                shutterEnabled = !cropping && !controller.busy && (!cameraGranted || controller.ready || controller.failed),
+                shutterEnabled = !cropping && !controller.busy && (systemOnly || !cameraGranted || controller.ready || controller.failed),
                 onGallery = ::openGallery,
                 onShutter = ::shoot,
                 onOpenStack = vm::openConfirm,
                 cameraActive = cameraActive,
+                showPaperControls = !systemOnly,
             )
         },
     )
@@ -239,7 +278,11 @@ fun HomeScreen(
         PhotoCropDialog(
             path = path,
             onCropped = vm::onCropDone,
-            onDismiss = vm::onRetake,
+            onDismiss = {
+                val last = state.cropQueue.size == 1
+                vm.onRetake()
+                if (systemOnly && last) systemRetakeRequested = true
+            },
             dismissLabel = strings.text(R.string.ui_retake_41c37),
             onCropStarted = { vm.onPhotoCropStarted(path) },
             onCropClosed = { vm.onPhotoCropClosed(path) },
@@ -379,6 +422,7 @@ internal fun CameraControls(
     onShutter: () -> Unit,
     onOpenStack: () -> Unit,
     cameraActive: Boolean = true,
+    showPaperControls: Boolean = true,
 ) {
     val strings = rememberAppStrings()
     val tint = if (onDark) Color.White else MaterialTheme.colorScheme.onBackground
@@ -390,7 +434,7 @@ internal fun CameraControls(
         enabled = cameraActive,
     )
     val flashAndLevel: @Composable () -> Unit = {
-        Row(horizontalArrangement = Arrangement.Center) {
+        if (showPaperControls) Row(horizontalArrangement = Arrangement.Center) {
             IconButton(enabled = controller.ready, onClick = { controller.setFlash(!controller.torchOn) }) {
                 Icon(if (controller.torchOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
                     if (controller.torchOn) strings.text(R.string.ui_turn_flash_off_e5910) else strings.text(R.string.ui_turn_flash_on_56bb6), tint = tint,

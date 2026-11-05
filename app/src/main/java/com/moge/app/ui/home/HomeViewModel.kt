@@ -47,6 +47,7 @@ data class HomeUiState(
     val note: String = "",
     val confirmOpen: Boolean = false,
     val message: String? = null,
+    val conversationMode: ConversationMode = ConversationMode.SOLVE,
 ) {
     val count: Int get() = photos.size + cropQueue.size
     val canAddMore: Boolean get() = count < CaptureStore.MAX_PHOTOS
@@ -73,6 +74,7 @@ class HomeViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(
         HomeUiState(
+            conversationMode = conversationMode,
             photos = savedState.get<ArrayList<String>>(KEY_PHOTOS).orEmpty(),
             cropQueue = savedState.get<ArrayList<String>>(KEY_CROP).orEmpty(),
             note = savedState.get<String>(KEY_NOTE).orEmpty(),

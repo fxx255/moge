@@ -98,13 +98,17 @@ class StreamingScrollPerformanceDeviceTest {
     }
 
     @Test fun recordScrollFramesWhileLongFormattedAnswerGrows() {
-        var source by mutableStateOf((1..55).joinToString("\n\n") { paragraph(it) })
+        // The same probe can isolate ordinary prose from formula/format parsing.
+        // Keep source growth, touch gestures and frame collection identical.
+        val plain = InstrumentationRegistry.getArguments().getString("profileKind") == "plain"
+        fun sample(index: Int) = if (plain) plainParagraph(index) else paragraph(index)
+        var source by mutableStateOf((1..55).joinToString("\n\n") { sample(it) })
         var generating by mutableStateOf(true)
         var receiving by mutableStateOf(false)
         val arrivals = AtomicInteger()
         content { MogeTheme(Appearance.PAPER) {
             LaunchedEffect(generating, receiving) {
-                if (generating && receiving) for (chunk in (56..100).joinToString("\n\n", prefix = "\n\n") { paragraph(it) }.chunked(8)) {
+                if (generating && receiving) for (chunk in (56..100).joinToString("\n\n", prefix = "\n\n") { sample(it) }.chunked(8)) {
                     delay(80)
                     source += chunk
                     arrivals.incrementAndGet()
@@ -121,9 +125,13 @@ class StreamingScrollPerformanceDeviceTest {
         }
         SystemClock.sleep(400)
         val changes = AtomicInteger()
+        val replacements = AtomicInteger()
         val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { changes.incrementAndGet() }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                changes.incrementAndGet()
+                if (start == 0 && before > 0) replacements.incrementAndGet()
+            }
             override fun afterTextChanged(s: Editable?) = Unit
         }
         runUi { native().filter { it.text.contains("第 55 步") }.forEach { it.addTextChangedListener(watcher) } }
@@ -131,14 +139,14 @@ class StreamingScrollPerformanceDeviceTest {
         val receivingBefore = arrivals.get()
         val trace = InstrumentationRegistry.getArguments().getString("cpuTrace") == "true"
         if (trace) Debug.startMethodTracingSampling(File(activity.filesDir, "stream-scroll.trace").path, 16 * 1024 * 1024, 2_000)
-        val live = try { measureFrames(changes) { repeat(3) { swipe(up = true); swipe(up = false) } } }
+        val live = try { measureFrames(changes, replacements) { repeat(3) { swipe(up = true); swipe(up = false) } } }
             finally { if (trace) Debug.stopMethodTracing() }
         assertTrue("The source must keep receiving while the reader scrolls", arrivals.get() > receivingBefore)
         assertTrue("Displayed text must keep changing during scrolling", changes.get() > 0)
         runUi { generating = false }
         SystemClock.sleep(800)
         changes.set(0)
-        val completed = measureFrames(changes) { repeat(3) { swipe(up = true); swipe(up = false) } }
+        val completed = measureFrames(changes, replacements) { repeat(3) { swipe(up = true); swipe(up = false) } }
         val label = InstrumentationRegistry.getArguments().getString("profileLabel") ?: "current"
         val qa = File(activity.filesDir, "stream-scroll-qa").apply { mkdirs() }
         File(qa, "$label.txt").writeText("streaming: $live\ncompleted: $completed\narrivals: ${arrivals.get()}\n")
@@ -147,18 +155,24 @@ class StreamingScrollPerformanceDeviceTest {
     private fun paragraph(index: Int) = "第 $index 步：**结构：****recommend** 后接建议的内容；" +
         "**enable sb. to do sth.** 表示使某人能够做某事。结合条件 ${'$'}x_${index}=\\frac{${index}+1}{2}${'$'} 检查推导，保留阅读位置并继续分析。"
 
-    private fun measureFrames(changes: AtomicInteger, action: () -> Unit): String {
+    private fun plainParagraph(index: Int) = "第 $index 步：这里是一段没有公式和格式标记的普通文字。" +
+        "新内容到达时继续阅读前面的说明，检查每一步的条件，保留阅读位置并继续分析。"
+
+    private fun measureFrames(changes: AtomicInteger, replacements: AtomicInteger, action: () -> Unit): String {
         val durations = Collections.synchronizedList(mutableListOf<Long>())
         val layouts = Collections.synchronizedList(mutableListOf<Long>())
+        val vsyncs = Collections.synchronizedList(mutableListOf<Long>())
         val worker = HandlerThread("scroll-frame-metrics").apply { start() }
         val listener = Window.OnFrameMetricsAvailableListener { _, frame, _ ->
             if (frame.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
                 durations += frame.getMetric(FrameMetrics.TOTAL_DURATION)
                 layouts += frame.getMetric(FrameMetrics.LAYOUT_MEASURE_DURATION)
+                vsyncs += frame.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
             }
         }
         runUi { activity.window.addOnFrameMetricsAvailableListener(listener, Handler(worker.looper)) }
         changes.set(0)
+        replacements.set(0)
         try { action() } finally {
             runUi { activity.window.removeOnFrameMetricsAvailableListener(listener) }
             worker.quitSafely()
@@ -167,9 +181,11 @@ class StreamingScrollPerformanceDeviceTest {
         fun List<Long>.percentile(p: Double) = if (isEmpty()) -1.0 else sorted()[(ceil(size * p).toInt() - 1).coerceAtLeast(0)] / 1_000_000.0
         val frames = synchronized(durations) { durations.toList() }
         val measure = synchronized(layouts) { layouts.toList() }
+        val intervals = synchronized(vsyncs) { vsyncs.toList().zipWithNext { a, b -> b - a } }
         assertTrue("FrameMetrics must observe the scrolling window", frames.size > 20)
         return "frames=${frames.size}, p50Ms=${frames.percentile(.50)}, p95Ms=${frames.percentile(.95)}, " +
-            "over32ms=${frames.count { it > 32_000_000 }}, layoutP95Ms=${measure.percentile(.95)}, textReplacements=${changes.get()}"
+            "over32ms=${frames.count { it > 32_000_000 }}, layoutP95Ms=${measure.percentile(.95)}, " +
+            "frameIntervalP95Ms=${intervals.percentile(.95)}, textChanges=${changes.get()}, fullReplacements=${replacements.get()}"
     }
 
     private fun swipe(up: Boolean, duringDrag: (() -> Unit)? = null) {

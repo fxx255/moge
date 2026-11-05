@@ -97,6 +97,7 @@ private data class ReadingAnchor(
     val block: ReadingBlock,
     val text: CharSequence?,
     val layout: android.text.Layout?,
+    val lineTop: Int?,
     val offset: Int,
     val y: Float,
     val readerScrollY: Float,
@@ -148,8 +149,13 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
             // A new native layout means existing prose may have reflowed (for example
             // when the final summary is prepended). Pure list motion keeps this layout
             // instance, so normal browsing only refreshes the anchor.
-            val reflowed = anchor != null &&
-                (anchor.block !in blocks || anchor.block.view?.layout !== anchor.layout)
+            val view = anchor?.block?.view
+            val layout = view?.layout
+            val currentText = view?.let(::markdownTextSnapshot)
+            val reflowed = anchor != null && (anchor.block !in blocks || layout !== anchor.layout ||
+                (layout != null && anchor.text != null &&
+                    ((currentText !== anchor.text && currentText?.startsWith(anchor.text.toString()) != true) ||
+                        layout.getLineTop(layout.getLineForOffset(anchor.offset.coerceAtMost(view.text.length))) != anchor.lineTop)))
             if (!reflowed) {
                 last = capture()
                 return true
@@ -215,7 +221,8 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         val layout = view?.layout
         val textTop = bounds.top + (view?.totalPaddingTop ?: 0) - (view?.scrollY ?: 0)
         val line = layout?.getLineForVertical((viewport.top - textTop).toInt().coerceAtLeast(0))
-        return ReadingAnchor(block, view?.text, layout, line?.let { layout.getLineStart(it) } ?: 0,
+        return ReadingAnchor(block, view?.let(::markdownTextSnapshot), layout, line?.let { layout.getLineTop(it) },
+            line?.let { layout.getLineStart(it) } ?: 0,
             if (line != null) textTop + layout.getLineTop(line) else bounds.top,
             host.readerScrollY, host.contentVersion, block.contentKey)
     }

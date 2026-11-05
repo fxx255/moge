@@ -226,9 +226,9 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
                 val pageFocus = CameraPaperFocus(previewView, executor,
                     canFocus = { !disposed && controller.ready && !controller.busy && metering.target == null &&
                         lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) },
-                    onFocus = { position ->
-                        if (metering.target == null && metering.focusAt(previewView.meteringPointFactory, position))
-                            exposure.applyMeteringDefault()
+                    onFocus = { position, exposurePosition, luminance ->
+                        if (metering.target == null && metering.focusAt(previewView.meteringPointFactory, position, exposurePosition))
+                            exposure.applyMeteringDefault(luminance)
                     })
                 paperFocus = pageFocus
                 analysis = pageFocus.analysis
@@ -284,8 +284,10 @@ fun CameraViewfinder(controller: ViewfinderController, modifier: Modifier = Modi
         val uninstall = installCameraPreviewGestures(previewView, focusLabel,
             onTap = { position ->
                 if (canControlCamera()) {
+                    val luminance = paperFocus?.luminanceAt(position)
                     paperFocus?.suppress()
-                    if (metering.focusAt(previewView.meteringPointFactory, position)) exposure.applyMeteringDefault()
+                    if (metering.focusAt(previewView.meteringPointFactory, position))
+                        exposure.applyMeteringDefault(luminance, userInitiated = true)
                 }
             },
             onZoomStart = {

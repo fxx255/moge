@@ -70,6 +70,7 @@ class HomeViewModelTest {
     @Test fun `camera opens crop immediately and queues only accepted photos with the capture mode`() {
         val handle = SavedStateHandle(mapOf(com.moge.app.ui.Routes.ARG_CAPTURE_MODE to "CHAT"))
         val first = vm(handle)
+        assertEquals(com.moge.app.domain.ConversationMode.CHAT, first.state.value.conversationMode)
         val path = shot()
         first.onCaptured(path)
         assertEquals(listOf(path), first.state.value.cropQueue)

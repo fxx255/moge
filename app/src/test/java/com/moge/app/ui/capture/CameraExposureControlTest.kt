@@ -47,25 +47,39 @@ class CameraExposureControlTest {
         assertEquals(1f, exposure.fraction, 0f)
     }
 
-    @Test fun `tap metering gets two thirds EV without accumulating or replacing manual brightness`() {
+    @Test fun `automatic metering gets one EV without accumulating or replacing manual brightness`() {
         attach()
         repeat(3) { exposure.applyMeteringDefault() }
-        assertEquals(listOf(2), indices)
-        assertEquals(8f / 12f, exposure.fraction, .001f)
+        assertEquals(listOf(3), indices)
+        assertEquals(9f / 12f, exposure.fraction, .001f)
         exposure.adjustTo(.25f)
         exposure.applyMeteringDefault()
-        assertEquals(listOf(2, -3), indices)
+        assertEquals(listOf(3, -3), indices)
         exposure.reset()
         exposure.refresh()
         exposure.applyMeteringDefault()
-        assertEquals("Pausing does not erase the manual choice", listOf(2, -3), indices)
+        assertEquals("Pausing does not erase the manual choice", listOf(3, -3), indices)
+    }
+
+    @Test fun `tapping shaded paper restarts automatic brightness after a manual choice without accumulating`() {
+        attach()
+        exposure.adjustTo(.25f)
+        exposure.applyMeteringDefault(80)
+        assertEquals(listOf(-3), indices)
+        repeat(3) { exposure.applyMeteringDefault(80, userInitiated = true) }
+        assertEquals(listOf(-3, 5), indices)
+        exposure.applyMeteringDefault(220, userInitiated = true)
+        assertEquals(listOf(-3, 5, 3), indices)
+        exposure.adjustTo(.5f)
+        exposure.applyMeteringDefault(40)
+        assertEquals(listOf(-3, 5, 3, 0), indices)
     }
 
     @Test fun `metering bias respects actual EV steps hardware limits and unsupported compensation`() {
         attach(-3, 9)
         every { state.exposureCompensationStep } returns Rational(1, 6)
         exposure.applyMeteringDefault()
-        assertEquals(listOf(4), indices)
+        assertEquals(listOf(6), indices)
         exposure.detach(camera)
         attach(-1, 1)
         exposure.applyMeteringDefault()

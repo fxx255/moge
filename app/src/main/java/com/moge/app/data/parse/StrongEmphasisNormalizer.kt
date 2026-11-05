@@ -21,11 +21,14 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
     var codeIndex = 0
     var inMath = false
     var opener: Int? = null
-    for (token in EMPHASIS_TOKENS.findAll(source)) {
-        val start = token.range.first
+    // Reuse one native matcher. Kotlin's findAll creates another Matcher for
+    // every token, repeatedly handing Android's regex engine the full answer.
+    val tokens = EMPHASIS_TOKENS.toPattern().matcher(source)
+    while (tokens.find()) {
+        val start = tokens.start()
         while (codeIndex < codeRanges.size && codeRanges[codeIndex].last < start) codeIndex++
         if (codeRanges.getOrNull(codeIndex)?.contains(start) == true || source.isEscapedMarkdownToken(start)) continue
-        when (token.value) {
+        when (tokens.group()) {
             "$$" -> inMath = !inMath
             "**" -> if (!inMath) {
                 if (source.hasCodeIndentAt(start)) {
@@ -33,7 +36,7 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
                     pendingJoins.clear()
                     continue
                 }
-                val end = token.range.last + 1
+                val end = tokens.end()
                 val opening = opener
                 if (opening != null && start > opening + 2 && !source[start - 1].isWhitespace()) {
                     collectStrongBoundaryCharacters(source, opening, start, encodedCharacters)
@@ -48,11 +51,11 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
             }
             "****" -> if (!inMath && opener != null) {
                 val opening = pendingJoins.lastOrNull()?.plus(2) ?: opener
-                if (source.isAdjacentStrongBoundary(opening, start, token.range.last + 1)) pendingJoins += start
+                if (source.isAdjacentStrongBoundary(opening, start, tokens.end())) pendingJoins += start
                 else canJoin = false
             }
             else -> if (!inMath) {
-                if (token.value.first() == '*') canJoin = false
+                if (source[start] == '*') canJoin = false
                 else { // Paragraph boundary.
                     opener = null
                     pendingJoins.clear()

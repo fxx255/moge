@@ -132,7 +132,7 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
                 .onGloballyPositioned { readingBlock?.coordinates = it }, factory = { context ->
                 createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSize,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = surface,
-                    bodyTypeface = typeface, inkReveal = reveal).also {
+                    bodyTypeface = typeface, inkReveal = reveal, incrementalUpdates = true).also {
                     it.setSpannableFactory(StreamingTextBufferFactory)
                     readingBlock?.view = it
                     renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)

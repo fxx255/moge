@@ -10,7 +10,7 @@ internal fun wrapLongFormulas(
     maxWidthPx: Int,
     measure: (String) -> Int,
 ): String {
-    if (maxWidthPx <= 0) return markdown
+    if (maxWidthPx <= 0 || DISPLAY_DELIMITER !in markdown) return markdown
     val out = ArrayList<String>()
     var fence: String? = null
     var inDisplay = false
@@ -126,6 +126,7 @@ private fun topLevelProseStart(text: String): Int {
 
 /** Dollar pairs outside code and escapes; opening and closing use the same rule. */
 private fun mathDelimiters(line: String): List<Int> {
+    if (DISPLAY_DELIMITER !in line) return emptyList()
     val result = mutableListOf<Int>()
     var codeTicks = 0
     var i = 0
@@ -139,7 +140,7 @@ private fun mathDelimiters(line: String): List<Int> {
             continue
         }
         if (line[i] == '\\') { i += 2; continue }
-        if (codeTicks == 0 && line.startsWith(DISPLAY_DELIMITER, i)) {
+        if (codeTicks == 0 && line[i] == '$' && line.getOrNull(i + 1) == '$') {
             result += i
             i += 2
         } else i++

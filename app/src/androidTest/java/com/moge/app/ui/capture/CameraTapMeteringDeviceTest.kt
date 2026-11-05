@@ -78,11 +78,13 @@ class CameraTapMeteringDeviceTest {
             val step = exposure.exposureCompensationStep.toFloat()
             val defaultIndex = if (step.isFinite() && step > 0f)
                 (CameraExposureControl.METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper) else 0
-            if (defaultIndex > 0) compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex == defaultIndex }
+            val shadowIndex = if (step.isFinite() && step > 0f)
+                (MAX_PAPER_METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper) else 0
+            if (defaultIndex > 0) compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex in defaultIndex..shadowIndex }
             compose.onNodeWithTag("camera-exposure-sun").assertIsEnabled().performClick()
             compose.onNodeWithTag("camera-exposure-slider").performSemanticsAction(
-                androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.75f) }
-            val expected = (range.lower + .75f * (range.upper - range.lower)).roundToInt()
+                androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.1f) }
+            val expected = (range.lower + .1f * (range.upper - range.lower)).roundToInt()
             compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex == expected }
             compose.onNodeWithTag("camera-focus-indicator").assertExists()
             snapshot("camera-exposure-adjustment.png")
@@ -90,8 +92,12 @@ class CameraTapMeteringDeviceTest {
         preview.performTouchInput { click(Offset(width * .7f, height * .55f)) }
         compose.onNodeWithTag("camera-exposure-slider").assertDoesNotExist()
         if (exposure.isExposureCompensationSupported && range.upper > range.lower) {
-            assertEquals("A new metering point must preserve manual brightness",
-                (range.lower + .75f * (range.upper - range.lower)).roundToInt(), info.exposureState.exposureCompensationIndex)
+            val step = exposure.exposureCompensationStep.toFloat()
+            if (step.isFinite() && step > 0f) {
+                val minimum = (PAPER_METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper)
+                val maximum = (MAX_PAPER_METERING_BIAS_EV / step).roundToInt().coerceIn(range.lower, range.upper)
+                compose.waitUntil(10_000) { info.exposureState.exposureCompensationIndex in minimum..maximum }
+            }
         }
         compose.onNodeWithTag("camera-focus-indicator").assertExists()
         snapshot("camera-tap-right.png")
