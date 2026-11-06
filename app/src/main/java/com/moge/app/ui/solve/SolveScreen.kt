@@ -33,6 +33,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.ui.capture.CaptureStore
+import com.moge.app.ui.capture.rememberSystemCameraLauncher
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.components.PageSwipeSurface
 import com.moge.app.ui.components.rememberPaperControlSway
@@ -107,6 +109,25 @@ fun SolveScreen(
         if (state.notice != strings.text(R.string.ui_saved_to_notebook_32992)) savedFavoriteId = null
     }
     var cropQueue by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var cameraCropPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var retakeRequested by rememberSaveable { mutableStateOf(false) }
+    val systemCamera = rememberSystemCameraLauncher(
+        createFile = vm::newCameraFile,
+        onCaptured = { path -> cameraCropPath = path; cropQueue = cropQueue + path },
+        onMessage = vm::showNotice,
+        canLaunch = { pageMotion.active && state.canAddPhoto && !state.generating && cropQueue.isEmpty() },
+    )
+    val openCamera by rememberUpdatedState<(ConversationMode) -> Unit> { mode ->
+        if (pageMotion.active && state.canAddPhoto && !state.generating && cropQueue.isEmpty()) {
+            if (mode == ConversationMode.CHAT) systemCamera.launch() else onTakePhoto()
+        }
+    }
+    LaunchedEffect(retakeRequested, cropQueue.isEmpty()) {
+        if (retakeRequested && cropQueue.isEmpty()) {
+            retakeRequested = false
+            systemCamera.launch()
+        }
+    }
     val pickPhotos = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(CaptureStore.MAX_PHOTOS),
     ) { uris -> vm.importPicked(uris) { imported -> cropQueue = cropQueue + imported } }
@@ -168,7 +189,7 @@ fun SolveScreen(
                     { onViewFavorite(id); vm.dismissNotice() }
                 })
             FollowUpBar(state, vm::onInputChange, vm::send, vm::stop,
-                onTakePhoto = onTakePhoto,
+                onTakePhoto = { vm.resolveConversationMode { openCamera(it) } },
                 onPickPhotos = { pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onPickDocument = {
                     pickDocument.launch(arrayOf(
@@ -204,9 +225,15 @@ fun SolveScreen(
         }
     }
     cropQueue.firstOrNull()?.let { path ->
-        val next = { cropQueue = cropQueue.drop(1); vm.addPhotos(listOf(path)) }
+        val fromCamera = path == cameraCropPath
+        val next = { cropQueue = cropQueue.drop(1); if (fromCamera) cameraCropPath = null; vm.addPhotos(listOf(path)) }
         PhotoCropDialog(path, onCropped = next,
-            onDismiss = { cropQueue = cropQueue.drop(1); vm.discardPhoto(path) },
+            onDismiss = {
+                cropQueue = cropQueue.drop(1)
+                vm.discardPhoto(path)
+                if (fromCamera) { cameraCropPath = null; retakeRequested = true }
+            },
+            dismissLabel = strings.text(if (fromCamera) R.string.ui_retake_41c37 else R.string.ui_cancel_4d0b4),
             onCropStarted = { vm.onPhotoCropStarted(path) },
             onCropClosed = { vm.onPhotoCropClosed(path) },
             saveCrop = { vm.savePhotoCrop(path, it) })

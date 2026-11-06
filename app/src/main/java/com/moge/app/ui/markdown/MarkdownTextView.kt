@@ -303,6 +303,14 @@ internal fun createMarkdownTextView(
         val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
+                override fun configureVisitor(builder: io.noties.markwon.MarkwonVisitor.Builder) {
+                    // Inline quotes use prose bold without code padding; standalone code is unchanged.
+                    builder.on(org.commonmark.node.Code::class.java) { visitor, code ->
+                        val start = visitor.length()
+                        visitor.builder().append(code.literal)
+                        visitor.setSpansForNode(org.commonmark.node.StrongEmphasis::class.java, start)
+                    }
+                }
                 override fun configureConfiguration(builder: io.noties.markwon.MarkwonConfiguration.Builder) {
                     builder.linkResolver { view, link ->
                         val uri = android.net.Uri.parse(link)

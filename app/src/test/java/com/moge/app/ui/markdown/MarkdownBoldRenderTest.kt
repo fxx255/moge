@@ -193,8 +193,9 @@ class MarkdownBoldRenderTest {
         val expectedContent = render("**“重点与 `code`、*斜体*。”**").toString()
         val text = render(prepareReplyMarkdown("前**“重点与 `code`、*斜体*。”**后"))
         assertEquals("前${expectedContent}后", text.toString())
-        val span = boldSpans(text).single()
-        assertEquals(expectedContent, text.substring(text.getSpanStart(span), text.getSpanEnd(span)))
+        assertEquals(listOf("code", expectedContent), boldSpans(text).map {
+            text.substring(text.getSpanStart(it), text.getSpanEnd(it))
+        }.sortedBy(String::length))
         assertTrue(text.getSpans(0, text.length,
             io.noties.markwon.core.spans.EmphasisSpan::class.java).isNotEmpty())
     }

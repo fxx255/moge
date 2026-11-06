@@ -121,6 +121,8 @@ data class DiagramSpec(
     /** The last drawn lane represents the end of a larger parallel bank. */
     val repeatLastLane: Boolean = false,
     val coding: CodingSpec? = null,
+    val lfsr: LfsrSpec? = null,
+    val trellis: com.moge.app.domain.coding.TrellisSpec? = null,
 )
 
 @Serializable
@@ -142,12 +144,15 @@ enum class DiagramLayoutProfile {
     CONVOLUTIONAL_ENCODER,
     CYCLIC_ENCODER,
     CONVOLUTIONAL_STATE_GRAPH,
+    CONVOLUTIONAL_TRELLIS,
+    LFSR,
 }
 
 fun DiagramLayoutProfile.isCoding(): Boolean = this in setOf(
     DiagramLayoutProfile.CONVOLUTIONAL_ENCODER,
     DiagramLayoutProfile.CYCLIC_ENCODER,
     DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH,
+    DiagramLayoutProfile.CONVOLUTIONAL_TRELLIS,
 )
 
 /** 规模上限。超出的图拒收，而不是画成一团看不清的东西。 */

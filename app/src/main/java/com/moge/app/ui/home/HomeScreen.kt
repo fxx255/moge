@@ -4,11 +4,6 @@ import com.moge.app.R
 import com.moge.app.domain.ConversationMode
 import com.moge.app.ui.localization.rememberAppStrings
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,8 +62,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -82,13 +75,13 @@ import com.moge.app.ui.capture.ViewfinderController
 import com.moge.app.ui.capture.cameraIconRotation
 import com.moge.app.ui.capture.rememberCameraIconRotation
 import com.moge.app.ui.capture.rememberDisplayRotation
+import com.moge.app.ui.capture.rememberSystemCameraLauncher
 import com.moge.app.ui.components.GridPaper
 import com.moge.app.ui.components.paperCard
 import com.moge.app.ui.photo.PhotoCropDialog
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.viewer.PhotoViewer
 import kotlinx.coroutines.delay
-import java.io.File
 
 /**
  * 独立拍照路由：拍照 / 选图 → 逐张裁剪 → 使用照片，通过 [onStartSolve] 交回调用方。
@@ -110,77 +103,32 @@ fun HomeScreen(
     val controller = remember { ViewfinderController() }
     var viewer by rememberSaveable { mutableStateOf<Int?>(null) }
     var editingPhoto by rememberSaveable { mutableStateOf<String?>(null) }
-    var cameraGranted by remember { mutableStateOf(hasCameraPermission(context)) }
-    val cameraPrefs = remember(context) { context.getSharedPreferences("capture_permissions", android.content.Context.MODE_PRIVATE) }
-    var askedOnce by rememberSaveable { mutableStateOf(cameraPrefs.getBoolean("camera_requested", false)) }
-    var systemAfterPermission by rememberSaveable { mutableStateOf(false) }
     var systemStarted by rememberSaveable { mutableStateOf(false) }
     var systemRetakeRequested by rememberSaveable { mutableStateOf(false) }
     var levelEnabled by rememberSaveable { mutableStateOf(false) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        cameraGranted = hasCameraPermission(context)
-        vm.refreshModels()
-    }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        cameraGranted = granted
-        askedOnce = true
-        cameraPrefs.edit().putBoolean("camera_requested", true).apply()
-        if (!granted && systemAfterPermission) {
-            systemAfterPermission = false
-            vm.showMessage(strings.text(R.string.ui_camera_permission_needed_30a59))
-        }
-    }
-    fun grantCamera() {
-        if (askedOnce) openAppSettings(context) else cameraPermission.launch(Manifest.permission.CAMERA)
-    }
-
-    // 普通对话直接使用系统相机；拍题相机不可用时也以此兜底。
-    // 目标路径跨 Activity 重建保存，返回后仍进入原裁剪队列。
-    var pendingSystemShot by rememberSaveable { mutableStateOf<String?>(null) }
-    val systemCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val path = pendingSystemShot
-        pendingSystemShot = null
-        if (path == null) return@rememberLauncherForActivityResult
-        val file = File(path)
-        if (ok && file.length() > 0) vm.onCaptured(path)
-        else {
-            file.delete()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshModels() }
+    // Retain support for an already restored capture route; new chats launch from SolveScreen.
+    val systemCamera = rememberSystemCameraLauncher(
+        createFile = vm::newCameraFile,
+        onCaptured = vm::onCaptured,
+        onMessage = vm::showMessage,
+        onCancelled = {
             if (systemOnly) {
                 if (state.photos.isNotEmpty()) vm.openConfirm() else onAskByText()
             }
-        }
-    }
-    fun launchSystemCamera() {
-        if (pendingSystemShot != null) return
-        if (!state.canAddMore) {
-            vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
-            return
-        }
-        // This app declares CAMERA for question capture, so Android also requires
-        // that grant when it delegates ACTION_IMAGE_CAPTURE to another camera app.
-        if (!cameraGranted) {
-            systemAfterPermission = true
-            grantCamera()
-            return
-        }
-        val target = vm.newCameraFile()
-        pendingSystemShot = target.absolutePath
-        runCatching {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", target)
-            systemCamera.launch(uri)
-        }.onFailure {
-            pendingSystemShot = null
-            target.delete()
-            vm.showMessage(strings.text(R.string.ui_no_camera_app_available_f648a))
-        }
-    }
-    LaunchedEffect(systemOnly, cameraGranted, systemAfterPermission, systemRetakeRequested, state.cropQueue.isEmpty()) {
+        },
+        canLaunch = {
+            if (!state.canAddMore) vm.showMessage(strings.text(R.string.ui_up_to_1_s_photos_84e2a, CaptureStore.MAX_PHOTOS))
+            state.canAddMore
+        },
+    )
+    val cameraGranted = systemCamera.cameraGranted
+    fun grantCamera() = systemCamera.requestPermission()
+    fun launchSystemCamera() = systemCamera.launch()
+    LaunchedEffect(systemOnly, systemRetakeRequested, state.cropQueue.isEmpty()) {
         if (systemOnly && !systemStarted) {
             systemStarted = true
-            if (pendingSystemShot == null && state.photos.isEmpty() && state.cropQueue.isEmpty()) launchSystemCamera()
-        } else if (systemAfterPermission && cameraGranted) {
-            systemAfterPermission = false
-            launchSystemCamera()
+            if (!systemCamera.pending && state.photos.isEmpty() && state.cropQueue.isEmpty()) launchSystemCamera()
         } else if (systemOnly && systemRetakeRequested && state.cropQueue.isEmpty()) {
             // Wait for the discarded crop to leave the count before checking the photo limit.
             systemRetakeRequested = false
@@ -354,15 +302,6 @@ internal fun CameraLayout(
             }
         }
     }
-}
-
-private fun hasCameraPermission(context: android.content.Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-
-private fun openAppSettings(context: android.content.Context) {
-    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(intent) }
 }
 
 /** 未授权或预览失败时仍可选图、授权、使用系统相机并返回对话。 */

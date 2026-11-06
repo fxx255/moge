@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moge.app.data.image.PhotoCropEdit
+import com.moge.app.data.db.ConversationRepository
 import com.moge.app.domain.ConversationMode
 import com.moge.app.runtime.QuestionPhotoPreparation
 import com.moge.app.runtime.SharedImageImporter
@@ -14,6 +15,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -25,6 +30,7 @@ class SharedImagesViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val importer: SharedImageImporter,
     private val photoPreparation: QuestionPhotoPreparation,
+    private val conversations: ConversationRepository,
 ) : ViewModel() {
     private val codec = Json { ignoreUnknownKeys = true }
     private val serializer = ListSerializer(SharedImages.serializer())
@@ -38,6 +44,30 @@ class SharedImagesViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
     val destination: StateFlow<String?> = savedState.getStateFlow(DESTINATION, null)
     private val importing = mutableSetOf<String>()
+    val history: StateFlow<List<SharedConversationTarget>> = conversations.observeHistory()
+        .map(::sharedConversationTargets)
+        .catch { failure ->
+            if (failure is CancellationException) throw failure
+            _error.value = failure.message ?: "无法读取历史对话，请重试"
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Recheck existence before navigation; delivery still goes through the target's live ViewModel. */
+    fun chooseHistory(id: String, open: (SharedConversationTarget) -> Unit) {
+        if (_busy.value || _pending.value.isEmpty()) return
+        _busy.value = true
+        _error.value = null
+        viewModelScope.launch {
+            try {
+                val conversation = checkNotNull(conversations.getConversation(id)) { "这个历史对话已不存在，请重新选择" }
+                open(SharedConversationTarget(conversation.id, conversation.title,
+                    ConversationMode.fromName(conversation.conversationMode), conversation.updatedAt))
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _error.value = failure.message ?: "无法打开历史对话，请重试" }
+            finally { _busy.value = false }
+        }
+    }
 
     /** Return true for image shares, so the document receiver does not also handle them. */
     fun receive(intent: Intent): Boolean {

@@ -84,6 +84,32 @@ class FigureToolsTest {
             """{"profile":"convolutional_encoder","coding":{"version":1,"memory":2}}"""))))
     }
 
+    @Test fun lfsrGuideAndToolUseExplicitRegisterOutputTaps() = runBlocking {
+        assertTrue(FigureToolCatalog.guide("coding").contains("profile:\"lfsr\""))
+        assertTrue(FigureToolCatalog.guide("diagram").contains("profile:\"lfsr\""))
+        assertTrue(FigureToolCatalog.guide("diagram").contains("stageOutputLabels"))
+        assertEquals("ok", status(tools.execute("render_figure", args(1, "diagram",
+            """{"title":"m 序列","profile":"lfsr","lfsr":{"stages":3,"taps":[1,3],"stageOutputLabels":["a0","a1","a2"]}}"""))))
+        val spec = (rendered.single() as ReplyFigure.Diagram).spec.lfsr!!
+        assertEquals(listOf(1, 3), spec.taps)
+        assertEquals("\$D_{0}\$", spec.registerLabel(0))
+        assertEquals("a0", spec.stageOutputLabel(0))
+        assertEquals("error", status(tools.execute("render_figure", args(2, "diagram",
+            """{"profile":"lfsr","lfsr":{"stages":3,"taps":[0,3]}}"""))))
+    }
+
+    @Test fun trellisGuideAndToolAcceptCodingParametersWithoutManualGraphNodes() = runBlocking {
+        assertTrue(FigureToolCatalog.guide("coding").contains("convolutional_trellis"))
+        assertTrue(FigureToolCatalog.guide("coding").contains("receivedBits"))
+        assertEquals("ok", status(tools.execute("render_figure", args(1, "diagram",
+            """{"profile":"convolutional_trellis","coding":{"memory":2,"generators":[[0,1,2],[0,2]]},"trellis":{"inputBits":"10111"}}"""))))
+        val spec = (rendered.single() as ReplyFigure.Diagram).spec
+        assertEquals("10111", spec.trellis!!.inputBits)
+        assertTrue(spec.nodes.isEmpty() && spec.edges.isEmpty())
+        assertEquals("error", status(tools.execute("render_figure", args(2, "diagram",
+            """{"profile":"convolutional_trellis","coding":{"memory":2,"generators":[[0,1,2],[0,2]]},"trellis":{"mode":"distances"}}"""))))
+    }
+
     private fun status(text: String) = Json.parseToJsonElement(text).jsonObject["status"]!!.jsonPrimitive.content
     companion object {
         const val CURVE = """{"title":"抛物线","x":{"min":-2,"max":2},"series":[{"expr":"x^2"}]}"""

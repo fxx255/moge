@@ -22,8 +22,12 @@ object DiagramRenderer {
 
     fun render(spec: DiagramSpec, widthPx: Int = 4096, heightPx: Int = 4096,
                dark: Boolean = false): Bitmap =
-        if (spec.profile.isCoding()) CodingDiagramRenderer.render(spec, widthPx, heightPx, dark)
-        else renderLayout(DiagramLayout.layout(spec), widthPx, heightPx, dark)
+        if (spec.profile == DiagramLayoutProfile.CONVOLUTIONAL_TRELLIS) TrellisDiagramRenderer.render(spec, widthPx, heightPx, dark)
+        else if (spec.profile == DiagramLayoutProfile.LFSR) LfsrDiagramRenderer.render(spec.title,
+            listOf(requireNotNull(spec.lfsr) { "缺少 LFSR 参数" }), widthPx, heightPx, dark)
+        else if (spec.profile.isCoding()) CodingDiagramRenderer.render(spec, widthPx, heightPx, dark)
+        else LegacyLfsrAdapter.sequences(spec)?.let { LfsrDiagramRenderer.render(spec.title, it, widthPx, heightPx, dark) }
+            ?: renderLayout(DiagramLayout.layout(spec), widthPx, heightPx, dark)
 
     fun renderLayout(layout: DiagramLayoutResult, widthPx: Int, heightPx: Int,
                      dark: Boolean = false): Bitmap {

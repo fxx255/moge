@@ -4,6 +4,8 @@
     <string name="share_dismiss_error">OK</string>
     <string name="share_image_count">%1$d images</string>
     <string name="share_join_current">Add to current chat</string>
+    <string name="share_join_selected">Add to selected chat</string>
+    <string name="share_choose_history">Choose a previous chat</string>
     <string name="share_join_new_question">Add to new question chat</string>
     <string name="share_join_new_chat">Add to new chat</string>
 </resources>

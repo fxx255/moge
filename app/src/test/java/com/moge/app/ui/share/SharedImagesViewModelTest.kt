@@ -30,6 +30,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class SharedImagesViewModelTest {
+    private fun historyRepository() = mockk<com.moge.app.data.db.ConversationRepository> { every { observeHistory() } returns kotlinx.coroutines.flow.flowOf(emptyList()) }
     private val dispatcher = StandardTestDispatcher()
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
@@ -42,7 +43,7 @@ class SharedImagesViewModelTest {
         val copied = CompletableDeferred<SharedImages?>()
         coEvery { importer.import(any()) } coAnswers { copied.await() }
         val handle = SavedStateHandle()
-        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true))
+        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true), historyRepository())
         val source = Intent(Intent.ACTION_SEND).setType("image/png")
         assertTrue(vm.receive(source))
         val recreatedIntent = Intent(source)
@@ -52,7 +53,7 @@ class SharedImagesViewModelTest {
         dispatcher.scheduler.runCurrent()
         coVerify(exactly = 1) { importer.import(any()) }
         assertEquals(1, vm.pending.value.size)
-        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true))
+        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true), historyRepository())
         assertTrue(restored.receive(recreatedIntent))
         dispatcher.scheduler.runCurrent()
         assertEquals(vm.pending.value, restored.pending.value)
@@ -75,7 +76,7 @@ class SharedImagesViewModelTest {
         coEvery { importer.import(any()) } returns SharedImages("generated", listOf("/private/image.png"))
         coEvery { importer.createDraft(any(), ConversationMode.CHAT) } returns "new-chat-id"
         val handle = SavedStateHandle()
-        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true))
+        val vm = SharedImagesViewModel(handle, importer, mockk(relaxed = true), historyRepository())
         repeat(2) { vm.receive(Intent(Intent.ACTION_SEND).setType("image/png")) }
         dispatcher.scheduler.runCurrent()
         assertEquals(2, vm.pending.value.size)
@@ -83,7 +84,7 @@ class SharedImagesViewModelTest {
         dispatcher.scheduler.runCurrent()
         assertEquals("new-chat-id", vm.destination.value)
         assertEquals(1, vm.pending.value.size)
-        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true))
+        val restored = SharedImagesViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }), importer, mockk(relaxed = true), historyRepository())
         assertEquals("new-chat-id", restored.destination.value)
         assertEquals(vm.pending.value, restored.pending.value)
         restored.destinationOpened()
@@ -92,5 +93,31 @@ class SharedImagesViewModelTest {
         restored.dismiss()
         dispatcher.scheduler.runCurrent()
         assertTrue(restored.pending.value.isEmpty())
+    }
+
+    @Test fun deletedHistoryTargetsRetainTheShareAndValidTargetsOnlyNavigateBeforeCropping() = runTest(dispatcher) {
+        val importer = mockk<SharedImageImporter>()
+        every { importer.imageUris(any()) } returns listOf(Uri.parse("content://images/one"))
+        coEvery { importer.import(any()) } returns SharedImages("generated", listOf("/private/image.png"))
+        val repository = historyRepository()
+        coEvery { repository.getConversation("gone") } returns null
+        coEvery { repository.getConversation("old") } returns com.moge.app.data.db.ConversationEntity(
+            id = "old", title = "历史题目", conversationMode = ConversationMode.SOLVE.name)
+        val vm = SharedImagesViewModel(SavedStateHandle(), importer, mockk(relaxed = true), repository)
+        vm.receive(Intent(Intent.ACTION_SEND).setType("image/png"))
+        dispatcher.scheduler.runCurrent()
+        vm.chooseHistory("gone") { fail("Deleted targets cannot be opened") }
+        dispatcher.scheduler.runCurrent()
+        assertEquals(1, vm.pending.value.size)
+        assertTrue(vm.error.value!!.contains("已不存在"))
+        val opened = mutableListOf<String>()
+        vm.chooseHistory("old") { opened += it.id }
+        vm.chooseHistory("old") { fail("Duplicate clicks while opening must be ignored") }
+        dispatcher.scheduler.runCurrent()
+        assertEquals(listOf("old"), opened)
+        assertEquals(1, vm.pending.value.size)
+        assertNull(vm.error.value)
+        assertFalse(vm.busy.value)
+        coVerify(exactly = 0) { importer.createDraft(any(), any()) }
     }
 }

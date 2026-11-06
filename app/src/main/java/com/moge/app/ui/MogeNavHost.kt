@@ -231,7 +231,9 @@ fun MogeNavHost(
                             onOpenHistory = { ordinary(Routes.HISTORY) },
                             onOpenNotebook = { openNotebook(null) },
                             onNewConversation = { openNew(0) },
-                            onTakePhoto = { vm.resolveConversationMode { mode -> ordinary(Routes.capture(mode)) } },
+                            onTakePhoto = {
+                                if (nav.currentBackStackEntry == entry) ordinary(Routes.capture(ConversationMode.SOLVE))
+                            },
                             vm = vm,
                             onResumeConversation = previousConversation?.let { { resume(0) } },
                             onSwipeHistory = { swipe(1) { nav.navigate(Routes.HISTORY) { launchSingleTop = true } } },

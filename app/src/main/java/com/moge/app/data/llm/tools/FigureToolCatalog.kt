@@ -48,7 +48,7 @@ internal object FigureToolCatalog {
                     (kind != "constellation" && line.contains("voronoi"))
             }
             "diagram" -> diagramLines.drop(1).filterNot { it.contains("卷积码编码器使用") }
-            "coding" -> diagramLines.filter { it.contains("卷积码编码器使用") }
+            "coding" -> diagramLines.filter { it.contains("卷积码编码器使用") || it.contains("卷积码网格图使用") || it.contains("profile:\"lfsr\"") }
             else -> throw IllegalArgumentException("kind 只支持 curve/polar/constellation/diagram/coding")
         }
         return header + lines.joinToString("\n").trim()

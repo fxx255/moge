@@ -642,4 +642,5 @@
     <string name="ui_network_waiting">等待网络恢复…</string>
     <string name="ui_network_retrying">正在重新连接…</string>
     <string name="ui_network_continuing">网络中断，正在准备续写…</string>
+    <string name="ui_image_already_saved">这张图片已保存到图库，无需重复保存</string>
 </resources>

@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.Json
 import com.moge.app.domain.coding.CodingSpec
+import com.moge.app.domain.coding.TrellisSpec
 
 /**
  * 解析模型给出的 `diagrams` 数组。
@@ -37,14 +38,23 @@ object DiagramParser {
 
     fun parseOne(obj: JsonObject): DiagramSpec {
         val profile = parseProfile(obj["profile"] ?: obj["template"])
+        if (profile == DiagramLayoutProfile.LFSR) {
+            val lfsr = codingJson.decodeFromJsonElement(LfsrSpec.serializer(), obj["lfsr"] ?: error("缺少 lfsr 级数和抽头参数"))
+            lfsr.validate()
+            return DiagramSpec(title = obj.boundedText("title", DiagramLimits.MAX_TITLE_CHARS).orEmpty(), profile = profile, lfsr = lfsr)
+        }
         if (profile.isCoding()) {
             val coding = codingJson.decodeFromJsonElement(
                 CodingSpec.serializer(), obj["coding"] ?: error("缺少生成多项式等 coding 参数"),
             )
+            val trellis = if (profile == DiagramLayoutProfile.CONVOLUTIONAL_TRELLIS) {
+                codingJson.decodeFromJsonElement(TrellisSpec.serializer(), obj["trellis"] ?: kotlinx.serialization.json.buildJsonObject {})
+                    .also { it.validate(coding) }
+            } else null
             if (profile == DiagramLayoutProfile.CYCLIC_ENCODER) coding.validateCyclic()
             else coding.validateConvolutional(profile == DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH)
             return DiagramSpec(title = obj.boundedText("title", DiagramLimits.MAX_TITLE_CHARS).orEmpty(),
-                profile = profile, coding = coding)
+                profile = profile, coding = coding, trellis = trellis)
         }
         val rawNodes = obj["nodes"] as? JsonArray ?: error("缺少 nodes")
         val rawEdges = obj["edges"] as? JsonArray ?: error("缺少 edges")
@@ -167,8 +177,10 @@ object DiagramParser {
             "generic", "auto" -> DiagramLayoutProfile.GENERIC
             "communication", "parallel_bank", "ofdm", "textbook_chain" -> DiagramLayoutProfile.COMMUNICATION
             "convolutional_encoder" -> DiagramLayoutProfile.CONVOLUTIONAL_ENCODER
+            "convolutional_trellis", "trellis", "convolutional_grid" -> DiagramLayoutProfile.CONVOLUTIONAL_TRELLIS
             "cyclic_encoder" -> DiagramLayoutProfile.CYCLIC_ENCODER
             "convolutional_state_graph", "convolutional_state" -> DiagramLayoutProfile.CONVOLUTIONAL_STATE_GRAPH
+            "lfsr", "linear_feedback_shift_register", "m_sequence" -> DiagramLayoutProfile.LFSR
             else -> DiagramLayoutProfile.GENERIC
         }
     }

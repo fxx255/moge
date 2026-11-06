@@ -642,4 +642,5 @@
     <string name="ui_network_waiting">接続の回復を待っています…</string>
     <string name="ui_network_retrying">再接続しています…</string>
     <string name="ui_network_continuing">接続が中断しました。続きの生成を準備しています…</string>
+    <string name="ui_image_already_saved">この画像はすでにギャラリーに保存されています。</string>
 </resources>

@@ -4,6 +4,8 @@
     <string name="share_dismiss_error">閉じる</string>
     <string name="share_image_count">画像 %1$d 枚</string>
     <string name="share_join_current">現在の会話に追加</string>
+    <string name="share_join_selected">選択した会話に追加</string>
+    <string name="share_choose_history">過去の会話を選択</string>
     <string name="share_join_new_question">新しい問題の会話に追加</string>
     <string name="share_join_new_chat">新しい会話に追加</string>
 </resources>

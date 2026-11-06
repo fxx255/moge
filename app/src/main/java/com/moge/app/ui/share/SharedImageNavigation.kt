@@ -40,6 +40,7 @@ import com.moge.app.ui.components.PaperHeaderMinHeight
 import com.moge.app.ui.components.aboveMovingPages
 import com.moge.app.ui.localization.rememberAppStrings
 import com.moge.app.ui.navigateToSharedDraft
+import com.moge.app.ui.navigateToConversation
 import com.moge.app.ui.solve.SolveViewModel
 
 /** Navigation and live-draft ownership stay outside both the importer and the choice UI. */
@@ -61,12 +62,23 @@ internal fun SharedImageNavigation(nav: NavHostController, vm: SharedImagesViewM
         var cropModeName by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
         var newModeName by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
         var targetEntryId by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
+        var awaitingTargetId by rememberSaveable(share.id) { mutableStateOf<String?>(null) }
+        val history by vm.history.collectAsStateWithLifecycle()
         val solve: SolveViewModel? = entry?.takeIf { it.destination.route == Routes.SOLVE }?.let { hiltViewModel(it) }
         val state = solve?.uiState?.collectAsStateWithLifecycle()?.value
         val focus = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
         LaunchedEffect(share.id) { focus.clearFocus(); keyboard?.hide() }
-        BackHandler { if (!busy && cropModeName == null) vm.dismiss() }
+        BackHandler { if (!busy && cropModeName == null) { awaitingTargetId = null; vm.dismiss() } }
+        LaunchedEffect(awaitingTargetId, entry?.id, state?.conversationId, state?.draftLoaded, state?.switchingBranch,
+            state?.submitting, state?.importingPhotos) {
+            if (awaitingTargetId != null && state != null && state.conversationId == awaitingTargetId &&
+                state.draftLoaded && !state.switchingBranch && !state.submitting && !state.importingPhotos) {
+                targetEntryId = entry?.id
+                cropModeName = state.conversationMode.name
+                awaitingTargetId = null
+            }
+        }
         val density = LocalDensity.current
         val paper = LocalPaperNavigationScope.current
         val composerHeight = if (state != null) paper?.composerHeight ?: 0 else 0
@@ -80,7 +92,7 @@ internal fun SharedImageNavigation(nav: NavHostController, vm: SharedImagesViewM
             val available = (maxHeight - bottom - PaperHeaderMinHeight).coerceAtLeast(0.dp)
             SharedImageAttachmentPanel(share, state?.conversationMode, state?.title,
                 state != null && state.draftLoaded && !state.submitting && !state.switchingBranch && !state.importingPhotos,
-                busy || cropModeName != null, error,
+                busy || cropModeName != null || awaitingTargetId != null, error,
                 onConfirm = { mode ->
                     val photoMode = mode ?: state?.conversationMode
                     if (photoMode != null) {
@@ -89,6 +101,14 @@ internal fun SharedImageNavigation(nav: NavHostController, vm: SharedImagesViewM
                         cropModeName = photoMode.name
                     }
                 }, onDismiss = vm::dismiss,
+                history = history,
+                onConfirmHistory = { target ->
+                    vm.chooseHistory(target.id) { confirmed ->
+                        newModeName = null
+                        awaitingTargetId = confirmed.id
+                        navigateToConversation(nav, confirmed.id)
+                    }
+                },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = bottom)
                     .widthIn(max = 600.dp).fillMaxWidth().heightIn(max = available)
                     .aboveMovingPages(enabled = true, zIndex = 4f))

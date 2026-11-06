@@ -44,6 +44,8 @@ internal fun SharedImageAttachmentPanel(
     onConfirm: (ConversationMode?) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    history: List<SharedConversationTarget> = emptyList(),
+    onConfirmHistory: (SharedConversationTarget) -> Unit = {},
 ) {
     val strings = rememberAppStrings()
     val colors = MaterialTheme.colorScheme
@@ -74,10 +76,11 @@ internal fun SharedImageAttachmentPanel(
                             modifier = Modifier.semantics { error(message); liveRegion = LiveRegionMode.Polite })
                     }
                 }
-                SharedImageDestinationActions(currentAvailable = currentMode != null && currentEnabled,
+                key(share.id) { SharedImageDestinationActions(currentAvailable = currentMode != null && currentEnabled,
                     currentTitle = currentTitle.takeUnless { shortWindow }, busy = busy,
                     horizontal = horizontalActions, onConfirm = onConfirm,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp))
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    history = history, onConfirmHistory = onConfirmHistory) }
             }
         }
     }

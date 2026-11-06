@@ -642,4 +642,5 @@
     <string name="ui_network_waiting">Waiting for the network…</string>
     <string name="ui_network_retrying">Reconnecting…</string>
     <string name="ui_network_continuing">Connection interrupted. Preparing to continue…</string>
+    <string name="ui_image_already_saved">This image is already saved to the gallery.</string>
 </resources>

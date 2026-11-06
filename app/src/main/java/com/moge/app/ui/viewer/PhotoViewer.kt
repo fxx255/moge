@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,11 +46,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.moge.app.data.image.QuestionPhotoFiles
+import com.moge.app.data.image.GallerySaveRepository
 import com.moge.app.ui.markdown.LocalFigurePathResolver
 import com.moge.app.ui.photo.rotatePhotoAndSave
 import com.moge.app.ui.theme.MogeTheme
 import com.moge.app.ui.theme.MonoFamily
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,10 +77,12 @@ fun PhotoViewer(
         return
     }
     val context = LocalContext.current
+    val gallery = remember(context) { GallerySaveRepository(context) }
     val scope = rememberCoroutineScope()
     val resolver = LocalFigurePathResolver.current
     val dark = MogeTheme.paper.isChalk
     var busy by remember { mutableStateOf(false) }
+    var permissionTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     val pagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, paths.lastIndex),
@@ -85,32 +90,42 @@ fun PhotoViewer(
     )
 
     // 每次操作前都重新解析：用户可能刚在设置里清过图表缓存，或者切换过日夜主题
-    fun withCurrentFile(processed: Boolean = preferProcessed, action: suspend (String) -> String?) {
-        val stored = paths.getOrNull(pagerState.currentPage) ?: return
+    fun withCurrentFile(processed: Boolean = preferProcessed, storedPath: String? = null, action: suspend (String) -> String?) {
+        if (busy || permissionTarget != null) return
+        val stored = storedPath ?: paths.getOrNull(pagerState.currentPage) ?: return
         busy = true
         message = null
         scope.launch {
-            val result = runCatching {
+            try {
                 val path = withContext(Dispatchers.IO) {
                     resolver.resolve(stored, dark)?.let { if (processed) QuestionPhotoFiles.displayPath(it) else it }
                 }
                     ?: error(strings.text(R.string.ui_image_file_missing_831f9))
-                action(path)
+                message = action(path)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                message = failure.message ?: strings.text(R.string.ui_operation_failed_try_again_51d3c)
+            } finally {
+                busy = false
             }
-            busy = false
-            message = result.fold({ it }, { it.message ?: strings.text(R.string.ui_operation_failed_try_again_51d3c) })
         }
     }
 
-    val saveToGallery = {
-        withCurrentFile { path ->
-            val album = withContext(Dispatchers.IO) { saveImageToGallery(context, path) }
-            strings.text(R.string.ui_saved_to_album_1_s_3135c, album)
+    val saveToGallery: (String?) -> Unit = { stored ->
+        withCurrentFile(storedPath = stored) { path ->
+            val result = withContext(Dispatchers.IO) { gallery.save(path) }
+            if (result.alreadySaved) strings.text(R.string.ui_image_already_saved)
+            else strings.text(R.string.ui_saved_to_album_1_s_3135c, result.album)
         }
     }
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) saveToGallery() else message = strings.text(R.string.ui_storage_permission_is_needed_to_save_aa370)
+        val target = permissionTarget
+        permissionTarget = null
+        if (granted && target != null) saveToGallery(target)
+        else if (!granted) message = strings.text(R.string.ui_storage_permission_is_needed_to_save_aa370)
     }
+    val idle = !busy && permissionTarget == null
 
     LaunchedEffect(message) {
         if (message != null) {
@@ -120,7 +135,7 @@ fun PhotoViewer(
     }
 
     Dialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        onDismissRequest = { if (idle) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Box(
@@ -130,13 +145,13 @@ fun PhotoViewer(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = !busy,
+                userScrollEnabled = idle,
             ) { page ->
                 ZoomableImage(
                     storedPath = paths[page],
                     pageLabel = strings.text(R.string.ui_image_1_s_of_2_s_bffc8, page + 1, paths.size),
-                    onTapToClose = { if (!busy) onDismiss() },
-                    onSwipeDownToClose = { if (!busy) onDismiss() },
+                    onTapToClose = { if (idle) onDismiss() },
+                    onSwipeDownToClose = { if (idle) onDismiss() },
                     preferProcessed = preferProcessed,
                 )
             }
@@ -149,7 +164,7 @@ fun PhotoViewer(
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onDismiss, enabled = !busy) {
+                IconButton(onClick = onDismiss, enabled = idle) {
                     Icon(Icons.Filled.Close, contentDescription = strings.text(R.string.ui_close_6c14b), tint = Color.White)
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -164,7 +179,7 @@ fun PhotoViewer(
                 Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                     if (rotatable) {
                         IconButton(
-                            enabled = !busy,
+                            enabled = idle,
                             onClick = {
                                 withCurrentFile(processed = false) { path ->
                                     withContext(Dispatchers.IO) { rotatePhotoAndSave(path) }
@@ -176,22 +191,24 @@ fun PhotoViewer(
                         }
                     }
                     IconButton(
-                        enabled = !busy,
+                        enabled = idle,
                         onClick = {
+                            if (busy || permissionTarget != null) return@IconButton
                             val needsPermission = galleryNeedsLegacyPermission() &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
                                 PackageManager.PERMISSION_GRANTED
                             if (needsPermission) {
+                                permissionTarget = paths.getOrNull(pagerState.currentPage)
                                 legacyPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                             } else {
-                                saveToGallery()
+                                saveToGallery(null)
                             }
                         },
                     ) {
                         Icon(Icons.Filled.Download, contentDescription = strings.text(R.string.ui_save_to_gallery_f32a9), tint = Color.White)
                     }
                     IconButton(
-                        enabled = !busy,
+                        enabled = idle,
                         onClick = {
                             withCurrentFile { path ->
                                 shareImage(context, path)

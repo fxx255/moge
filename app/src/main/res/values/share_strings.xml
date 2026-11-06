@@ -4,6 +4,8 @@
     <string name="share_dismiss_error">知道了</string>
     <string name="share_image_count">%1$d 张图片</string>
     <string name="share_join_current">加入当前对话</string>
+    <string name="share_join_selected">加入所选对话</string>
+    <string name="share_choose_history">选择历史对话</string>
     <string name="share_join_new_question">加入新题目对话</string>
     <string name="share_join_new_chat">加入新对话</string>
 </resources>

@@ -47,6 +47,43 @@ class SharedImageAttachmentPanelTest {
         if (sampleDecoder) unmockkStatic("com.moge.app.data.image.PhotoThumbnailDecoderKt")
     }
 
+    @Test fun historicalDestinationsStartCollapsedKeepTheSelectionAndDisableWhileBusy() {
+        val restore = StateRestorationTester(compose)
+        val busy = mutableStateOf(false)
+        val chosen = mutableListOf<String>()
+        val history = listOf(
+            SharedConversationTarget("new", "最新的对话", ConversationMode.CHAT, java.time.Instant.ofEpochSecond(30)),
+            SharedConversationTarget("old", "以前的题目", ConversationMode.SOLVE, java.time.Instant.ofEpochSecond(10)),
+        )
+        restore.setContent { MogeTheme {
+            SharedImageAttachmentPanel(SharedImages("history", emptyList()), null, null, false, busy.value, null,
+                {}, {}, Modifier.width(360.dp).heightIn(max = 480.dp),
+                history = history, onConfirmHistory = { chosen += it.id })
+        } }
+        compose.onNodeWithTag("share-history-menu").assertDoesNotExist()
+        compose.onNodeWithTag("share-join-current").assertIsNotEnabled()
+        val card = compose.onNodeWithTag("share-current-card").fetchSemanticsNode().boundsInRoot
+        val toggle = compose.onNodeWithTag("share-history-toggle").assertIsEnabled()
+            .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
+        val arrow = compose.onNodeWithTag("share-current-forward", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue(toggle.left >= card.left && toggle.right <= card.right && toggle.top >= card.top && toggle.bottom <= card.bottom)
+        assertTrue("The dropdown stays inside the card, to the right of the forward arrow", arrow.right <= toggle.left)
+        compose.onNodeWithTag("share-history-toggle").performClick()
+        assertTrue(chosen.isEmpty())
+        val newest = compose.onNodeWithTag("share-history-new").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val oldest = compose.onNodeWithTag("share-history-old").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(newest.top < oldest.top)
+        compose.onNodeWithTag("share-history-old").performClick()
+        compose.onNodeWithTag("share-history-menu").assertDoesNotExist()
+        compose.onNodeWithText("以前的题目").assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("share-join-current").assertIsEnabled().performClick()
+        assertEquals(listOf("old"), chosen)
+        compose.runOnIdle { busy.value = true }
+        compose.onNodeWithTag("share-history-toggle").assertIsNotEnabled()
+        compose.onNodeWithTag("share-join-current").assertIsNotEnabled()
+    }
+
     @Test fun threeButtonsDeliverTheExactDestinationInOneTapAndRemainAvailableAfterRestoration() {
         val restore = StateRestorationTester(compose)
         val delivered = mutableListOf<ConversationMode?>()
