@@ -302,6 +302,7 @@ internal fun createMarkdownTextView(
         // Keep its original input alive with its drawable, rather than logging only the latest source.
         val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
+            .usePlugin(MarkdownListLayoutPlugin())
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
                 override fun configureVisitor(builder: io.noties.markwon.MarkwonVisitor.Builder) {
                     // Inline quotes use prose bold without code padding; standalone code is unchanged.
