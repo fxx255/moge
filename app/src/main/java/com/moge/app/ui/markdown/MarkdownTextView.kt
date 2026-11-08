@@ -81,6 +81,7 @@ internal fun createMarkdownTextView(
     textColor: Int,
     linkColor: Int,
     selectable: Boolean = true,
+    markerColor: Int? = null,
     fontSizePx: Float? = null,
     selectionScrollHost: SelectionScrollHost? = null,
     selectionSurfaceColor: Int = android.graphics.Color.WHITE,
@@ -302,7 +303,7 @@ internal fun createMarkdownTextView(
         // Keep its original input alive with its drawable, rather than logging only the latest source.
         val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
-            .usePlugin(MarkdownListLayoutPlugin())
+            .usePlugin(MarkdownListLayoutPlugin(markerColor ?: textColor, fontSizePx ?: (MARKDOWN_TEXT_SIZE_SP * context.resources.displayMetrics.scaledDensity)))
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
                 override fun configureVisitor(builder: io.noties.markwon.MarkwonVisitor.Builder) {
                     // Inline quotes use prose bold without code padding; standalone code is unchanged.

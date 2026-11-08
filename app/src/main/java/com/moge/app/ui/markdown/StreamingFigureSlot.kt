@@ -27,11 +27,13 @@ internal fun StreamingFigureSlot(index: Int, path: String?, pending: Boolean,
     val motion = MogeTheme.motionEnabled
     Column(modifier.fillMaxWidth().testTag("figure-slot-$index")
         .animateContentSize(tween(if (motion) 180 else 0))) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val placeholderHeight = maxWidth * FIGURE_PLACEHOLDER_HEIGHT_RATIO
         when {
-            !path.isNullOrBlank() -> InlineFigure(path, onClick, index + 1, placeholderHeight = 180.dp)
+            !path.isNullOrBlank() -> InlineFigure(path, onClick, index + 1, placeholderHeight = placeholderHeight)
             pending -> {
                 val label = strings.text(R.string.ui_figure_generating)
-                Column(Modifier.fillMaxWidth().height(180.dp).clip(MaterialTheme.shapes.small)
+                Column(Modifier.fillMaxWidth().height(placeholderHeight).clip(MaterialTheme.shapes.small)
                     .background(MogeTheme.paper.scratch).testTag("figure-pending-$index")
                     .semantics { contentDescription = label },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -44,4 +46,8 @@ internal fun StreamingFigureSlot(index: Int, path: String?, pending: Boolean,
             else -> FailedFigureHint(index)
         }
     }
+    }
 }
+
+/** 未知几何尺寸的生成图使用与常用曲线图相同的高宽比，随回答栏宽度变化。 */
+private const val FIGURE_PLACEHOLDER_HEIGHT_RATIO = 0.66f

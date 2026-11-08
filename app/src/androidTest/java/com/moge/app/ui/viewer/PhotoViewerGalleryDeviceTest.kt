@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -37,6 +38,34 @@ class PhotoViewerGalleryDeviceTest {
         }
     }
 
+    @Test fun whiteFigureKeepsTopActionsReadable() {
+        val photo = File(app.cacheDir, "white-figure-actions.png")
+        val bitmap = Bitmap.createBitmap(800, 1200, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.WHITE)
+        }
+        try { photo.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        finally { bitmap.recycle() }
+        compose.setContent { MogeTheme { PhotoViewer(listOf(photo.path), 0, {}, preferProcessed = false) } }
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("图片 1，共 1 张").fetchSemanticsNodes().isNotEmpty() }
+            val shot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+            try {
+                File(app.getExternalFilesDir(null), "white-figure-actions.png").outputStream().use {
+                    shot.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+                val image = compose.onNodeWithContentDescription("图片 1，共 1 张").fetchSemanticsNode().boundsInRoot
+                for (description in listOf("保存到相册", "分享")) {
+                    val bounds = compose.onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
+                    assertTrue("$description stays outside the image: toolbar=$bounds image=$image", bounds.bottom <= image.top)
+                    assertTrue("$description keeps white foreground on the black toolbar",
+                        (bounds.left.toInt() until bounds.right.toInt()).any { x ->
+                        (bounds.top.toInt() until bounds.bottom.toInt()).any { y -> Color(shot.getPixel(x, y)).red > 0.9f }
+                    })
+                }
+            } finally { shot.recycle() }
+        } finally { photo.delete() }
+    }
+
     @Test fun repeatedSaveAndReopenKeepOneCopyAndDeletedPhotosCanBeSavedAgain() {
         val before = galleryImages()
         val receiptPrefs = app.getSharedPreferences("gallery_save_receipts_v1", 0)
@@ -54,7 +83,7 @@ class PhotoViewerGalleryDeviceTest {
         val save = compose.onNodeWithContentDescription("保存到相册")
         fun savedActionFinished() = !save.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
         try {
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("photo-viewer").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("图片 1，共 1 张").fetchSemanticsNodes().isNotEmpty() }
             save.performClick()
             compose.waitUntil(10_000) { (galleryImages() - before).size == 1 }
             compose.waitUntil(10_000) { savedActionFinished() }

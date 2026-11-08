@@ -31,6 +31,23 @@ import java.util.concurrent.atomic.AtomicInteger
 class FigureReturnLayoutTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun generatingPlaceholderUsesThePlotAspectRatioAtDifferentWidths() {
+        val heights = mutableListOf<Float>()
+        var width by mutableIntStateOf(300)
+        compose.setContent { MogeTheme {
+            Column(Modifier.requiredWidth(width.dp)) {
+                StreamingFigureSlot(0, null, true) {}
+            }
+        } }
+        for (columnWidth in listOf(300, 480)) {
+            compose.runOnIdle { width = columnWidth }
+            val bounds = compose.onNodeWithTag("figure-pending-0").fetchSemanticsNode().boundsInRoot
+            heights.add(bounds.height / bounds.width)
+        }
+        assertEquals(0.66f, heights[0], 0.01f)
+        assertEquals(heights[0], heights[1], 0.01f)
+    }
+
     @Test fun returningPlotKeepsCaptionAndTextInPlaceEvenAfterBitmapEviction() = verifyReturn(false)
     @Test fun returningScrollableDiagramKeepsItsWiderCanvasHeight() = verifyReturn(true)
 

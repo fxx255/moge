@@ -330,6 +330,7 @@ internal fun MarkdownChunk(
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val markerColor = if (MaterialTheme.colorScheme.background == com.moge.app.ui.theme.Paper) 0xFF71867E.toInt() else 0xFF9DB9AE.toInt()
     val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val density = LocalDensity.current
     val bodyTypeface = LocalAppTypeface.current
@@ -351,7 +352,7 @@ internal fun MarkdownChunk(
                 modifier = Modifier.fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { readingBlock?.coordinates = it },
                 factory = { context ->
-                    createMarkdownTextView(context, textColor, linkColor,
+                    createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor,
                         selectable = selectable, fontSizePx = fontSizePx,
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         readingBlock?.view = view

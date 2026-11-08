@@ -118,6 +118,7 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
+    val markerColor = if (MaterialTheme.colorScheme.background == com.moge.app.ui.theme.Paper) 0xFF71867E.toInt() else 0xFF9DB9AE.toInt()
     val surface = MaterialTheme.colorScheme.surface.toArgb()
     val typeface = LocalAppTypeface.current
     val locale = LocalConfiguration.current.locales.toLanguageTags()
@@ -130,7 +131,7 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
         key(typeface, locale, textColor, linkColor, surface, fontSize, selectionScrollHost) {
             AndroidView(modifier = Modifier.fillMaxWidth().clipToBounds()
                 .onGloballyPositioned { readingBlock?.coordinates = it }, factory = { context ->
-                createMarkdownTextView(context, textColor, linkColor, fontSizePx = fontSize,
+                createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor, fontSizePx = fontSize,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = surface,
                     bodyTypeface = typeface, inkReveal = reveal, incrementalUpdates = true).also {
                     it.setSpannableFactory(StreamingTextBufferFactory)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -138,30 +139,14 @@ fun PhotoViewer(
         onDismissRequest = { if (idle) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        Box(
+        Column(
             modifier = Modifier.fillMaxSize().background(Color.Black).testTag("photo-viewer"),
-            contentAlignment = Alignment.Center,
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = idle,
-            ) { page ->
-                ZoomableImage(
-                    storedPath = paths[page],
-                    pageLabel = strings.text(R.string.ui_image_1_s_of_2_s_bffc8, page + 1, paths.size),
-                    onTapToClose = { if (idle) onDismiss() },
-                    onSwipeDownToClose = { if (idle) onDismiss() },
-                    preferProcessed = preferProcessed,
-                )
-            }
-
             Row(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .safeDrawingPadding()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onDismiss, enabled = idle) {
@@ -221,13 +206,29 @@ fun PhotoViewer(
                 }
             }
 
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = idle,
+                ) { page ->
+                    ZoomableImage(
+                        storedPath = paths[page],
+                        pageLabel = strings.text(R.string.ui_image_1_s_of_2_s_bffc8, page + 1, paths.size),
+                        onTapToClose = { if (idle) onDismiss() },
+                        onSwipeDownToClose = { if (idle) onDismiss() },
+                        preferProcessed = preferProcessed,
+                    )
+                }
+            }
+
             message?.let { text ->
                 Text(
                     text = text,
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.CenterHorizontally)
                         .safeDrawingPadding()
                         .padding(bottom = 32.dp)
                         .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(50))
