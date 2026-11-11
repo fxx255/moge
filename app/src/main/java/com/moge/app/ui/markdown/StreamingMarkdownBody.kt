@@ -118,7 +118,8 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
-    val markerColor = if (MaterialTheme.colorScheme.background == com.moge.app.ui.theme.Paper) 0xFF71867E.toInt() else 0xFF9DB9AE.toInt()
+    val markerColor = com.moge.app.ui.theme.listMarkerAccent(com.moge.app.ui.theme.MogeTheme.paper.isChalk)
+    val listMarkers = com.moge.app.ui.theme.LocalListMarkerSettings.current
     val surface = MaterialTheme.colorScheme.surface.toArgb()
     val typeface = LocalAppTypeface.current
     val locale = LocalConfiguration.current.locales.toLanguageTags()
@@ -128,10 +129,10 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     reveal.enabled = animate
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(typeface, locale, textColor, linkColor, surface, fontSize, selectionScrollHost) {
+        key(typeface, locale, textColor, linkColor, markerColor, listMarkers, surface, fontSize, selectionScrollHost) {
             AndroidView(modifier = Modifier.fillMaxWidth().clipToBounds()
                 .onGloballyPositioned { readingBlock?.coordinates = it }, factory = { context ->
-                createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor, fontSizePx = fontSize,
+                createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor, fontSizePx = fontSize, listMarkers = listMarkers,
                     selectionScrollHost = selectionScrollHost, selectionSurfaceColor = surface,
                     bodyTypeface = typeface, inkReveal = reveal, incrementalUpdates = true).also {
                     it.setSpannableFactory(StreamingTextBufferFactory)

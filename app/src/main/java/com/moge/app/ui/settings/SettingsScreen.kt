@@ -152,6 +152,7 @@ fun SettingsScreen(
             BackgroundGenerationSection(report = vm::backgroundGenerationReport)
             LanguageFontSettingsSection(prefs, vm::setInterfaceLanguage, vm::setAnswerLanguage, vm::setFont)
             DisplaySettingsSection(prefs, vm::setBodyTextSizeSp, vm::setUiScalePercent)
+            ListMarkerSettingsSection(prefs.listMarkers, vm::setListMarkers)
             SettingsSection(strings.text(R.string.ui_about_updates_0902e)) {
                 TextButton(onClick = { updating = true }) { Text(strings.text(R.string.ui_version_check_for_updates_a5dab)) }
             }

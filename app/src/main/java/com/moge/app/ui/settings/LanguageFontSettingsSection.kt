@@ -99,6 +99,7 @@ internal fun PreferenceDropdown(
     expanded: Boolean,
     tag: String,
     onExpandedChange: (Boolean) -> Unit,
+    leadingIcon: (@Composable () -> Unit)? = null,
     options: @Composable ColumnScope.() -> Unit,
 ) {
     val strings = rememberAppStrings()
@@ -113,6 +114,7 @@ internal fun PreferenceDropdown(
             readOnly = true,
             singleLine = true,
             label = { Text(title) },
+            leadingIcon = leadingIcon,
             trailingIcon = { Icon(Icons.Outlined.ExpandMore, null, Modifier.rotate(rotation)) },
             shape = shape,
             textStyle = MaterialTheme.typography.bodyLarge,

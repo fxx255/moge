@@ -88,6 +88,7 @@ internal fun createMarkdownTextView(
     bodyTypeface: android.graphics.Typeface = android.graphics.Typeface.DEFAULT,
     inkReveal: StreamingInkReveal? = null,
     incrementalUpdates: Boolean = false,
+    listMarkers: com.moge.app.data.prefs.ListMarkerSettings = com.moge.app.data.prefs.ListMarkerSettings(),
 ): TextView =
     object : TextView(context), MarkdownRenderSourceOwner {
         init {
@@ -303,7 +304,7 @@ internal fun createMarkdownTextView(
         // Keep its original input alive with its drawable, rather than logging only the latest source.
         val latexSources = Collections.synchronizedMap(WeakHashMap<AsyncDrawable, MarkdownRenderSource>())
         val renderer = Markwon.builder(context)
-            .usePlugin(MarkdownListLayoutPlugin(markerColor ?: textColor, fontSizePx ?: (MARKDOWN_TEXT_SIZE_SP * context.resources.displayMetrics.scaledDensity)))
+            .usePlugin(MarkdownListLayoutPlugin(markerColor ?: textColor, this.textSize, listMarkers))
             .usePlugin(object : io.noties.markwon.AbstractMarkwonPlugin() {
                 override fun configureVisitor(builder: io.noties.markwon.MarkwonVisitor.Builder) {
                     // Inline quotes use prose bold without code padding; standalone code is unchanged.

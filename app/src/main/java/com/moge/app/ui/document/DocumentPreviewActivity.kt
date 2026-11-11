@@ -21,6 +21,7 @@ import com.moge.app.data.document.*
 import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.AppLanguage
 import com.moge.app.data.prefs.DisplaySettings
+import com.moge.app.data.prefs.ListMarkerSettings
 import com.moge.app.data.prefs.UserSettings
 import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.SettingsRepository
@@ -40,7 +41,8 @@ class DocumentPreviewActivity : ComponentActivity() {
         setContent {
             val prefs by settings.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
             DocumentPreviewTheme(settings.appearance, font = prefs.font, language = prefs.interfaceLanguage,
-                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent, onSystemBars = { chalk ->
+                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent,
+                listMarkers = prefs.listMarkers, onSystemBars = { chalk ->
                 val style = if (chalk) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                     else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
@@ -73,6 +75,7 @@ internal fun DocumentPreviewTheme(
     language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
     uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
+    listMarkers: ListMarkerSettings = ListMarkerSettings(),
     content: @Composable () -> Unit,
 ) {
     val selected by appearance.collectAsStateWithLifecycle(initialValue = Appearance.SYSTEM)
@@ -82,7 +85,7 @@ internal fun DocumentPreviewTheme(
         onDispose { }
     }
     MogeTheme(appearance = selected, font = font, language = language,
-        bodyTextSizeSp = bodyTextSizeSp, uiScalePercent = uiScalePercent, content = content)
+        bodyTextSizeSp = bodyTextSizeSp, uiScalePercent = uiScalePercent, listMarkers = listMarkers, content = content)
 }
 
 @Composable

@@ -13,6 +13,7 @@ import com.moge.app.data.prefs.Appearance
 import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.AppLanguage
 import com.moge.app.data.prefs.DisplaySettings
+import com.moge.app.data.prefs.ListMarkerSettings
 import com.moge.app.ui.localization.AppLanguageProvider
 
 val LocalPaperColors = staticCompositionLocalOf { PaperExtras }
@@ -40,6 +41,7 @@ fun MogeTheme(
     language: AppLanguage = AppLanguage.SIMPLIFIED_CHINESE,
     bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
     uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
+    listMarkers: ListMarkerSettings = ListMarkerSettings(),
     content: @Composable () -> Unit,
 ) {
     val chalk = usesChalk(appearance, isSystemInDarkTheme())
@@ -49,6 +51,7 @@ fun MogeTheme(
         AppLanguageProvider(language) {
             CompositionLocalProvider(
                 LocalAppTypeface provides typeface,
+                LocalListMarkerSettings provides listMarkers.normalized(),
                 LocalPaperColors provides if (chalk) ChalkExtras else PaperExtras,
                 LocalPaperMotionEnabled provides motionEnabled,
             ) {

@@ -1,0 +1,16 @@
+<resources>
+    <string name="ui_list_markers">列表标记</string>
+    <string name="ui_list_marker_style">标记样式</string>
+    <string name="ui_list_marker_octagon">空心八边形</string>
+    <string name="ui_list_marker_ring">圆环</string>
+    <string name="ui_list_marker_diamond">圆角菱形</string>
+    <string name="ui_list_marker_dash">短横线</string>
+    <string name="ui_list_marker_square">圆角方框</string>
+    <string name="ui_list_marker_theme_dot">柔色圆点</string>
+    <string name="ui_list_marker_classic">经典实心圆点</string>
+    <string name="ui_list_marker_adjust">调整</string>
+    <string name="ui_list_marker_size">标记大小</string>
+    <string name="ui_list_marker_stroke">描边粗细</string>
+    <string name="ui_list_marker_indent">列表缩进</string>
+    <string name="ui_list_marker_reset">恢复默认</string>
+</resources>

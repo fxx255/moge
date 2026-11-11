@@ -32,6 +32,7 @@ data class UserSettings(
     val font: AppFont = AppFont.SYSTEM,
     val bodyTextSizeSp: Int = DisplaySettings.DEFAULT_BODY_TEXT_SIZE_SP,
     val uiScalePercent: Int = DisplaySettings.DEFAULT_UI_SCALE_PERCENT,
+    val listMarkers: ListMarkerSettings = ListMarkerSettings(),
     val defaultSolveMode: SolveMode = SolveMode.DETAILED,
     val webSearchEnabled: Boolean = false,
     /** 提示词里对用户的称呼；空串表示不称呼。 */
@@ -63,6 +64,12 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
                 .coerceIn(DisplaySettings.bodyTextSizeRange),
             uiScalePercent = (prefs[KEY_UI_SCALE] ?: DisplaySettings.DEFAULT_UI_SCALE_PERCENT)
                 .coerceIn(DisplaySettings.uiScaleRange),
+            listMarkers = ListMarkerSettings(
+                style = ListMarkerStyle.fromName(prefs[KEY_LIST_MARKER_STYLE]),
+                sizePercent = prefs[KEY_LIST_MARKER_SIZE] ?: 100,
+                strokePercent = prefs[KEY_LIST_MARKER_STROKE] ?: 100,
+                indentPercent = prefs[KEY_LIST_MARKER_INDENT] ?: 100,
+            ).normalized(),
             appearance = prefs[KEY_APPEARANCE]
                 ?.let { name -> Appearance.entries.firstOrNull { it.name == name } }
                 ?: Appearance.SYSTEM,
@@ -110,6 +117,16 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         store.edit { it[KEY_UI_SCALE] = value }
     }
 
+    suspend fun setListMarkers(value: ListMarkerSettings) {
+        require(value == value.normalized())
+        store.edit {
+            it[KEY_LIST_MARKER_STYLE] = value.style.name
+            it[KEY_LIST_MARKER_SIZE] = value.sizePercent
+            it[KEY_LIST_MARKER_STROKE] = value.strokePercent
+            it[KEY_LIST_MARKER_INDENT] = value.indentPercent
+        }
+    }
+
     suspend fun setDefaultSolveMode(value: SolveMode) {
         store.edit { it[KEY_SOLVE_MODE] = value.name }
     }
@@ -153,6 +170,10 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         val KEY_FONT = stringPreferencesKey("font")
         val KEY_BODY_TEXT_SIZE = intPreferencesKey("body_text_size_sp")
         val KEY_UI_SCALE = intPreferencesKey("ui_scale_percent")
+        val KEY_LIST_MARKER_STYLE = stringPreferencesKey("list_marker_style")
+        val KEY_LIST_MARKER_SIZE = intPreferencesKey("list_marker_size_percent")
+        val KEY_LIST_MARKER_STROKE = intPreferencesKey("list_marker_stroke_percent")
+        val KEY_LIST_MARKER_INDENT = intPreferencesKey("list_marker_indent_percent")
         const val MAX_NICKNAME_CHARS = 16
         val KEY_APPEARANCE = stringPreferencesKey("appearance")
         val KEY_SOLVE_MODE = stringPreferencesKey("default_solve_mode")

@@ -11,6 +11,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import com.moge.app.data.prefs.ListMarkerSettings
+import com.moge.app.ui.theme.listMarkerAccent
 import androidx.compose.ui.graphics.toArgb
 import com.moge.app.core.LatexEngine
 import com.moge.app.data.image.QuestionPhotoFiles
@@ -60,13 +62,14 @@ internal suspend fun renderAnswerExport(
     choice: ExportChoice,
     resolver: FigurePathResolver,
     bodyTypeface: Typeface = Typeface.DEFAULT,
+    listMarkers: ListMarkerSettings = ListMarkerSettings(),
     onProgress: (String) -> Unit,
 ): ExportResult {
     val files = ExportFiles.create(context)
     try {
         return withContext(Dispatchers.Main.immediate) {
             LatexEngine.init(context)
-            val renderer = NativeExportRenderer(context, files, onProgress, bodyTypeface)
+            val renderer = NativeExportRenderer(context, files, onProgress, bodyTypeface, listMarkers)
             try {
                 for (part in exportParts(content, choice, com.moge.app.ui.localization.AppStrings(context))) {
                     currentCoroutineContext().ensureActive()
@@ -90,10 +93,12 @@ internal fun exportTextView(
     markdown: Boolean = true,
     heading: Boolean = false,
     bodyTypeface: Typeface = Typeface.DEFAULT,
+    listMarkers: ListMarkerSettings = ListMarkerSettings(),
     warning: (String) -> Unit = {},
 ): TextView {
     val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
-        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface).apply {
+        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface,
+        markerColor = listMarkerAccent(false), listMarkers = listMarkers).apply {
         includeFontPadding = true
         setPadding(0, 0, 0, 0)
         setLineSpacing(8f * ExportLimits.SCALE, 1f)
@@ -160,6 +165,7 @@ private class NativeExportRenderer(
     private val files: ExportFiles,
     private val progress: (String) -> Unit,
     private val bodyTypeface: Typeface,
+    private val listMarkers: ListMarkerSettings,
 ) {
     private data class Drawing(val top: Float, val bottom: Float, val draw: suspend (Canvas) -> Unit)
     private val drawings = mutableListOf<Drawing>()
@@ -255,7 +261,8 @@ private class NativeExportRenderer(
                     plainNotice(context.getString(R.string.ui_long_content_full_source_continues_below_9fde0))
                 }
                 val view = exportTextView(context, chunk.source, ExportLimits.CONTENT_WIDTH,
-                    markdown = part.markdown && !chunk.plain, heading = part.heading, bodyTypeface = bodyTypeface, warning = ::warning)
+                    markdown = part.markdown && !chunk.plain, heading = part.heading, bodyTypeface = bodyTypeface,
+                    listMarkers = listMarkers, warning = ::warning)
                 drawText(view, heading = part.heading)
                 yield()
             }
@@ -358,7 +365,8 @@ private class NativeExportRenderer(
     }
 
     private fun cell(source: String, width: Int): TextView {
-        return exportTextView(context, source, width - CELL_PADDING * 2, bodyTypeface = bodyTypeface, warning = ::warning)
+        return exportTextView(context, source, width - CELL_PADDING * 2, bodyTypeface = bodyTypeface,
+            listMarkers = listMarkers, warning = ::warning)
     }
 
     private fun cellBands(views: List<TextView>, height: Int): List<List<VerticalSlice?>> {

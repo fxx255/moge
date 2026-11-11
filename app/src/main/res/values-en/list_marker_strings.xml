@@ -1,0 +1,16 @@
+<resources>
+    <string name="ui_list_markers">List markers</string>
+    <string name="ui_list_marker_style">Marker style</string>
+    <string name="ui_list_marker_octagon">Hollow octagon</string>
+    <string name="ui_list_marker_ring">Ring</string>
+    <string name="ui_list_marker_diamond">Rounded diamond</string>
+    <string name="ui_list_marker_dash">Short dash</string>
+    <string name="ui_list_marker_square">Rounded square</string>
+    <string name="ui_list_marker_theme_dot">Soft colored dot</string>
+    <string name="ui_list_marker_classic">Classic solid dot</string>
+    <string name="ui_list_marker_adjust">Adjust</string>
+    <string name="ui_list_marker_size">Marker size</string>
+    <string name="ui_list_marker_stroke">Stroke weight</string>
+    <string name="ui_list_marker_indent">List indentation</string>
+    <string name="ui_list_marker_reset">Restore defaults</string>
+</resources>

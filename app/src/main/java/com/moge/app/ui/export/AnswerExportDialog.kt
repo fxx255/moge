@@ -83,6 +83,7 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val resolver = LocalFigurePathResolver.current
     val bodyTypeface = com.moge.app.ui.theme.LocalAppTypeface.current
+    val listMarkers = com.moge.app.ui.theme.LocalListMarkerSettings.current
     val scope = rememberCoroutineScope()
     val session = remember(content) { ExportDialogSession() }
     var result by remember(content) { mutableStateOf<ExportResult?>(null) }
@@ -110,7 +111,7 @@ fun AnswerExportDialog(content: AnswerExportContent, onDismiss: () -> Unit) {
             try {
                 session.result?.files?.close()
                 session.result = null; result = null
-                val next = renderAnswerExport(context, content, choice, resolver, bodyTypeface) { progress = it }
+                val next = renderAnswerExport(context, content, choice, resolver, bodyTypeface, listMarkers) { progress = it }
                 session.result = next
                 result = next
                 progress = strings.text(R.string.ui_generated_1_s_consecutive_images_8696d, next.pages.size)

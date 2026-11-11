@@ -68,7 +68,8 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
             MogeTheme(appearance = appearance, font = prefs.font, language = prefs.interfaceLanguage,
-                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent) {
+                bodyTextSizeSp = prefs.bodyTextSizeSp, uiScalePercent = prefs.uiScalePercent,
+                listMarkers = prefs.listMarkers) {
                 CompositionLocalProvider(LocalFigurePathResolver provides figureResolver) {
                     val routes by sharedRoutes.collectAsStateWithLifecycle()
                     MogeNavHost(sharedRoute = routes.firstOrNull(),

@@ -20,6 +20,7 @@ import com.moge.app.data.prefs.AppLanguage
 import com.moge.app.data.prefs.AppFont
 import com.moge.app.data.prefs.SettingsRepository
 import com.moge.app.data.prefs.UserSettings
+import com.moge.app.data.prefs.ListMarkerSettings
 import com.moge.app.domain.SolveMode
 import com.moge.app.runtime.AttachmentJanitor
 import com.moge.app.runtime.DraftStore
@@ -140,6 +141,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setUiScalePercent(value: Int) {
         viewModelScope.launch { settings.setUiScalePercent(value) }
+    }
+
+    fun setListMarkers(value: ListMarkerSettings) {
+        viewModelScope.launch { settings.setListMarkers(value) }
     }
 
     fun setDefaultSolveMode(value: SolveMode) {

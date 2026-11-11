@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.text.Spanned
 import com.moge.app.ui.markdown.FigurePathResolver
 import com.moge.app.data.image.QuestionPhotoFiles
+import com.moge.app.data.prefs.ListMarkerSettings
+import com.moge.app.data.prefs.ListMarkerStyle
 import io.noties.markwon.image.AsyncDrawableSpan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
@@ -42,6 +44,22 @@ class AnswerExportRendererTest {
         JLatexMathAndroid.init(context)
     }
     @After fun reset() { Dispatchers.resetMain() }
+
+    @Test fun `export uses the selected list marker style and adjustments`() = runTest {
+        val bitmaps = mutableListOf<Bitmap>()
+        try {
+            for (style in listOf(ListMarkerStyle.DASH, ListMarkerStyle.CLASSIC_DOT)) {
+                val result = renderAnswerExport(context, AnswerExportContent("List", "", answerText = "- Selected marker."),
+                    ExportChoice.FULL, resolver,
+                    listMarkers = ListMarkerSettings(style, sizePercent = 130, indentPercent = 115)) {}
+                try { bitmaps += BitmapFactory.decodeFile(result.pages.single().path) }
+                finally { result.files.close(force = true) }
+            }
+            assertEquals(bitmaps[0].width, bitmaps[1].width)
+            assertEquals(bitmaps[0].height, bitmaps[1].height)
+            assertFalse("Exports must use the chosen style instead of always using the default", bitmaps[0].sameAs(bitmaps[1]))
+        } finally { bitmaps.forEach { it.recycle() } }
+    }
 
     @Test fun `photo tape is centered in the actual exported page`() = runTest {
         val photo = File(context.cacheDir, "export-centered-tape.png")

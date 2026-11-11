@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.8.1**（`versionCode = 63`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.1.md)。
+当前正式版本：**0.8.2**（`versionCode = 64`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.2.md)。
 
 ## 功能
 
@@ -17,6 +17,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **纸条界面与主题编辑**：窄双层纸条随新旧对话切换，追问采用撕边纸条；过长的对话主题缓慢滚动展示，长按展开下拉纸条修改，自动唤起键盘；手动命名后模型不会覆盖。
 - **语言与字体**：界面语言与模型回答语言可分别设置为简体中文、繁体中文、日语或英语；支持系统默认、霞鹜文楷、思源宋体和资源圆体，设置通过页内下拉菜单选择，字体随安装包提供。
 - **字号与缩放**：正文字号与整体界面缩放分别设置，支持 14～32 多档字号与 75%～200% 多档缩放；默认保持 17 和 100%，兼容系统字体大小设置。
+- **列表标记**：保留空心八边形、圆环、圆角菱形、短横线、圆角方框、柔色圆点和经典实心圆点七种样式，名称左侧直接预览；大小、描边和缩进收进默认折叠的“调整”入口，普通回答、流式回答与导出长图沿用所选样式。
 - **稿纸式解答**：Markdown、LaTeX 公式、表格、函数图和结构化框图；兼容公式内的中文标签和概率条件符号，无法排版时完整显示公式源码；可在设置中开启「答案优先」，沿稿纸折痕展开完整讲解。
 - **编码器与状态图**：按生成多项式本地绘制卷积码编码器、循环码编码器和卷积码状态转移图；采用教材中的寄存器、模二加、抽头、开关和状态标记，支持方格纸与黑板主题。
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史拖动分组后会同步生成或更新对应题册快照。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。

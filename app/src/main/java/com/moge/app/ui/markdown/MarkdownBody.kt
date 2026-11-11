@@ -330,7 +330,8 @@ internal fun MarkdownChunk(
     val selectionScrollHost = LocalSelectionScrollHost.current
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
-    val markerColor = if (MaterialTheme.colorScheme.background == com.moge.app.ui.theme.Paper) 0xFF71867E.toInt() else 0xFF9DB9AE.toInt()
+    val markerColor = com.moge.app.ui.theme.listMarkerAccent(com.moge.app.ui.theme.MogeTheme.paper.isChalk)
+    val listMarkers = com.moge.app.ui.theme.LocalListMarkerSettings.current
     val selectionSurfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val density = LocalDensity.current
     val bodyTypeface = LocalAppTypeface.current
@@ -347,13 +348,13 @@ internal fun MarkdownChunk(
     // detached/premeasured items could keep that single-line slot until another scroll.
     BoxWithConstraints(widthModifier) {
         val renderWidthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
-        key(bodyTypeface, localeTag, textColor, linkColor, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
+        key(bodyTypeface, localeTag, textColor, linkColor, markerColor, listMarkers, selectionSurfaceColor, fontSizePx, selectable, selectionScrollHost, textAlignment, bold) {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { readingBlock?.coordinates = it },
                 factory = { context ->
                     createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor,
-                        selectable = selectable, fontSizePx = fontSizePx,
+                        selectable = selectable, fontSizePx = fontSizePx, listMarkers = listMarkers,
                         selectionScrollHost = selectionScrollHost, selectionSurfaceColor = selectionSurfaceColor, bodyTypeface = bodyTypeface).also { view ->
                         readingBlock?.view = view
                         view.textAlignment = textAlignment

@@ -1,0 +1,16 @@
+<resources>
+    <string name="ui_list_markers">箇条書きのマーカー</string>
+    <string name="ui_list_marker_style">マーカーの形</string>
+    <string name="ui_list_marker_octagon">中抜き八角形</string>
+    <string name="ui_list_marker_ring">リング</string>
+    <string name="ui_list_marker_diamond">角丸ひし形</string>
+    <string name="ui_list_marker_dash">短い横線</string>
+    <string name="ui_list_marker_square">角丸四角</string>
+    <string name="ui_list_marker_theme_dot">淡い色の点</string>
+    <string name="ui_list_marker_classic">従来の丸印</string>
+    <string name="ui_list_marker_adjust">調整</string>
+    <string name="ui_list_marker_size">マーカーの大きさ</string>
+    <string name="ui_list_marker_stroke">線の太さ</string>
+    <string name="ui_list_marker_indent">字下げ</string>
+    <string name="ui_list_marker_reset">初期設定に戻す</string>
+</resources>
