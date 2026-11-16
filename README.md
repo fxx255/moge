@@ -7,7 +7,7 @@
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.8.2**（`versionCode = 64`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.2.md)。
+当前正式版本：**0.8.3**（`versionCode = 65`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.3.md)。
 
 ## 功能
 
@@ -23,6 +23,7 @@ An open-source Android AI study assistant with photo questions, conversation his
 - **自定义题册**：用户自行建立分类，主动收藏题目和解答；历史拖动分组后会同步生成或更新对应题册快照。长按选择后可保持原卡片拖动；拖到上方筛选行展开全部分组，向下拖入弧形红色垃圾桶区域删除。分类管理使用卡片、改名笔和拖动柄，支持拖动排序。历史收藏可直接打开对应题册条目。
 - **历史保留**：手动收藏或已分类的对话与题目长期保留；其他历史默认保留 7 天，可在设置中关闭自动清理或调整为 1–365 天。
 - **长图分享**：以 2160 像素宽高清稿纸预览、保存和系统分享题目与解答；预览支持双击放大及滑动查看细节，极长内容按顺序分图。
+- **对话 PDF 导出**：在题册或历史记录中任选、按科目和日期筛选、全选记录，按新旧时间排序后合并成一个 A4 PDF，并直接打开系统分享；保留当前分支的追问、公式、表格和图片，支持方格本、黑板主题与大字号选择界面。
 - **文档附件分析**：保留 PDF、DOCX、PPTX、XLSX 等原件，通过附件卡片预览；模型按需调用页、章节、表格、检索和图像读取工具，回答附可点击来源，追问与收藏保留文档引用。PDF 统一通过按页读取工具分析，图表和扫描页由看图模型读取页图。微信等应用的分享和“打开方式”会建立独立的新对话草稿，不把文档正文填入输入框。
 - **图片分享接收**：从其他应用分享单张或多张图片，在输入框上方的附件面板预览，通过「加入当前对话」「加入新题目对话」「加入新对话」三个按钮直接选择去向。支持方格本、黑板主题、横屏和大字体，添加后由用户手动发送。
 - **模型配置**：自行填写接口地址、模型名称和 API Key，选择 Chat Completions 或 Responses 协议，以及看图、联网和推理设置。关闭联网不会改变已选择的接口。图片提问需要看图模型；文字模型未配置可用看图兜底时，发送前提示并保留输入和图片。

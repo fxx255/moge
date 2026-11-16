@@ -42,17 +42,18 @@ internal data class VerticalSlice(val top: Int, val bottom: Int, val scale: Floa
 }
 
 /** Break at line/row boundaries. A single oversized line is scaled intact, never cropped or skipped. */
-internal fun paginateBoundaries(boundaries: List<Int>, capacity: Int): List<VerticalSlice> {
-    require(capacity > 0)
+internal fun paginateBoundaries(boundaries: List<Int>, capacity: Int, firstCapacity: Int = capacity): List<VerticalSlice> {
+    require(capacity > 0 && firstCapacity > 0)
     require(boundaries.isNotEmpty() && boundaries.first() == 0)
     require(boundaries.zipWithNext().all { (a, b) -> b > a })
     val result = mutableListOf<VerticalSlice>()
     var start = 0
     while (start < boundaries.lastIndex) {
+        val available = if (start == 0) firstCapacity else capacity
         var end = start + 1
-        while (end < boundaries.lastIndex && boundaries[end + 1] - boundaries[start] <= capacity) end++
+        while (end < boundaries.lastIndex && boundaries[end + 1] - boundaries[start] <= available) end++
         val height = boundaries[end] - boundaries[start]
-        result += VerticalSlice(boundaries[start], boundaries[end], minOf(1f, capacity.toFloat() / height))
+        result += VerticalSlice(boundaries[start], boundaries[end], minOf(1f, available.toFloat() / height))
         start = end
     }
     return result
@@ -123,6 +124,10 @@ internal fun exportParts(content: AnswerExportContent, choice: ExportChoice, str
         add(exportQuestionText(content.questionTranscript))
     }
     add(ExportPart.Text(if (choice == ExportChoice.FULL) (strings?.text(R.string.ui_full_solution_b8fde) ?: "完整解答") else (strings?.text(R.string.ui_final_answer_e1c1c) ?: "最终答案"), markdown = false, heading = true))
+    addAll(exportAnswerParts(content, choice, strings))
+}
+
+internal fun exportAnswerParts(content: AnswerExportContent, choice: ExportChoice, strings: com.moge.app.core.TextResources? = null): List<ExportPart> = buildList {
     val used = mutableSetOf<Int>()
     fun answer(source: String) {
         splitFigureSegments(source, content.figurePaths.size).forEach { segment ->
@@ -150,7 +155,7 @@ internal fun exportParts(content: AnswerExportContent, choice: ExportChoice, str
 }
 
 /** Match sent questions: render complete math, keeping literal and unfinished input intact. */
-private fun exportQuestionText(source: String): ExportPart.Text {
+internal fun exportQuestionText(source: String): ExportPart.Text {
     val math = userMathSource(source)?.takeUnless { it.incomplete }
     return ExportPart.Text(math?.renderSource ?: source, markdown = math != null)
 }

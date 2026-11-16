@@ -38,7 +38,7 @@ internal fun prepareReplyMarkdown(source: String): String {
 }
 
 private fun prepareProse(source: String): String =
-    sanitizeReplyLatex(normalizeStandaloneEscapedBreaks(normalizeReplyMarkdown(source)))
+    normalizeTextOnlyMath(sanitizeReplyLatex(normalizeStandaloneEscapedBreaks(normalizeReplyMarkdown(source))))
 
 /** Repair standalone escaped breaks, keeping TeX commands and braced arguments literal. */
 private fun normalizeStandaloneEscapedBreaks(source: String): String {

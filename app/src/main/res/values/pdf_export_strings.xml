@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pdf_export">导出 PDF</string>
+    <string name="pdf_share">分享 PDF</string>
+    <string name="pdf_page_number">墨格 · 第 %1$d 页</string>
+    <string name="pdf_rendering_page">正在排版第 %1$d 页…</string>
+    <string name="pdf_preparing_conversation">正在整理对话 %1$d / %2$d…</string>
+    <string name="pdf_saving">正在生成 PDF…</string>
+    <string name="pdf_attachment">附件：%1$s</string>
+    <string name="pdf_question_number">提问 %1$d</string>
+    <string name="pdf_answer_number">回答 %1$d</string>
+    <string name="pdf_partial_answer">此回答尚未完成，以下为已保存的内容。</string>
+    <string name="pdf_no_answer">尚无已保存的回答内容</string>
+    <string name="pdf_load_failed">无法读取导出列表，请重试</string>
+    <string name="pdf_export_failed">PDF 导出失败，请检查存储空间或重新载入所选记录后重试</string>
+    <string name="pdf_share_failed">无法打开系统分享，请重试</string>
+    <string name="pdf_all_subjects">全部科目</string>
+    <string name="pdf_all_dates">全部时间</string>
+    <string name="pdf_date_any">不限</string>
+    <string name="pdf_time_order">时间排序</string>
+    <string name="pdf_newest_first">由新到旧</string>
+    <string name="pdf_oldest_first">由旧到新</string>
+    <string name="pdf_select_all">全选</string>
+    <string name="pdf_select_matches">选中筛选结果</string>
+    <string name="pdf_clear">清空</string>
+    <string name="pdf_no_matches">没有符合条件的记录</string>
+    <string name="pdf_selection_count">已选 %1$d / %2$d 项</string>
+    <string name="pdf_cancel_export">取消导出</string>
+    <string name="pdf_export_share">合并 PDF 并分享</string>
+    <string name="pdf_share_again">再次分享 PDF</string>
+    <string name="pdf_date_range">时间范围</string>
+    <string name="pdf_from">开始日期（可留空）</string>
+    <string name="pdf_through">结束日期（可留空）</string>
+    <string name="pdf_invalid_dates">请使用 YYYY-MM-DD，开始日期不能晚于结束日期</string>
+    <string name="pdf_recent_days">近 %1$d 天</string>
+    <string name="pdf_apply">应用</string>
+</resources>

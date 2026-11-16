@@ -8,6 +8,7 @@ import org.junit.Test
 class StreamingMarkdownTokenizerTest {
     @Test fun `cached paragraph scans match a fresh scan at every receive boundary`() {
         val sources = listOf(
+            "前文\n\n**句子结构：***There may have been ...* 后文。\n\n**结构：***Just as ..., so ...* 继续。",
             "**结构：****recommend** 后接正文。\n\n\n## 标题\n\n" +
                 "21. ${'$'}x=2${'$'} 和 `code`。\n\n未闭合 **重点\n\n新的段落。",
             "引言\n\n| 列一 | 列二 |\n| --- | --- |\n| ${'$'}x${'$'} | y |\n正文\n\n结束",
@@ -23,6 +24,27 @@ class StreamingMarkdownTokenizerTest {
                 assertEquals("Repeated/forced flush must keep the same safety scan",
                     StreamingMarkdownTokenizer().update(received, flush = true), tokenizer.update(received, flush = true))
             }
+        }
+    }
+
+    @Test fun touchingBoldAndItalicRunsCloseSeparatelyWithoutHidingTheCompletedBoldLabel() {
+        val label = "**句子结构：**"
+        val italic = "*There may have been ...*"
+        val tokenizer = StreamingMarkdownTokenizer()
+        for (end in 1 until italic.length) {
+            val pending = tokenizer.update(label + italic.take(end))
+            assertEquals(label, visible(pending))
+            assertEquals(label.length, pending.renderedPrefixEnd)
+            assertTrue(pending.waiting)
+        }
+        val complete = tokenizer.update(label + italic + " 继续")
+        assertEquals(label + italic + " 继续", visible(complete))
+        assertEquals(label.length + italic.length, complete.renderedPrefixEnd)
+        assertTrue(!complete.waiting)
+        for (source in listOf("**outer***nested***end**", "**中文：***嵌套***结尾**")) {
+            val nested = StreamingMarkdownTokenizer().update(source)
+            assertEquals(source, visible(nested))
+            assertTrue(!nested.waiting)
         }
     }
 

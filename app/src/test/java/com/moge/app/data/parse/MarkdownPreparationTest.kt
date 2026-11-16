@@ -5,6 +5,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownPreparationTest {
+    @Test fun touchingBoldAndItalicBoundariesAreRepairedWithoutChangingNestedOrLiteralRuns() {
+        for ((source, expected) in listOf(
+            "**句子结构：***There may have been ...* 后文" to "**句子结构：***&#84;here may have been ...* 后文",
+            "**句子结构：***Just as ..., so ...* 后文" to "**句子结构：***&#74;ust as ..., so ...* 后文",
+            "**前缀****结构：***italic*" to "**前缀结构：***&#105;talic*",
+            "前**（结构：）***italic*" to "&#21069;**（结构：）***&#105;talic*",
+        )) {
+            val prepared = prepareReplyMarkdown(source)
+            assertEquals(expected, prepared)
+            assertEquals(prepared, prepareReplyMarkdown(prepared))
+        }
+        for (source in listOf(
+            "`**结构：***italic*`", "```text\n**结构：***italic*\n```",
+            "    **结构：***italic*", "\t**结构：***italic*",
+            "\$\$\\text{**结构：***italic*}\$\$", "\\*\\*结构：\\*\\*\\*italic\\*",
+            "**结构：***italic", "**结构：***italic *", "**结构：***\n\nitalic*",
+            "***bold italic***", "**outer ***nested*** end**", "**outer***nested***end**",
+            "**中文：***嵌套***结尾**", "**中文：***嵌套***结尾。**",
+        )) assertEquals(source, prepareReplyMarkdown(source))
+    }
+
     @Test fun strongBoundaryEditsPreserveLongLiteralRangesAndSupplementaryCharacters() {
         val literal = "正文 😀 𠮷 与 literal words。".repeat(300)
         val source = literal + "**结构：****recommend** " + literal + "**重点。**𠮷后文"

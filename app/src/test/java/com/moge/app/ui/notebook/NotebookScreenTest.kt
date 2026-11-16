@@ -36,6 +36,7 @@ class NotebookScreenTest {
     private var deleted = 0
     private var created: String? = null
     private var categoryDeleted: String? = null
+    private var exports = 0
     private fun render(largeChalk: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
@@ -51,10 +52,18 @@ class NotebookScreenTest {
                         onOpenEntry = { opened = it }, onCloseEntry = {}, onMove = { moved = it }, onDelete = { deleted++ },
                         onCreateCategory = { created = it }, onRenameCategory = { _, _ -> }, onReorderCategory = { _, _ -> },
                         onDeleteCategory = { categoryDeleted = it }, onRetry = {},
-                        onDismissMessage = { state.value = state.value.copy(message = null) })
+                        onDismissMessage = { state.value = state.value.copy(message = null) }, onExportPdf = { exports++ })
                 }
             }
         }
+    }
+
+    @Test fun `pdf action is available before and after selecting notebook entries`() {
+        render()
+        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("收藏一").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        assertEquals(2, exports)
     }
 
     @Test fun `notebook removal feedback is consumed while the snackbar remains visible`() {

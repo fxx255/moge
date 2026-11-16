@@ -95,9 +95,10 @@ internal fun exportTextView(
     bodyTypeface: Typeface = Typeface.DEFAULT,
     listMarkers: ListMarkerSettings = ListMarkerSettings(),
     warning: (String) -> Unit = {},
+    fontSizePx: Float? = null,
 ): TextView {
     val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
-        fontSizePx = if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface,
+        fontSizePx = fontSizePx ?: if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface,
         markerColor = listMarkerAccent(false), listMarkers = listMarkers).apply {
         includeFontPadding = true
         setPadding(0, 0, 0, 0)
@@ -145,7 +146,7 @@ internal fun measureExportView(view: TextView, width: Int) {
     view.layout(0, 0, width, view.measuredHeight.coerceAtLeast(1))
 }
 
-internal fun exportViewSlices(view: TextView, capacity: Int): List<VerticalSlice> {
+internal fun exportViewSlices(view: TextView, capacity: Int, firstCapacity: Int = capacity): List<VerticalSlice> {
     val layout = checkNotNull(view.layout)
     val height = view.height
     val offsets = buildList {
@@ -157,16 +158,21 @@ internal fun exportViewSlices(view: TextView, capacity: Int): List<VerticalSlice
         }
         if (height > last()) add(height)
     }
-    return paginateBoundaries(offsets, capacity)
+    return paginateBoundaries(offsets, capacity, firstCapacity)
 }
 
-private class NativeExportRenderer(
+internal class NativeExportRenderer(
     private val context: Context,
     private val files: ExportFiles,
     private val progress: (String) -> Unit,
     private val bodyTypeface: Typeface,
     private val listMarkers: ListMarkerSettings,
+    private val pdfOutput: PdfPageOutput? = null,
 ) {
+    private val pageHeight = pdfOutput?.layoutHeight ?: ExportLimits.HEIGHT
+    private val contentHeight = pageHeight - ExportLimits.MARGIN * 2 - ExportLimits.FOOTER
+    private var pageCount = 0
+    private fun fontSize(heading: Boolean = false): Float? = if (pdfOutput == null) null else if (heading) 62f else 48f
     private data class Drawing(val top: Float, val bottom: Float, val draw: suspend (Canvas) -> Unit)
     private val drawings = mutableListOf<Drawing>()
     private var hasPage = false
@@ -197,24 +203,24 @@ private class NativeExportRenderer(
         canvas.drawColor(EXPORT_PAPER)
         var step = 48f * ExportLimits.SCALE
         while (step < ExportLimits.WIDTH) {
-            canvas.drawLine(step, 0f, step, ExportLimits.HEIGHT.toFloat(), gridRule)
+            canvas.drawLine(step, 0f, step, pageHeight.toFloat(), gridRule)
             step += 48f * ExportLimits.SCALE
         }
         step = 48f * ExportLimits.SCALE
-        while (step < ExportLimits.HEIGHT) {
+        while (step < pageHeight) {
             canvas.drawLine(0f, step, ExportLimits.WIDTH.toFloat(), step, gridRule)
             step += 48f * ExportLimits.SCALE
         }
         val margin = ExportLimits.MARGIN - 28f * ExportLimits.SCALE
-        canvas.drawLine(margin, ExportLimits.MARGIN / 2f, margin, ExportLimits.HEIGHT.toFloat(), marginRule)
+        canvas.drawLine(margin, ExportLimits.MARGIN / 2f, margin, pageHeight.toFloat(), marginRule)
         canvas.drawLine(margin + 7f * ExportLimits.SCALE, ExportLimits.MARGIN / 2f,
-            margin + 7f * ExportLimits.SCALE, ExportLimits.HEIGHT.toFloat(), Paint(marginRule).apply { alpha = 90 })
+            margin + 7f * ExportLimits.SCALE, pageHeight.toFloat(), Paint(marginRule).apply { alpha = 90 })
     }
 
     private suspend fun space(height: Int) {
-        require(height <= ExportLimits.CONTENT_HEIGHT) { context.getString(R.string.ui_export_block_exceeds_safe_height_ef7e0) }
+        require(height <= contentHeight) { context.getString(R.string.ui_export_block_exceeds_safe_height_ef7e0) }
         ensurePage()
-        if (y + height > ExportLimits.HEIGHT - ExportLimits.MARGIN - ExportLimits.FOOTER) {
+        if (y + height > pageHeight - ExportLimits.MARGIN - ExportLimits.FOOTER) {
             flush(); ensurePage()
         }
     }
@@ -222,17 +228,18 @@ private class NativeExportRenderer(
     private suspend fun flush() {
         if (!hasPage) return
         try {
-            val actualHeight = (y + ExportLimits.MARGIN + ExportLimits.FOOTER)
-                .coerceAtMost(ExportLimits.HEIGHT).coerceAtLeast(ExportLimits.MARGIN * 2 + ExportLimits.FOOTER)
+            val actualHeight = if (pdfOutput != null) pageHeight else (y + ExportLimits.MARGIN + ExportLimits.FOOTER)
+                .coerceAtMost(pageHeight).coerceAtLeast(ExportLimits.MARGIN * 2 + ExportLimits.FOOTER)
             val bottom = actualHeight - ExportLimits.MARGIN
-            val footerLabel = context.getString(R.string.ui_moge_1_s_read_in_page_order_873c2, pages.size + 1)
+            val footerLabel = if (pdfOutput != null) context.getString(R.string.pdf_page_number, pageCount + 1)
+                else context.getString(R.string.ui_moge_1_s_read_in_page_order_873c2, pageCount + 1)
             draw(bottom - ExportLimits.FOOTER.toFloat(), bottom.toFloat() + 4 * ExportLimits.SCALE) { canvas ->
                 canvas.drawLine(ExportLimits.MARGIN.toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(),
                     (ExportLimits.WIDTH - ExportLimits.MARGIN).toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(), rule)
                 canvas.drawText(footerLabel, ExportLimits.MARGIN.toFloat(), bottom.toFloat(), footer)
             }
-            progress(context.getString(R.string.ui_encoding_image_1_s_4dee9, pages.size + 1))
-            pages += files.writePage(ExportLimits.WIDTH, actualHeight, pages.size + 1) { canvas, top, end ->
+            progress(context.getString(if (pdfOutput != null) R.string.pdf_rendering_page else R.string.ui_encoding_image_1_s_4dee9, pageCount + 1))
+            val drawPage: suspend (Canvas, Int, Int) -> Unit = { canvas, top, end ->
                 withContext(Dispatchers.Main.immediate) {
                     paper(canvas)
                     for (drawing in drawings) {
@@ -240,6 +247,9 @@ private class NativeExportRenderer(
                     }
                 }
             }
+            if (pdfOutput != null) pdfOutput.writePage(pageCount + 1, drawPage)
+            else pages += files.writePage(ExportLimits.WIDTH, actualHeight, pageCount + 1, drawPage)
+            pageCount++
         } finally {
             drawings.clear(); hasPage = false
             cachedImage?.recycle(); cachedImage = null; cachedImagePath = null
@@ -262,7 +272,7 @@ private class NativeExportRenderer(
                 }
                 val view = exportTextView(context, chunk.source, ExportLimits.CONTENT_WIDTH,
                     markdown = part.markdown && !chunk.plain, heading = part.heading, bodyTypeface = bodyTypeface,
-                    listMarkers = listMarkers, warning = ::warning)
+                    listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize(part.heading))
                 drawText(view, heading = part.heading)
                 yield()
             }
@@ -270,11 +280,20 @@ private class NativeExportRenderer(
     }
 
     private suspend fun plainNotice(source: String) {
-        drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false, bodyTypeface = bodyTypeface))
+        drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false, bodyTypeface = bodyTypeface,
+            fontSizePx = fontSize()))
     }
 
     private suspend fun drawText(view: TextView, heading: Boolean = false) {
-        for (slice in exportViewSlices(view, ExportLimits.CONTENT_HEIGHT)) {
+        if (pdfOutput != null) {
+            // Use the space below the conversation heading before continuing onto full pages.
+            val firstLine = view.totalPaddingTop + view.layout.getLineBottom(0)
+            space(firstLine.coerceAtMost(contentHeight))
+            if (heading && view.height + 100 < contentHeight) space(view.height + 100)
+        }
+        val firstCapacity = if (pdfOutput != null) (pageHeight - ExportLimits.MARGIN - ExportLimits.FOOTER - y).coerceAtLeast(1) else contentHeight
+        for (slice in exportViewSlices(view, contentHeight, firstCapacity)) {
+            if (pdfOutput != null && heading && slice.height + 100 < contentHeight) space(slice.height + 100)
             space(slice.height)
             if (heading) {
                 val layout = view.layout
@@ -330,9 +349,9 @@ private class NativeExportRenderer(
                 }
                 val headers = columns.map { column -> cell(table.headers[column], cellWidth) }
                 val cells = columns.map { column -> cell(row[column], cellWidth) }
-                val headerBands = cellBands(headers, ExportLimits.CONTENT_HEIGHT / 3 - CELL_PADDING * 2)
+                val headerBands = cellBands(headers, contentHeight / 3 - CELL_PADDING * 2)
                 val headerHeight = headerBands.sumOf { band -> band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2 }
-                val capacity = (ExportLimits.CONTENT_HEIGHT - headerHeight - CELL_PADDING * 2)
+                val capacity = (contentHeight - headerHeight - CELL_PADDING * 2)
                 if (capacity < 100 * ExportLimits.SCALE) {
                     plainNotice(context.getString(R.string.ui_long_table_header_continues_by_column_8b254))
                     for (column in columns) {
@@ -366,7 +385,7 @@ private class NativeExportRenderer(
 
     private fun cell(source: String, width: Int): TextView {
         return exportTextView(context, source, width - CELL_PADDING * 2, bodyTypeface = bodyTypeface,
-            listMarkers = listMarkers, warning = ::warning)
+            listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize())
     }
 
     private fun cellBands(views: List<TextView>, height: Int): List<List<VerticalSlice?>> {
@@ -405,11 +424,18 @@ private class NativeExportRenderer(
             warning(message); plainNotice("[$message]"); return
         }
         val (path, info) = resolved
-        plainNotice(part.label)
+        val label = if (pdfOutput != null) exportTextView(context, part.label, ExportLimits.CONTENT_WIDTH,
+            markdown = false, bodyTypeface = bodyTypeface, fontSizePx = fontSize()) else null
+        val labelHeight = label?.let { it.height + ExportLimits.GAP } ?: 0
+        val imageCapacity = (contentHeight - labelHeight).coerceAtLeast(contentHeight / 2)
         val scale = minOf(ExportLimits.CONTENT_WIDTH.toFloat() / info.width,
-            ExportLimits.CONTENT_HEIGHT.toFloat() / info.height, ExportLimits.SCALE.toFloat())
+            imageCapacity.toFloat() / info.height, ExportLimits.SCALE.toFloat())
         val width = (info.width * scale).roundToInt().coerceAtLeast(1)
-        val height = ceil(info.height * scale).toInt().coerceAtMost(ExportLimits.CONTENT_HEIGHT)
+        val height = ceil(info.height * scale).toInt().coerceAtMost(imageCapacity)
+        if (label != null) {
+            space((height + labelHeight).coerceAtMost(contentHeight))
+            drawText(label)
+        } else plainNotice(part.label)
         space(height)
         val left = (ExportLimits.WIDTH - width) / 2f
         val rect = RectF(left, y.toFloat(), left + width, (y + height).toFloat())
@@ -447,6 +473,8 @@ private class NativeExportRenderer(
         flush()
         return ExportResult(files, pages.toList(), warnings.toList())
     }
+
+    suspend fun pageBreak() { flush() }
 
     fun release() { drawings.clear(); cachedImage?.recycle(); cachedImage = null; cachedImagePath = null }
 }

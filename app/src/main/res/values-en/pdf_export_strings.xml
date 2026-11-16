@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pdf_export">Export PDF</string>
+    <string name="pdf_share">Share PDF</string>
+    <string name="pdf_page_number">Moge · Page %1$d</string>
+    <string name="pdf_rendering_page">Laying out page %1$d…</string>
+    <string name="pdf_preparing_conversation">Preparing conversation %1$d / %2$d…</string>
+    <string name="pdf_saving">Creating PDF…</string>
+    <string name="pdf_attachment">Attachment: %1$s</string>
+    <string name="pdf_question_number">Question %1$d</string>
+    <string name="pdf_answer_number">Answer %1$d</string>
+    <string name="pdf_partial_answer">This answer is incomplete. Saved content follows.</string>
+    <string name="pdf_no_answer">No answer content saved yet</string>
+    <string name="pdf_load_failed">Could not load the export list. Please retry.</string>
+    <string name="pdf_export_failed">PDF export failed. Check storage or reload the selected records and retry.</string>
+    <string name="pdf_share_failed">Could not open the system share sheet. Please retry.</string>
+    <string name="pdf_all_subjects">All subjects</string>
+    <string name="pdf_all_dates">All dates</string>
+    <string name="pdf_date_any">Any</string>
+    <string name="pdf_time_order">Time order</string>
+    <string name="pdf_newest_first">Newest first</string>
+    <string name="pdf_oldest_first">Oldest first</string>
+    <string name="pdf_select_all">Select all</string>
+    <string name="pdf_select_matches">Select matches</string>
+    <string name="pdf_clear">Clear</string>
+    <string name="pdf_no_matches">No matching records</string>
+    <string name="pdf_selection_count">Selected %1$d / %2$d</string>
+    <string name="pdf_cancel_export">Cancel export</string>
+    <string name="pdf_export_share">Create PDF &amp; share</string>
+    <string name="pdf_share_again">Share PDF again</string>
+    <string name="pdf_date_range">Date range</string>
+    <string name="pdf_from">Start date (optional)</string>
+    <string name="pdf_through">End date (optional)</string>
+    <string name="pdf_invalid_dates">Use YYYY-MM-DD. Start must be on or before end.</string>
+    <string name="pdf_recent_days">Last %1$d days</string>
+    <string name="pdf_apply">Apply</string>
+</resources>

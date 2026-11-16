@@ -8,6 +8,11 @@ import org.junit.Test
 import kotlin.random.Random
 
 class ExportLayoutTest {
+    @Test fun `pdf paragraph fills remaining first page before continuing on full pages`() {
+        val slices = paginateBoundaries((0..10).map { it * 100 }, capacity = 400, firstCapacity = 250)
+        assertEquals(listOf(VerticalSlice(0, 200), VerticalSlice(200, 600), VerticalSlice(600, 1000)), slices)
+    }
+
     @Test fun `pagination covers every pixel in order and keeps each slice bounded`() {
         val random = Random(81)
         repeat(100) {

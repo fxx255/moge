@@ -9,6 +9,13 @@ import java.time.Instant
 
 @Dao
 interface NotebookDao {
+    @Query("""
+        SELECT id, title, category_id AS categoryId, updated_at AS updatedAt,
+            substr(COALESCE(NULLIF(trim(question_text), ''), question_transcript), 1, 160) AS preview
+        FROM notebook_entry
+    """)
+    suspend fun exportCatalogue(): List<com.moge.app.domain.ConversationExportItem>
+
     @Query("SELECT document_paths FROM notebook_entry")
     suspend fun allDocumentPathJson(): List<String>
 

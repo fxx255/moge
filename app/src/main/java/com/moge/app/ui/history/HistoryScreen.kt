@@ -53,6 +53,8 @@ import com.moge.app.ui.photo.THUMB_MAX_PX
 import com.moge.app.ui.photo.Thumbnail
 import com.moge.app.ui.photo.rememberThumbnail
 import com.moge.app.ui.theme.MogeTheme
+import com.moge.app.domain.ConversationExportSource
+import com.moge.app.ui.export.ConversationPdfDialog
 import java.time.ZoneId
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -68,6 +70,7 @@ fun HistoryScreen(
     onLocateMessage: (String, String) -> Unit = { _, _ -> },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    var exportSelection by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
     HistoryContent(state, onBack, { id -> vm.openConversation(id) { conversation, message ->
         if (message != null) onLocateMessage(conversation, message)
         onOpenConversation(conversation)
@@ -75,7 +78,9 @@ fun HistoryScreen(
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::renameSelected,
         vm::deleteSelected, vm::pinSelected, vm::retry, vm::dismissMessage,
         vm::setCategory, vm::createCategory, vm::renameCategory, vm::reorderCategory, vm::deleteCategory,
-        vm::moveItems, vm::deleteItems, vm::collectSelected, onOpenNotebook, onNewConversation, vm::dismissSavedFavorite)
+        vm::moveItems, vm::deleteItems, vm::collectSelected, onOpenNotebook, onNewConversation, vm::dismissSavedFavorite,
+        onExportPdf = { exportSelection = ArrayList(state.selectedIds) })
+    exportSelection?.let { ids -> ConversationPdfDialog(ConversationExportSource.HISTORY, ids.toSet(), { exportSelection = null }) }
 }
 
 @Composable
@@ -103,6 +108,7 @@ internal fun HistoryContent(
     onOpenNotebook: (String?) -> Unit = {},
     onNewConversation: (() -> Unit)? = null,
     onDismissSavedFavorite: () -> Unit = {},
+    onExportPdf: () -> Unit = {},
 ) {
     val strings = rememberAppStrings()
     val drag = rememberPaperDragState()
@@ -137,6 +143,9 @@ internal fun HistoryContent(
             backgroundOffsetY = { paperScroll.offsetY },
             onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
             actions = {
+                PaperHeaderIconButton(onClick = onExportPdf, enabled = !state.busy && !drag.held) {
+                    Icon(Icons.Outlined.PictureAsPdf, strings.text(R.string.pdf_export))
+                }
                 if (!state.selecting) {
                     PaperHeaderIconButton(onClick = { onOpenNotebook(null) }, enabled = !state.busy && !drag.held) {
                         Icon(Icons.AutoMirrored.Outlined.MenuBook, strings.text(R.string.ui_my_notebook_7ec53))

@@ -12,6 +12,20 @@ import java.time.Instant
 /** 独立历史与消息的读写（生成流程的写入走 [RequestDao]，带 attempt 围栏）。 */
 @Dao
 interface ConversationDao {
+    @Query("""
+        SELECT c.id, c.title, c.category_id AS categoryId, c.updated_at AS updatedAt,
+            COALESCE((SELECT substr(COALESCE(NULLIF(trim(m.display_content), ''),
+                NULLIF(trim(m.content), ''), m.transcript), 1, 160) FROM message m
+                WHERE m.conversation_id = c.id AND m.role = 'user'
+                ORDER BY m.created_at, m.rowid LIMIT 1), '') AS preview
+        FROM conversation c WHERE EXISTS
+            (SELECT 1 FROM message WHERE conversation_id = c.id AND role = 'user')
+    """)
+    suspend fun exportCatalogue(): List<com.moge.app.domain.ConversationExportItem>
+
+    @Query("SELECT * FROM request WHERE conversation_id = :conversationId ORDER BY created_at, rowid")
+    suspend fun exportRequests(conversationId: String): List<RequestEntity>
+
     @Transaction
     @Query("SELECT * FROM conversation WHERE id=:conversationId")
     fun observeTree(conversationId: String): Flow<ConversationTree?>

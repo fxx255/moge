@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pdf_export">PDF に書き出す</string>
+    <string name="pdf_share">PDF を共有</string>
+    <string name="pdf_page_number">墨格 · %1$d ページ</string>
+    <string name="pdf_rendering_page">%1$d ページを組版中…</string>
+    <string name="pdf_preparing_conversation">会話を準備中 %1$d / %2$d…</string>
+    <string name="pdf_saving">PDF を作成中…</string>
+    <string name="pdf_attachment">添付ファイル：%1$s</string>
+    <string name="pdf_question_number">質問 %1$d</string>
+    <string name="pdf_answer_number">回答 %1$d</string>
+    <string name="pdf_partial_answer">この回答は未完了です。保存済みの内容を表示します。</string>
+    <string name="pdf_no_answer">保存済みの回答はありません</string>
+    <string name="pdf_load_failed">一覧を読み込めません。再試行してください</string>
+    <string name="pdf_export_failed">PDF の作成に失敗しました。空き容量を確認するか、一覧を再読み込みして再試行してください</string>
+    <string name="pdf_share_failed">共有画面を開けません。再試行してください</string>
+    <string name="pdf_all_subjects">すべての科目</string>
+    <string name="pdf_all_dates">全期間</string>
+    <string name="pdf_date_any">指定なし</string>
+    <string name="pdf_time_order">日付順</string>
+    <string name="pdf_newest_first">新しい順</string>
+    <string name="pdf_oldest_first">古い順</string>
+    <string name="pdf_select_all">すべて選択</string>
+    <string name="pdf_select_matches">絞り込み結果を選択</string>
+    <string name="pdf_clear">選択を解除</string>
+    <string name="pdf_no_matches">条件に一致する記録はありません</string>
+    <string name="pdf_selection_count">%2$d 件中 %1$d 件を選択</string>
+    <string name="pdf_cancel_export">書き出しを中止</string>
+    <string name="pdf_export_share">PDF にまとめて共有</string>
+    <string name="pdf_share_again">PDF を再共有</string>
+    <string name="pdf_date_range">期間</string>
+    <string name="pdf_from">開始日（省略可）</string>
+    <string name="pdf_through">終了日（省略可）</string>
+    <string name="pdf_invalid_dates">YYYY-MM-DD 形式で、開始日を終了日以前にしてください</string>
+    <string name="pdf_recent_days">直近 %1$d 日</string>
+    <string name="pdf_apply">適用</string>
+</resources>

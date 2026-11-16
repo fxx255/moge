@@ -1,6 +1,7 @@
 package com.moge.app.ui.markdown
 
 import com.moge.app.data.parse.isAdjacentStrongBoundary
+import com.moge.app.data.parse.isStrongToEmphasisBoundary
 
 /**
  * A piece of a streamed answer that is safe to hand to Markwon.
@@ -328,6 +329,31 @@ internal class StreamingMarkdownTokenizer {
                         index = end
                         lineStart = false
                         continue
+                    }
+                    // A shared *** between touching strong/italic spans closes two stars
+                    // and opens one. Keep the bold label visible while its italic text arrives.
+                    if (token == "***" && "***" !in openMarks) {
+                        val italicOpening = openMarks["*"]
+                        if (strongOpening != null && italicOpening == null &&
+                            content.isStrongToEmphasisBoundary(strongOpening, index, end)) {
+                            openMarks.remove("**")
+                            closedInlineEnds += index + 2
+                            openMarks["*"] = index + 2
+                            index = end
+                            lineStart = false
+                            continue
+                        }
+                        // The reverse transition also keeps nested, touching runs balanced.
+                        if (italicOpening != null && strongOpening == null &&
+                            index > italicOpening + 1 && !content[index - 1].isWhitespace() &&
+                            content.getOrNull(end)?.isWhitespace() != true) {
+                            openMarks.remove("*")
+                            closedInlineEnds += index + 1
+                            openMarks["**"] = index + 1
+                            index = end
+                            lineStart = false
+                            continue
+                        }
                     }
                     val intraword = marker == '_' && content.getOrNull(index - 1)?.isLetterOrDigit() == true &&
                         content.getOrNull(end)?.isLetterOrDigit() == true

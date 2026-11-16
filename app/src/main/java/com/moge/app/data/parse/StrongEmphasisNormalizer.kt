@@ -10,6 +10,7 @@ package com.moge.app.data.parse
  * the parser sees a punctuation boundary, then decodes exactly the original text. This retains
  * bold punctuation without inserting spaces or invisible characters into displayed/copied text.
  * Completed adjacent spans such as **结构：****recommend** become one continuous strong span;
+ * **结构：***italic* also needs the word boundary after the combined *** delimiter run.
  * isolated/nested longer runs and unfinished spans retain their original delimiters.
  */
 internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<IntRange>): String {
@@ -21,6 +22,7 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
     var codeIndex = 0
     var inMath = false
     var opener: Int? = null
+    var italicBoundary: Int? = null
     // Reuse one native matcher. Kotlin's findAll creates another Matcher for
     // every token, repeatedly handing Android's regex engine the full answer.
     val tokens = EMPHASIS_TOKENS.toPattern().matcher(source)
@@ -33,11 +35,13 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
             "**" -> if (!inMath) {
                 if (source.hasCodeIndentAt(start)) {
                     opener = null
+                    italicBoundary = null
                     pendingJoins.clear()
                     continue
                 }
                 val end = tokens.end()
                 val opening = opener
+                italicBoundary = null
                 if (opening != null && start > opening + 2 && !source[start - 1].isWhitespace()) {
                     collectStrongBoundaryCharacters(source, opening, start, encodedCharacters)
                     if (canJoin) joinedMarkers.addAll(pendingJoins)
@@ -49,6 +53,29 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
                     canJoin = true
                 }
             }
+            "***" -> if (!inMath) {
+                val opening = opener
+                if (italicBoundary == null && opening != null &&
+                    source.isStrongToEmphasisBoundary(opening, start, tokens.end())) {
+                    // Confirm a following single-star closer before editing: a later ***
+                    // belongs to nested emphasis, e.g. **outer ***nested*** end**.
+                    italicBoundary = start
+                } else {
+                    italicBoundary = null
+                    canJoin = false
+                }
+            }
+            "*" -> if (!inMath) {
+                val boundary = italicBoundary
+                val opening = opener
+                if (boundary != null && opening != null && start > boundary + 3 && !source[start - 1].isWhitespace()) {
+                    collectStrongBoundaryCharacters(source, opening, boundary, encodedCharacters, boundary + 3)
+                    if (canJoin) joinedMarkers.addAll(pendingJoins)
+                    opener = null
+                    italicBoundary = null
+                    pendingJoins.clear()
+                }
+            }
             "****" -> if (!inMath && opener != null) {
                 val opening = pendingJoins.lastOrNull()?.plus(2) ?: opener
                 if (source.isAdjacentStrongBoundary(opening, start, tokens.end())) pendingJoins += start
@@ -58,6 +85,7 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
                 if (source[start] == '*') canJoin = false
                 else { // Paragraph boundary.
                     opener = null
+                    italicBoundary = null
                     pendingJoins.clear()
                 }
             }
@@ -86,6 +114,10 @@ internal fun normalizeStrongEmphasisBoundaries(source: String, codeRanges: List<
 internal fun String.isAdjacentStrongBoundary(opening: Int, start: Int, end: Int): Boolean =
     start > opening + 2 && !this[start - 1].isWhitespace() && getOrNull(end)?.isWhitespace() == false
 
+/** A touching *** can close ** and open *; allow a chunk to end before the italic text. */
+internal fun String.isStrongToEmphasisBoundary(opening: Int, start: Int, end: Int): Boolean =
+    start > opening + 2 && !this[start - 1].isWhitespace() && getOrNull(end)?.isWhitespace() != true
+
 /** Leave four-column indented code (and ambiguous list continuations) to CommonMark. */
 internal fun String.hasCodeIndentAt(index: Int): Boolean {
     var cursor = lastIndexOf('\n', index - 1) + 1
@@ -100,7 +132,13 @@ internal fun String.hasCodeIndentAt(index: Int): Boolean {
     return false
 }
 
-private fun collectStrongBoundaryCharacters(source: String, opening: Int, closing: Int, encodedCharacters: MutableSet<Int>) {
+private fun collectStrongBoundaryCharacters(
+    source: String,
+    opening: Int,
+    closing: Int,
+    encodedCharacters: MutableSet<Int>,
+    afterClosing: Int = closing + 2,
+) {
     val content = source.substring(opening + 2, closing)
     val allowWordBoundary = content.codePoints().anyMatch { it.isCjkLetter() } ||
         content.codePoints().allMatch { it.isMarkdownPunctuation() }
@@ -110,7 +148,6 @@ private fun collectStrongBoundaryCharacters(source: String, opening: Int, closin
     ) {
         encodedCharacters += opening - Character.charCount(beforeOpening)
     }
-    val afterClosing = closing + 2
     if (source.codePointBefore(closing).isMarkdownPunctuation() &&
         afterClosing < source.length && source.codePointAt(afterClosing).needsBoundaryEncoding(allowWordBoundary)
     ) encodedCharacters += afterClosing
@@ -141,4 +178,4 @@ private val UNICODE_PUNCTUATION_TYPES = setOf(
     Character.INITIAL_QUOTE_PUNCTUATION.toInt(), Character.FINAL_QUOTE_PUNCTUATION.toInt(),
     Character.OTHER_PUNCTUATION.toInt(),
 )
-private val EMPHASIS_TOKENS = Regex("\\*{2,}|\\$\\$|\\n[ \\t]*\\n")
+private val EMPHASIS_TOKENS = Regex("\\*+|\\$\\$|\\n[ \\t]*\\n")

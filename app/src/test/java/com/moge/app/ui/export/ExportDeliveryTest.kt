@@ -135,6 +135,17 @@ class ExportDeliveryTest {
             assertFalse(intent.hasExtra(Intent.EXTRA_TEXT))
             val single = imageShareIntent(context, listOf(files.first().absolutePath))
             assertEquals(Intent.ACTION_SEND, single.action)
+            val pdf = File(files.first().parentFile, "conversations.pdf").apply { writeText("%PDF-test") }
+            val pdfIntent = pdfShareIntent(context, pdf)
+            assertEquals(Intent.ACTION_SEND, pdfIntent.action)
+            assertEquals("application/pdf", pdfIntent.type)
+            @Suppress("DEPRECATION")
+            val pdfUri = pdfIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)!!
+            assertEquals("content", pdfUri.scheme)
+            assertEquals(pdfUri, pdfIntent.clipData!!.getItemAt(0).uri)
+            assertTrue(pdfIntent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+            assertEquals(0, pdfIntent.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            assertFalse(pdfIntent.hasExtra(Intent.EXTRA_TEXT))
             try {
                 val outside = File(context.cacheDir, "outside.png").apply { writeText("image") }
                 imageShareIntent(context, listOf(outside.absolutePath))

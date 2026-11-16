@@ -38,6 +38,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moge.app.data.db.NotebookCategoryEntity
 import com.moge.app.data.db.NotebookEntryEntity
 import com.moge.app.ui.components.*
+import com.moge.app.domain.ConversationExportSource
+import com.moge.app.ui.export.ConversationPdfDialog
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -49,10 +51,13 @@ fun NotebookScreen(
     onReturnToConversation: (() -> Unit)? = null,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    var exportSelection by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
     NotebookContent(state, onBack, onOpenConversation, vm::setQuery, vm::setCategory,
         vm::toggleSelection, vm::clearSelection, vm::selectAll, vm::openEntry, vm::closeEntry,
         vm::moveSelected, vm::deleteSelected, vm::createCategory, vm::renameCategory,
-        vm::reorderCategory, vm::deleteCategory, vm::retry, vm::dismissMessage, vm::moveItems, vm::deleteItems, onReturnToConversation)
+        vm::reorderCategory, vm::deleteCategory, vm::retry, vm::dismissMessage, vm::moveItems, vm::deleteItems, onReturnToConversation,
+        onExportPdf = { exportSelection = ArrayList(state.openEntryId?.let { setOf(it) } ?: state.selectedIds) })
+    exportSelection?.let { ids -> ConversationPdfDialog(ConversationExportSource.NOTEBOOK, ids.toSet(), { exportSelection = null }) }
 }
 
 @Composable
@@ -78,6 +83,7 @@ internal fun NotebookContent(
     onMoveItems: (Set<String>, String?) -> Unit = { _, _ -> },
     onDeleteItems: (Set<String>) -> Unit = {},
     onReturnToConversation: (() -> Unit)? = null,
+    onExportPdf: () -> Unit = {},
 ) {
     val strings = rememberAppStrings()
     val drag = rememberPaperDragState()
@@ -109,6 +115,9 @@ internal fun NotebookContent(
                 contentBehindHeader = true,
                 headerContentGap = if (detail) PaperHeaderContentGap else PaperHeaderContentGap / 2,
                 actions = {
+                    PaperHeaderIconButton(onClick = onExportPdf, enabled = !state.busy && !drag.held) {
+                        Icon(Icons.Outlined.PictureAsPdf, strings.text(R.string.pdf_export))
+                    }
                     if (detail && state.detailEntry != null) {
                         PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
                             Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))

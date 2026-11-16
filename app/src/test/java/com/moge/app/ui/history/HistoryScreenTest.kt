@@ -35,6 +35,7 @@ class HistoryScreenTest {
     private var deletes = 0
     private val historyVisible = mutableStateOf(true)
     private var openedNotebook: String? = null
+    private var exports = 0
 
     private fun render(largeChalk: Boolean = false, navigateOnOpen: Boolean = false) {
         compose.setContent {
@@ -53,11 +54,19 @@ class HistoryScreenTest {
                         onRename = { renamed = it }, onPin = {}, onDelete = { deletes++ }, onRetry = {},
                         onDismissMessage = { state.value = state.value.copy(message = null) },
                         onOpenNotebook = { openedNotebook = it },
-                        onDismissSavedFavorite = { state.value = state.value.copy(savedFavoriteId = null) })
+                        onDismissSavedFavorite = { state.value = state.value.copy(savedFavoriteId = null) }, onExportPdf = { exports++ })
                     else Text("返回历史", Modifier.clickable { historyVisible.value = true })
                 }
             }
         }
+    }
+
+    @Test fun `pdf action remains available when historical conversations are selected`() {
+        render()
+        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("数学题").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        assertEquals(2, exports)
     }
 
     @Test fun `delete feedback stays visible after consumption but never replays when reopening history`() {
