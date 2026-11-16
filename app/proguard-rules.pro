@@ -28,6 +28,8 @@
 
 # Room、DataStore、请求快照存枚举 name；release 必须继续读取 debug 已有的数据。
 -keep enum com.moge.app.** { *; }
-# PdfBox's optional JPEG 2000 decoder is only used for bitmap extraction.
-# DocumentReader uses PdfBox for text and Android PdfRenderer for page images.
+# PdfBox's JPEG 2000 codec is optional. DocumentReader uses PdfBox for text and
+# Android PdfRenderer for page images. Export appends Android PdfDocument pages,
+# preserving their existing streams without invoking JPEG 2000 encoding.
 -dontwarn com.gemalto.jp2.JP2Decoder
+-dontwarn com.gemalto.jp2.JP2Encoder
