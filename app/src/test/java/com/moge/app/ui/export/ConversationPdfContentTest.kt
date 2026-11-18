@@ -11,7 +11,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class)
+@Config(sdk = [33], application = Application::class, qualifiers = "zh-rCN")
 class ConversationPdfContentTest {
     @Test fun `notebook keeps full answer question photos and figure slots without repeated title`() {
         val entry = NotebookEntryEntity(sourceConversationId = "c", sourceQuestionId = "q", sourceAnswerId = "a",

@@ -2,7 +2,8 @@
 <resources>
     <string name="pdf_export">导出 PDF</string>
     <string name="pdf_share">分享 PDF</string>
-    <string name="pdf_page_number">墨格 · 第 %1$d 页</string>
+    <string name="library_more_actions">更多操作</string>
+    <string name="pdf_page_number">第 %1$d 页</string>
     <string name="pdf_rendering_page">正在排版第 %1$d 页…</string>
     <string name="pdf_preparing_conversation">正在整理对话 %1$d / %2$d…</string>
     <string name="pdf_saving">正在生成 PDF…</string>

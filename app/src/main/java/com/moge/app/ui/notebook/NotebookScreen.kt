@@ -12,6 +12,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import com.moge.app.ui.theme.MogeTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -115,20 +117,10 @@ internal fun NotebookContent(
                 contentBehindHeader = true,
                 headerContentGap = if (detail) PaperHeaderContentGap else PaperHeaderContentGap / 2,
                 actions = {
-                    PaperHeaderIconButton(onClick = onExportPdf, enabled = !state.busy && !drag.held) {
-                        Icon(Icons.Outlined.PictureAsPdf, strings.text(R.string.pdf_export))
-                    }
                     if (detail && state.detailEntry != null) {
-                        PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy) {
-                            Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
-                        }
-                        PaperHeaderIconButton(onClick = { deleteOpen = true }, enabled = !state.busy) {
-                            Icon(Icons.Outlined.Delete, strings.text(R.string.ui_remove_from_notebook_c3aca), tint = MaterialTheme.colorScheme.error)
-                        }
-                    } else if (!detail) {
-                        PaperHeaderIconButton(onClick = { manageOpen = true }, enabled = !state.busy) {
-                            Icon(Icons.Outlined.FolderOpen, strings.text(R.string.ui_manage_categories_fed61))
-                        }
+                        LibraryActionsMenu(!state.busy, onExportPdf, onMove = { moveOpen = true }, onRemove = { deleteOpen = true })
+                    } else if (!detail && !state.selecting) {
+                        LibraryActionsMenu(!state.busy && !drag.held, onExportPdf, onCategories = { manageOpen = true })
                     }
                 },
             ) { pageInsets ->
@@ -143,8 +135,9 @@ internal fun NotebookContent(
                         AnimatedVisibility(state.selecting && !drag.held,
                             enter = expandVertically(tween(if (MogeTheme.motionEnabled) 180 else 0)) + fadeIn(tween(if (MogeTheme.motionEnabled) 160 else 0)),
                             exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
-                            Row(Modifier.fillMaxWidth().excludePageSwipe().padding(horizontal = 12.dp),
+                            Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                LibrarySelectionExport(!state.busy && !drag.held, onExportPdf)
                                 PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) {
                                     Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01))
                                 }

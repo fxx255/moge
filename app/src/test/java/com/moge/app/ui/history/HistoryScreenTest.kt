@@ -63,9 +63,11 @@ class HistoryScreenTest {
 
     @Test fun `pdf action remains available when historical conversations are selected`() {
         render()
-        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("导出 PDF").assertDoesNotExist()
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithText("导出 PDF").assertIsDisplayed().performClick()
         compose.onNodeWithText("数学题").performTouchInput { longClick() }
-        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("导出 PDF").assertIsDisplayed().performClick()
         assertEquals(2, exports)
     }
 

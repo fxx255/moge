@@ -51,10 +51,12 @@ class ConversationPdfDeviceTest {
             )),
         )
         val progress = mutableListOf<String>()
+        val started = android.os.SystemClock.elapsedRealtime()
         val result = renderConversationPdf(context, sections.size, "samples.pdf", resolver, section = { sections[it] }, onProgress = progress::add)
         try {
             assertTrue(result.file.readBytes().take(5).toByteArray().toString(Charsets.US_ASCII).startsWith("%PDF-"))
-            assertTrue(result.pages > 2)
+            android.util.Log.i("ConversationPdfQA", "mixed pages=${result.pages} bytes=${result.file.length()} elapsedMs=${android.os.SystemClock.elapsedRealtime() - started}")
+            assertTrue("Expected at most 3 A4 pages, got ${result.pages}", result.pages in 2..3)
             assertTrue(result.warnings.toString(), result.warnings.isEmpty())
             assertEquals(listOf(result.file.name), result.files.directory.listFiles()!!.map { it.name })
             val share = pdfShareIntent(context, result.file)
@@ -93,6 +95,46 @@ class ConversationPdfDeviceTest {
                 }
             }
         } finally { result.files.close(force = true); figure.delete() }
+    }
+
+    @Test fun shortConversationsShareOnePageAndLargeTableRepeatsHeaderOnlyOnPageChanges(): Unit = runBlocking {
+        val short = renderConversationPdf(context, 8, "short.pdf", resolver, section = { index ->
+            ConversationPdfSection("Short $index", "Math", listOf(ExportPart.Text("Question $index", false, true),
+                ExportPart.Text("Answer $index: all content retained.")))
+        }, onProgress = {})
+        try {
+            assertEquals(1, short.pages)
+            PDDocument.load(short.file).use { pdf ->
+                val text = PDFTextStripper().getText(pdf)
+                for (index in 0 until 8) assertTrue(text.contains("Answer $index"))
+            }
+        } finally { short.files.close(force = true) }
+        val table = (1..78).joinToString("\n", prefix = "| RowHeader | Value |\n| --- | --- |\n") { "| ROW_$it; | value |" }
+        val result = renderConversationPdf(context, 1, "table.pdf", resolver,
+            section = { ConversationPdfSection("Table", "", listOf(ExportPart.Text(table))) }, onProgress = {})
+        try {
+            PDDocument.load(result.file).use { pdf ->
+                assertTrue("table pages=${pdf.numberOfPages}", pdf.numberOfPages in 2..3)
+                val pages = (1..pdf.numberOfPages).map { n -> PDFTextStripper().apply { startPage = n; endPage = n }.getText(pdf) }
+                for (page in pages) assertEquals(1, Regex("RowHeader").findAll(page).count())
+                for (n in 1..78) assertTrue(pages.any { it.contains("ROW_$n;") })
+            }
+        } finally { result.files.close(force = true) }
+    }
+
+    @Test fun longTextSurvivesBoundedBatchMergeInOrder(): Unit = runBlocking {
+        val lines = (1..620).map { "Line%03d;".format(java.util.Locale.ROOT, it) }
+        val result = renderConversationPdf(context, 1, "long.pdf", resolver, section = {
+            ConversationPdfSection("Long", "", listOf(ExportPart.Text(lines.joinToString("\n"), false)))
+        }, onProgress = {})
+        try {
+            assertTrue("Expected multiple native batches, got ${result.pages} pages", result.pages > 8)
+            PDDocument.load(result.file).use { pdf ->
+                val found = Regex("Line[0-9]{3};").findAll(PDFTextStripper().getText(pdf)).map { it.value }.toList()
+                assertEquals(lines, found)
+            }
+            assertEquals(listOf("long.pdf"), result.files.directory.listFiles()!!.map { it.name })
+        } finally { result.files.close(force = true) }
     }
 
     @Test fun cancelledPdfRemovesOnlyItsOwnTemporaryFiles(): Unit = runBlocking {

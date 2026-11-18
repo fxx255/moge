@@ -60,9 +60,11 @@ class NotebookScreenTest {
 
     @Test fun `pdf action is available before and after selecting notebook entries`() {
         render()
-        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("导出 PDF").assertDoesNotExist()
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithText("导出 PDF").assertIsDisplayed().performClick()
         compose.onNodeWithText("收藏一").performTouchInput { longClick() }
-        compose.onNodeWithContentDescription("导出 PDF").assertIsDisplayed().performClick()
+        compose.onNodeWithText("导出 PDF").assertIsDisplayed().performClick()
         assertEquals(2, exports)
     }
 
@@ -111,7 +113,8 @@ class NotebookScreenTest {
     }
     @Test fun `category creation accepts user name and deletion explains uncategorizing`() {
         render()
-        compose.onNodeWithContentDescription("管理分类").performClick()
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithText("管理分类").performClick()
         compose.onNodeWithText("新建分类").performClick()
         compose.onNode(hasSetTextAction() and hasAnyAncestor(isDialog())).performTextInput("考前复习")
         compose.onNodeWithTag("category-name-editor").assertTextContains("考前复习")
@@ -135,7 +138,8 @@ class NotebookScreenTest {
         assertTrue(state.value.uncategorizedOnly)
         compose.onNodeWithContentDescription("清除搜索").performClick()
         assertEquals("", state.value.query)
-        compose.onNodeWithContentDescription("管理分类").performClick()
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithText("管理分类").performClick()
         compose.onNodeWithText("管理分类").assertIsDisplayed()
         compose.onNodeWithText("新建分类").performClick()
         compose.onNodeWithTag("category-name-editor").assertIsFocused().performTextInput("大字分类")

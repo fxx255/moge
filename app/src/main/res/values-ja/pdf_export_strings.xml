@@ -2,7 +2,8 @@
 <resources>
     <string name="pdf_export">PDF に書き出す</string>
     <string name="pdf_share">PDF を共有</string>
-    <string name="pdf_page_number">墨格 · %1$d ページ</string>
+    <string name="library_more_actions">その他の操作</string>
+    <string name="pdf_page_number">%1$d ページ</string>
     <string name="pdf_rendering_page">%1$d ページを組版中…</string>
     <string name="pdf_preparing_conversation">会話を準備中 %1$d / %2$d…</string>
     <string name="pdf_saving">PDF を作成中…</string>

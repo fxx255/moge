@@ -143,14 +143,11 @@ internal fun HistoryContent(
             backgroundOffsetY = { paperScroll.offsetY },
             onBack = { if (drag.held) drag.release(cancelled = true) else if (state.selecting && !state.busy) onClearSelection() else onBack() },
             actions = {
-                PaperHeaderIconButton(onClick = onExportPdf, enabled = !state.busy && !drag.held) {
-                    Icon(Icons.Outlined.PictureAsPdf, strings.text(R.string.pdf_export))
-                }
                 if (!state.selecting) {
                     PaperHeaderIconButton(onClick = { onOpenNotebook(null) }, enabled = !state.busy && !drag.held) {
                         Icon(Icons.AutoMirrored.Outlined.MenuBook, strings.text(R.string.ui_my_notebook_7ec53))
                     }
-                    PaperHeaderIconButton(onClick = { manageOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.Outlined.FolderOpen, strings.text(R.string.ui_manage_categories_fed61)) }
+                    LibraryActionsMenu(!state.busy && !drag.held, onExportPdf, onCategories = { manageOpen = true })
                 }
             },
         ) { pageInsets ->
@@ -161,6 +158,7 @@ internal fun HistoryContent(
                         exit = shrinkVertically(tween(if (MogeTheme.motionEnabled) 160 else 0)) + fadeOut(tween(if (MogeTheme.motionEnabled) 120 else 0))) {
                         Row(Modifier.fillMaxWidth().excludePageSwipe().horizontalScroll(rememberScrollState())
                             .padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            LibrarySelectionExport(!state.busy && !drag.held, onExportPdf)
                             PaperHeaderIconButton(onClick = { moveOpen = true }, enabled = !state.busy && !drag.held) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, strings.text(R.string.ui_move_to_category_4bd01)) }
                             PaperHeaderIconButton(onClick = { renameOpen = true }, enabled = state.selectedIds.size == 1 && !state.busy) {
                                 Icon(Icons.Outlined.Edit, strings.text(R.string.ui_rename_1cd80))

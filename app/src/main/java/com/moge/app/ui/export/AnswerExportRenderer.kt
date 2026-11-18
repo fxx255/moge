@@ -7,6 +7,7 @@ import com.moge.app.ui.markdown.MarkdownTable
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -96,19 +97,24 @@ internal fun exportTextView(
     listMarkers: ListMarkerSettings = ListMarkerSettings(),
     warning: (String) -> Unit = {},
     fontSizePx: Float? = null,
+    printLayout: PrintTextLayout? = null,
+    preparedMarkdown: Boolean = false,
 ): TextView {
-    val view = createMarkdownTextView(context, if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
-        fontSizePx = fontSizePx ?: if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE, bodyTypeface = bodyTypeface,
-        markerColor = listMarkerAccent(false), listMarkers = listMarkers).apply {
-        includeFontPadding = true
+    val print = printLayout != null
+    val size = fontSizePx ?: if (heading) 44f * ExportLimits.SCALE else ExportLimits.TEXT_SIZE
+    val view = printLayout?.view(size, markdown) ?: createMarkdownTextView(context,
+        if (heading) EXPORT_TITLE else EXPORT_INK, EXPORT_LINK, selectable = false,
+        fontSizePx = size, bodyTypeface = bodyTypeface, markerColor = listMarkerAccent(false), listMarkers = listMarkers)
+    view.apply {
+        includeFontPadding = !print
         setPadding(0, 0, 0, 0)
-        setLineSpacing(8f * ExportLimits.SCALE, 1f)
-        if (heading) setTypeface(if (bodyTypeface == Typeface.DEFAULT) Typeface.SERIF else bodyTypeface, Typeface.BOLD)
+        setLineSpacing(if (print) ConversationPrintLayout.pt(1.25f).toFloat() else 8f * ExportLimits.SCALE, 1f)
+        if (heading) setTypeface(if (!print && bodyTypeface == Typeface.DEFAULT) Typeface.SERIF else bodyTypeface, Typeface.BOLD)
     }
     if (!markdown) view.text = source
     else {
         try {
-            val normalized = prepareReplyMarkdown(source)
+            val normalized = if (preparedMarkdown) source else prepareReplyMarkdown(source)
             val wrapped = wrapLongFormulas(normalized, width - 8 * ExportLimits.SCALE) { latex ->
                 require(latex.length <= ExportLimits.FORMULA_CHARS) { context.getString(R.string.ui_formula_too_long_eb69b) }
                 JLatexMathDrawable.builder(latex).textSize(view.textSize).build().intrinsicWidth
@@ -122,7 +128,7 @@ internal fun exportTextView(
                 require(span is BaselineLatexSpan) { context.getString(R.string.ui_external_markdown_image_kept_as_source_fa547) }
                 val formula = span.drawable.destination
                 require(formula.length <= ExportLimits.FORMULA_CHARS) { context.getString(R.string.ui_formula_too_long_eb69b) }
-                val drawable = JLatexMathDrawable.builder(formula).textSize(view.textSize).color(EXPORT_INK).build()
+                val drawable = JLatexMathDrawable.builder(formula).textSize(view.textSize).color(if (print) Color.BLACK else EXPORT_INK).build()
                 span.drawable.initWithKnownDimensions(width, view.textSize)
                 span.drawable.setResult(drawable)
                 // This is a drawable, not an inline formula. External Markdown images have no
@@ -169,20 +175,31 @@ internal class NativeExportRenderer(
     private val listMarkers: ListMarkerSettings,
     private val pdfOutput: PdfPageOutput? = null,
 ) {
-    private val pageHeight = pdfOutput?.layoutHeight ?: ExportLimits.HEIGHT
-    private val contentHeight = pageHeight - ExportLimits.MARGIN * 2 - ExportLimits.FOOTER
+    private val print = pdfOutput != null
+    private val printText = if (print) PrintTextLayout(context, bodyTypeface, listMarkers) else null
+    private val margin = if (print) ConversationPrintLayout.margin else ExportLimits.MARGIN
+    private val footerHeight = if (print) ConversationPrintLayout.footer else ExportLimits.FOOTER
+    private val gap = if (print) ConversationPrintLayout.gap else ExportLimits.GAP
+    private val cellPadding = if (print) ConversationPrintLayout.cellPadding else CELL_PADDING
+    private val contentWidth = ExportLimits.WIDTH - margin * 2
+    private val pageHeight = if (print) ConversationPrintLayout.height else ExportLimits.HEIGHT
+    private val contentHeight = pageHeight - margin * 2 - footerHeight
+    private val remaining get() = pageHeight - margin - footerHeight - y
     private var pageCount = 0
-    private fun fontSize(heading: Boolean = false): Float? = if (pdfOutput == null) null else if (heading) 62f else 48f
+    private var pageHasImage = false
+    private fun fontSize(heading: Boolean = false): Float? = if (!print) null
+        else if (heading) ConversationPrintLayout.labelSize else ConversationPrintLayout.bodySize
     private data class Drawing(val top: Float, val bottom: Float, val draw: suspend (Canvas) -> Unit)
     private val drawings = mutableListOf<Drawing>()
     private var hasPage = false
     private var cachedImage: Bitmap? = null
     private var cachedImagePath: String? = null
-    private var y = ExportLimits.MARGIN
+    private var y = margin
     private val pages = mutableListOf<File>()
     private val warnings = linkedSetOf<String>()
-    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.toArgb(); strokeWidth = 2f * ExportLimits.SCALE }
-    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = InkMuted.toArgb(); textSize = 25f * ExportLimits.SCALE; typeface = Typeface.MONOSPACE }
+    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (print) Color.LTGRAY else PaperGrid.toArgb(); strokeWidth = if (print) 1.5f else 2f * ExportLimits.SCALE }
+    private val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (print) Color.DKGRAY else InkMuted.toArgb(); textSize = if (print) ConversationPrintLayout.captionSize else 25f * ExportLimits.SCALE; typeface = if (print) Typeface.DEFAULT else Typeface.MONOSPACE
+        if (print) textAlign = Paint.Align.RIGHT }
     private val marginRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EXPORT_MARGIN; strokeWidth = 2f * ExportLimits.SCALE }
     private val gridRule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperGrid.copy(alpha = 0.48f).toArgb(); strokeWidth = 1f * ExportLimits.SCALE }
     private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Highlighter.copy(alpha = 0.65f).toArgb() }
@@ -192,7 +209,7 @@ internal class NativeExportRenderer(
     private fun ensurePage() {
         if (hasPage) return
         hasPage = true
-        y = ExportLimits.MARGIN
+        y = margin
     }
 
     private fun draw(top: Float, bottom: Float, action: suspend (Canvas) -> Unit) {
@@ -200,6 +217,7 @@ internal class NativeExportRenderer(
     }
 
     private fun paper(canvas: Canvas) {
+        if (print) return // PDF pages already have a white paper background.
         canvas.drawColor(EXPORT_PAPER)
         var step = 48f * ExportLimits.SCALE
         while (step < ExportLimits.WIDTH) {
@@ -211,16 +229,16 @@ internal class NativeExportRenderer(
             canvas.drawLine(0f, step, ExportLimits.WIDTH.toFloat(), step, gridRule)
             step += 48f * ExportLimits.SCALE
         }
-        val margin = ExportLimits.MARGIN - 28f * ExportLimits.SCALE
-        canvas.drawLine(margin, ExportLimits.MARGIN / 2f, margin, pageHeight.toFloat(), marginRule)
-        canvas.drawLine(margin + 7f * ExportLimits.SCALE, ExportLimits.MARGIN / 2f,
-            margin + 7f * ExportLimits.SCALE, pageHeight.toFloat(), Paint(marginRule).apply { alpha = 90 })
+        val ruleX = margin - 28f * ExportLimits.SCALE
+        canvas.drawLine(ruleX, margin / 2f, ruleX, pageHeight.toFloat(), marginRule)
+        canvas.drawLine(ruleX + 7f * ExportLimits.SCALE, margin / 2f,
+            ruleX + 7f * ExportLimits.SCALE, pageHeight.toFloat(), Paint(marginRule).apply { alpha = 90 })
     }
 
     private suspend fun space(height: Int) {
         require(height <= contentHeight) { context.getString(R.string.ui_export_block_exceeds_safe_height_ef7e0) }
         ensurePage()
-        if (y + height > pageHeight - ExportLimits.MARGIN - ExportLimits.FOOTER) {
+        if (y + height > pageHeight - margin - footerHeight) {
             flush(); ensurePage()
         }
     }
@@ -228,15 +246,15 @@ internal class NativeExportRenderer(
     private suspend fun flush() {
         if (!hasPage) return
         try {
-            val actualHeight = if (pdfOutput != null) pageHeight else (y + ExportLimits.MARGIN + ExportLimits.FOOTER)
-                .coerceAtMost(pageHeight).coerceAtLeast(ExportLimits.MARGIN * 2 + ExportLimits.FOOTER)
-            val bottom = actualHeight - ExportLimits.MARGIN
+            val actualHeight = if (pdfOutput != null) pageHeight else (y + margin + footerHeight)
+                .coerceAtMost(pageHeight).coerceAtLeast(margin * 2 + footerHeight)
+            val bottom = actualHeight - margin
             val footerLabel = if (pdfOutput != null) context.getString(R.string.pdf_page_number, pageCount + 1)
                 else context.getString(R.string.ui_moge_1_s_read_in_page_order_873c2, pageCount + 1)
-            draw(bottom - ExportLimits.FOOTER.toFloat(), bottom.toFloat() + 4 * ExportLimits.SCALE) { canvas ->
-                canvas.drawLine(ExportLimits.MARGIN.toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(),
-                    (ExportLimits.WIDTH - ExportLimits.MARGIN).toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(), rule)
-                canvas.drawText(footerLabel, ExportLimits.MARGIN.toFloat(), bottom.toFloat(), footer)
+            draw(bottom - footerHeight.toFloat(), bottom.toFloat() + 4 * ExportLimits.SCALE) { canvas ->
+                if (!print) canvas.drawLine(margin.toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(),
+                    (ExportLimits.WIDTH - margin).toFloat(), (bottom - 40 * ExportLimits.SCALE).toFloat(), rule)
+                canvas.drawText(footerLabel, if (print) (ExportLimits.WIDTH - margin).toFloat() else margin.toFloat(), bottom.toFloat(), footer)
             }
             progress(context.getString(if (pdfOutput != null) R.string.pdf_rendering_page else R.string.ui_encoding_image_1_s_4dee9, pageCount + 1))
             val drawPage: suspend (Canvas, Int, Int) -> Unit = { canvas, top, end ->
@@ -247,11 +265,11 @@ internal class NativeExportRenderer(
                     }
                 }
             }
-            if (pdfOutput != null) pdfOutput.writePage(pageCount + 1, drawPage)
+            if (pdfOutput != null) pdfOutput.writePage(pageCount + 1, pageHasImage, drawPage)
             else pages += files.writePage(ExportLimits.WIDTH, actualHeight, pageCount + 1, drawPage)
             pageCount++
         } finally {
-            drawings.clear(); hasPage = false
+            drawings.clear(); hasPage = false; pageHasImage = false
             cachedImage?.recycle(); cachedImage = null; cachedImagePath = null
         }
     }
@@ -270,9 +288,9 @@ internal class NativeExportRenderer(
                     warning(context.getString(R.string.ui_long_content_split_with_full_source_preserved_f9bbf))
                     plainNotice(context.getString(R.string.ui_long_content_full_source_continues_below_9fde0))
                 }
-                val view = exportTextView(context, chunk.source, ExportLimits.CONTENT_WIDTH,
+                val view = exportTextView(context, chunk.source, contentWidth,
                     markdown = part.markdown && !chunk.plain, heading = part.heading, bodyTypeface = bodyTypeface,
-                    listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize(part.heading))
+                    listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize(part.heading), printLayout = printText, preparedMarkdown = print)
                 drawText(view, heading = part.heading)
                 yield()
             }
@@ -280,35 +298,33 @@ internal class NativeExportRenderer(
     }
 
     private suspend fun plainNotice(source: String) {
-        drawText(exportTextView(context, source, ExportLimits.CONTENT_WIDTH, markdown = false, bodyTypeface = bodyTypeface,
-            fontSizePx = fontSize()))
+        drawText(exportTextView(context, source, contentWidth, markdown = false, bodyTypeface = bodyTypeface,
+            fontSizePx = fontSize(), printLayout = printText))
     }
 
     private suspend fun drawText(view: TextView, heading: Boolean = false) {
-        if (pdfOutput != null) {
-            // Use the space below the conversation heading before continuing onto full pages.
+        if (print) {
             val firstLine = view.totalPaddingTop + view.layout.getLineBottom(0)
-            space(firstLine.coerceAtMost(contentHeight))
-            if (heading && view.height + 100 < contentHeight) space(view.height + 100)
+            val keep = if (heading) view.height + gap + ConversationPrintLayout.pt(15f) else firstLine
+            space(keep.coerceAtMost(contentHeight))
         }
-        val firstCapacity = if (pdfOutput != null) (pageHeight - ExportLimits.MARGIN - ExportLimits.FOOTER - y).coerceAtLeast(1) else contentHeight
+        val firstCapacity = if (print) remaining.coerceAtLeast(1) else contentHeight
         for (slice in exportViewSlices(view, contentHeight, firstCapacity)) {
-            if (pdfOutput != null && heading && slice.height + 100 < contentHeight) space(slice.height + 100)
             space(slice.height)
-            if (heading) {
+            if (heading && !print) {
                 val layout = view.layout
                 for (line in 0 until layout.lineCount) {
                     val baseline = layout.getLineBaseline(line)
                     if (baseline in slice.top until slice.bottom) {
-                        val left = ExportLimits.MARGIN - 5f * ExportLimits.SCALE
+                        val left = margin - 5f * ExportLimits.SCALE
                         val top = y + (baseline - slice.top) * slice.scale - 8f * ExportLimits.SCALE
-                        val right = (left + layout.getLineWidth(line) * slice.scale + 10f * ExportLimits.SCALE).coerceAtMost(ExportLimits.WIDTH - ExportLimits.MARGIN.toFloat())
+                        val right = (left + layout.getLineWidth(line) * slice.scale + 10f * ExportLimits.SCALE).coerceAtMost(ExportLimits.WIDTH - margin.toFloat())
                         draw(top, top + 16f * ExportLimits.SCALE) { it.drawRect(left, top, right, top + 16f * ExportLimits.SCALE, highlight) }
                     }
                 }
             }
-            drawSlice(view, slice, ExportLimits.MARGIN.toFloat(), y.toFloat())
-            y += slice.height + ExportLimits.GAP
+            drawSlice(view, slice, margin.toFloat(), y.toFloat())
+            y += slice.height + gap
             currentCoroutineContext().ensureActive()
         }
     }
@@ -331,13 +347,17 @@ internal class NativeExportRenderer(
             tableAsCards(table, context.getString(R.string.ui_long_header_continues_by_column_to_preserve_all_content_e6fbd))
             return
         }
-        for (columns in tableColumnGroups(table.columns)) {
+        for (columns in tableColumnGroups(table.columns, maxColumns = if (print) 5 else 3)) {
             if (table.columns > columns.count()) {
                 plainNotice(context.getString(R.string.ui_table_columns_1_s_2_s_of_3_s_read_by_column_group_27537, columns.first + 1, columns.last + 1, table.columns))
             }
-            val cellWidth = ExportLimits.CONTENT_WIDTH / columns.count()
-            // Repeat headings for each data row/continuation. Formula cells use the same native
-            // Markwon/JLatexMath TextViews as prose, unlike TableRowSpan's hidden async layouts.
+            val cellWidth = contentWidth / columns.count()
+            // Reuse measured headers. Print repeats them only when the table reaches a new page.
+            var headerOnPage = -1
+            val headers = columns.map { column -> cell(table.headers[column], cellWidth) }
+            val headerBands = cellBands(headers, contentHeight / 3 - cellPadding * 2)
+            val headerHeight = headerBands.sumOf { band -> band.filterNotNull().maxOf { it.height } + cellPadding * 2 }
+            val capacity = (contentHeight - headerHeight - cellPadding * 2)
             for (row in table.rows.ifEmpty { listOf(List(table.columns) { "" }) }) {
                 if (columns.any { row[it].length > ExportLimits.SOURCE_CHUNK }) {
                     plainNotice(context.getString(R.string.ui_long_table_row_continues_by_column_36ba5))
@@ -347,11 +367,6 @@ internal class NativeExportRenderer(
                     }
                     continue
                 }
-                val headers = columns.map { column -> cell(table.headers[column], cellWidth) }
-                val cells = columns.map { column -> cell(row[column], cellWidth) }
-                val headerBands = cellBands(headers, contentHeight / 3 - CELL_PADDING * 2)
-                val headerHeight = headerBands.sumOf { band -> band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2 }
-                val capacity = (contentHeight - headerHeight - CELL_PADDING * 2)
                 if (capacity < 100 * ExportLimits.SCALE) {
                     plainNotice(context.getString(R.string.ui_long_table_header_continues_by_column_8b254))
                     for (column in columns) {
@@ -360,16 +375,22 @@ internal class NativeExportRenderer(
                     }
                     continue
                 }
+                val cells = columns.map { column -> cell(row[column], cellWidth) }
                 for ((bandIndex, band) in cellBands(cells, capacity).withIndex()) {
-                    if (bandIndex > 0) plainNotice(context.getString(R.string.ui_table_row_continued_remaining_content_187b3))
-                    val bandHeight = band.filterNotNull().maxOf { it.height } + CELL_PADDING * 2
-                    space(headerHeight + bandHeight)
-                    for (headerBand in headerBands) drawCells(headers, headerBand, cellWidth, header = true)
+                    if (bandIndex > 0 && !print) plainNotice(context.getString(R.string.ui_table_row_continued_remaining_content_187b3))
+                    val bandHeight = band.filterNotNull().maxOf { it.height } + cellPadding * 2
+                    val needHeader = !print || headerOnPage != pageCount || bandHeight > remaining
+                    space(bandHeight + if (needHeader) headerHeight else 0)
+                    if (needHeader) {
+                        for (headerBand in headerBands) drawCells(headers, headerBand, cellWidth, header = true)
+                        headerOnPage = pageCount
+                    }
                     drawCells(cells, band, cellWidth, header = false)
                 }
-                y += ExportLimits.GAP
+                if (!print) y += gap
                 yield()
             }
+            if (print) y += gap
         }
     }
 
@@ -384,8 +405,8 @@ internal class NativeExportRenderer(
     }
 
     private fun cell(source: String, width: Int): TextView {
-        return exportTextView(context, source, width - CELL_PADDING * 2, bodyTypeface = bodyTypeface,
-            listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize())
+        return exportTextView(context, source, width - cellPadding * 2, bodyTypeface = bodyTypeface,
+            listMarkers = listMarkers, warning = ::warning, fontSizePx = fontSize(), printLayout = printText)
     }
 
     private fun cellBands(views: List<TextView>, height: Int): List<List<VerticalSlice?>> {
@@ -394,18 +415,18 @@ internal class NativeExportRenderer(
     }
 
     private suspend fun drawCells(views: List<TextView>, slices: List<VerticalSlice?>, width: Int, header: Boolean) {
-        val height = (slices.filterNotNull().maxOfOrNull { it.height } ?: 1) + CELL_PADDING * 2
+        val height = (slices.filterNotNull().maxOfOrNull { it.height } ?: 1) + cellPadding * 2
         space(height)
-        val background = Paint().apply { color = if (header) 0xFFDCE4F7.toInt() else EXPORT_PAPER }
+        val background = Paint().apply { color = if (print) { if (header) 0xFFF2F2F2.toInt() else Color.WHITE } else if (header) 0xFFDCE4F7.toInt() else EXPORT_PAPER }
         for ((index, view) in views.withIndex()) {
-            val left = ExportLimits.MARGIN + index * width
+            val left = margin + index * width
             val rect = RectF(left.toFloat(), y.toFloat(), (left + width).toFloat(), (y + height).toFloat())
             val border = Paint(rule).apply { style = Paint.Style.STROKE }
             draw(rect.top - border.strokeWidth, rect.bottom + border.strokeWidth) { canvas ->
                 canvas.drawRect(rect, background)
                 canvas.drawRect(rect, border)
             }
-            slices[index]?.let { drawSlice(view, it, (left + CELL_PADDING).toFloat(), (y + CELL_PADDING).toFloat()) }
+            slices[index]?.let { drawSlice(view, it, (left + cellPadding).toFloat(), (y + cellPadding).toFloat()) }
         }
         y += height
     }
@@ -424,11 +445,16 @@ internal class NativeExportRenderer(
             warning(message); plainNotice("[$message]"); return
         }
         val (path, info) = resolved
-        val label = if (pdfOutput != null) exportTextView(context, part.label, ExportLimits.CONTENT_WIDTH,
-            markdown = false, bodyTypeface = bodyTypeface, fontSizePx = fontSize()) else null
-        val labelHeight = label?.let { it.height + ExportLimits.GAP } ?: 0
-        val imageCapacity = (contentHeight - labelHeight).coerceAtLeast(contentHeight / 2)
-        val scale = minOf(ExportLimits.CONTENT_WIDTH.toFloat() / info.width,
+        val label = if (pdfOutput != null) exportTextView(context, part.label, contentWidth,
+            markdown = false, bodyTypeface = bodyTypeface, fontSizePx = ConversationPrintLayout.captionSize, printLayout = printText) else null
+        val labelHeight = label?.let { it.height + gap } ?: 0
+        val imageCapacity = if (!print) contentHeight else {
+            // A portrait photo can share a page with its question and answer. Use a little less
+            // space when that keeps the intact image and caption on the current page.
+            val cap = (contentHeight * if (part.generated) .38f else .46f).roundToInt()
+            (remaining - labelHeight).takeIf { it in (cap * .8f).roundToInt()..cap } ?: cap
+        }
+        val scale = minOf(contentWidth.toFloat() / info.width,
             imageCapacity.toFloat() / info.height, ExportLimits.SCALE.toFloat())
         val width = (info.width * scale).roundToInt().coerceAtLeast(1)
         val height = ceil(info.height * scale).toInt().coerceAtMost(imageCapacity)
@@ -437,17 +463,18 @@ internal class NativeExportRenderer(
             drawText(label)
         } else plainNotice(part.label)
         space(height)
+        pageHasImage = true
         val left = (ExportLimits.WIDTH - width) / 2f
         val rect = RectF(left, y.toFloat(), left + width, (y + height).toFloat())
         draw(rect.top - 24f * ExportLimits.SCALE, rect.bottom + 2f * ExportLimits.SCALE) { canvas ->
             val image = image(path)
             canvas.drawRect(rect, Paint().apply { color = android.graphics.Color.WHITE })
             canvas.drawBitmap(image, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-            canvas.drawRect(rect, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            if (!print) canvas.drawRect(rect, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = PaperExtras.cardStroke.copy(alpha = 0.45f).toArgb()
                 style = Paint.Style.STROKE; strokeWidth = 2f * ExportLimits.SCALE
             })
-            if (!part.generated) {
+            if (!print && !part.generated) {
                 val tape = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PaperExtras.tape.toArgb() }
                 val tapeWidth = minOf(90f * ExportLimits.SCALE, rect.width())
                 val tapeRect = RectF(rect.centerX() - tapeWidth / 2, rect.top - 8f * ExportLimits.SCALE,
@@ -458,7 +485,7 @@ internal class NativeExportRenderer(
                 canvas.restoreToCount(save)
             }
         }
-        y += height + ExportLimits.GAP
+        y += height + gap
     }
 
     private suspend fun image(path: String): Bitmap {
@@ -474,7 +501,20 @@ internal class NativeExportRenderer(
         return ExportResult(files, pages.toList(), warnings.toList())
     }
 
-    suspend fun pageBreak() { flush() }
+    /** Keep a compact title and its metadata with the beginning of the conversation. */
+    suspend fun startConversation(title: String, metadata: String) {
+        val heading = exportTextView(context, title, contentWidth, markdown = false, heading = true,
+            bodyTypeface = bodyTypeface, fontSizePx = ConversationPrintLayout.titleSize, printLayout = printText)
+        val caption = metadata.takeIf { it.isNotBlank() }?.let {
+            exportTextView(context, it, contentWidth, markdown = false, bodyTypeface = bodyTypeface,
+                fontSizePx = ConversationPrintLayout.captionSize, printLayout = printText)
+        }
+        val separation = ConversationPrintLayout.pt(7f)
+        space((heading.height + (caption?.height ?: 0) + 2 * gap + separation + ConversationPrintLayout.pt(32f)).coerceAtMost(contentHeight))
+        if (y > margin) y += separation
+        drawText(heading, heading = true)
+        if (caption != null) drawText(caption)
+    }
 
     fun release() { drawings.clear(); cachedImage?.recycle(); cachedImage = null; cachedImagePath = null }
 }

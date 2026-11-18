@@ -11,7 +11,6 @@ import com.moge.app.domain.ConversationExportItem
 import com.moge.app.domain.ConversationExportSource
 import com.moge.app.ui.localization.AppStrings
 import com.moge.app.ui.localization.localizedContext
-import com.moge.app.ui.theme.appTypeface
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -22,7 +21,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-/** Coordinates storage snapshots, the saved appearance and the renderer outside Compose. */
+/** Coordinates storage snapshots, localized labels and the renderer outside Compose. */
 class ConversationPdfExporter @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val repository: ConversationExportRepository,
@@ -42,7 +41,6 @@ class ConversationPdfExporter @Inject constructor(
         val title = strings.text(if (source == ConversationExportSource.NOTEBOOK) R.string.ui_my_notebook_7ec53 else R.string.ui_history_68387)
         val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
         return renderConversationPdf(local, items.size, "${title}_$stamp.pdf", resolver,
-            typeface = withContext(Dispatchers.IO) { appTypeface(local, preferences.font) }, listMarkers = preferences.listMarkers,
             section = { index ->
                 val item = items[index]
                 val snapshot = repository.snapshot(source, item.id)

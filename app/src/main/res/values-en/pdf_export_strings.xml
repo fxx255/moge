@@ -2,7 +2,8 @@
 <resources>
     <string name="pdf_export">Export PDF</string>
     <string name="pdf_share">Share PDF</string>
-    <string name="pdf_page_number">Moge · Page %1$d</string>
+    <string name="library_more_actions">More actions</string>
+    <string name="pdf_page_number">Page %1$d</string>
     <string name="pdf_rendering_page">Laying out page %1$d…</string>
     <string name="pdf_preparing_conversation">Preparing conversation %1$d / %2$d…</string>
     <string name="pdf_saving">Creating PDF…</string>
