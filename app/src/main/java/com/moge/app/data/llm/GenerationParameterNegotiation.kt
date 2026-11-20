@@ -23,6 +23,10 @@ internal class GenerationParameterNegotiation(initial: JsonObject) {
 }
 
 private val BUDGET_KEYS = listOf("max_tokens", "max_completion_tokens", "max_output_tokens")
+private val INVALID_BUDGET_MESSAGE = Regex(
+    "(${BUDGET_KEYS.joinToString("|")}) is invalid(?:\\s+\\(request id:[^()\\r\\n]+\\))?",
+    RegexOption.IGNORE_CASE,
+)
 private val UNSUPPORTED = Regex(
     "unknown|unrecognized|unrecognised|unsupported|not supported|not permitted|not allowed|unexpected|extra inputs|不支持|未知参数|不允许",
     RegexOption.IGNORE_CASE,
@@ -84,8 +88,12 @@ private fun compatibleGenerationParameters(
             }
             return JsonObject(payload - budget)
         }
-        // The endpoint rejects an oversized value but supplies no usable bound. Let it choose.
         if (isOutputBudgetRejected(detail)) return JsonObject(payload - budget)
+    }
+    // The endpoint rejected the supplied budget without giving a usable bound. Let it choose.
+    if (outputKey != null && oldOutput != null &&
+        rejectsBudgetWithoutBound(body, error.rejectedHttpStatus, outputKey)) {
+        return JsonObject(payload - outputKey)
     }
     // Reasoning models may accept only their default temperature; optional tuning cannot block output.
     for (key in listOf("temperature", "stream_options", "include")) {
@@ -117,6 +125,26 @@ private fun compatibleGenerationParameters(
         val remaining = JsonObject(nested.orEmpty() - "effort")
         if (remaining.isEmpty()) JsonObject(payload - effortKey) else JsonObject(payload + (effortKey to remaining))
     } else JsonObject(payload - effortKey)
+}
+
+private fun rejectsBudgetWithoutBound(body: String, httpStatus: Int?, outputKey: String): Boolean {
+    if (!body.contains(" is invalid", ignoreCase = true)) return false
+    val raw = body.trim().let {
+        if (it.startsWith("{")) it else it.substringAfter("HTTP $httpStatus\uFF1A").trim()
+    }.removePrefix("data:").trimStart()
+    val error = if (raw.startsWith("{")) {
+        val root = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return false
+        root["error"] as? JsonObject ?: root
+    } else null
+    fun field(key: String) = (error?.get(key) as? JsonPrimitive)?.contentOrNull
+    // Match the whole server message, not text echoed in an error about another field.
+    val message = if (error != null) field("message") ?: return false else raw
+    val namedKey = INVALID_BUDGET_MESSAGE.matchEntire(message.trim())?.groupValues?.get(1) ?: return false
+    if (field("param")?.let { it.isNotBlank() && !it.equals(outputKey, ignoreCase = true) } == true) return false
+    if (namedKey.equals(outputKey, ignoreCase = true)) return true
+    // New API reports both Chat Completions budget fields as max_tokens.
+    return outputKey == "max_completion_tokens" && namedKey.equals("max_tokens", ignoreCase = true) &&
+        field("type") == "new_api_error" && field("code") == "invalid_request"
 }
 
 private fun remainingContextAllowance(body: String): Int? {

@@ -50,7 +50,12 @@ internal class StreamingMarkdownTokenizer {
     private var previousScan: ScanResult? = null
     private var generation = 0L
 
-    fun update(content: String, flush: Boolean = false): StreamingMarkdownSnapshot {
+    fun update(content: String, flush: Boolean = false) = snapshot(content, flush, splitBlocks = true)
+
+    /** One native selection surface consumes offsets, never a list of copies of old paragraphs. */
+    fun document(content: String, flush: Boolean = false) = snapshot(content, flush, splitBlocks = false)
+
+    private fun snapshot(content: String, flush: Boolean, splitBlocks: Boolean): StreamingMarkdownSnapshot {
         // A reset/retry/continuation can replace the visible prefix.  Do not
         // reuse keys from the previous generation in that case: old Android
         // views may still have an asynchronous formula callback in flight.
@@ -69,6 +74,7 @@ internal class StreamingMarkdownTokenizer {
 
         if (content.isEmpty()) return StreamingMarkdownSnapshot(emptyList(), "", tailId = generation * GENERATION_KEY_STRIDE)
         val scan = scanned.let { scanned ->
+            if (scanned.tablePipes.isEmpty()) return@let scanned
             val tableCuts = tableEndCuts(content, scanned.tablePipes).filter { it <= scanned.openSyntaxStart }
             scanned.copy(safeCuts = (scanned.safeCuts + tableCuts).distinct().sorted(),
                 lastSafeCut = maxOf(scanned.lastSafeCut, tableCuts.maxOrNull() ?: 0))
@@ -80,11 +86,11 @@ internal class StreamingMarkdownTokenizer {
         }
         stableLimit = stableLimit.coerceIn(0, content.length)
 
-        if (stableLimit == 0) {
+        if (!splitBlocks || stableLimit == 0) {
             return StreamingMarkdownSnapshot(
                 emptyList(), content,
                 tailId = generation * GENERATION_KEY_STRIDE,
-                renderedPrefixEnd = minOf(visibleEnd, safeRenderedPrefixEnd(scan, content, 0)),
+                renderedPrefixEnd = minOf(visibleEnd, safeRenderedPrefixEnd(scan, content, stableLimit)),
                 visibleEnd = visibleEnd,
                 waiting = visibleEnd < content.length,
             )

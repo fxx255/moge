@@ -64,6 +64,27 @@ class StreamingInkPathTest {
         }
     }
 
+    @Test fun `prepending a summary never clips previously readable ink on the first edited frame`() {
+        val reveal = StreamingInkReveal()
+        val view = android.widget.TextView(RuntimeEnvironment.getApplication())
+        val body = (1..30).joinToString("\n") { "Original line $it" }
+        view.text = body
+        reveal.update(view, catchingUp = false)
+        reveal.enabled = true
+        view.text = "Final summary\n\n$body"
+        view.measure(View.MeasureSpec.makeMeasureSpec(340, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        view.layout(0, 0, 340, view.measuredHeight)
+        reveal.update(view, catchingUp = true)
+        val bitmap = Bitmap.createBitmap(340, view.height, Bitmap.Config.ARGB_8888)
+        try {
+            val canvas = Canvas(bitmap)
+            val original = canvas.clipBounds
+            reveal.clip(canvas, view)
+            org.junit.Assert.assertEquals(original, canvas.clipBounds)
+        } finally { bitmap.recycle() }
+    }
+
     private fun mask(layout: Layout, path: Path) =
         Bitmap.createBitmap(layout.width, layout.height, Bitmap.Config.ARGB_8888).also {
             Canvas(it).apply { clipPath(path); drawColor(Color.WHITE) }

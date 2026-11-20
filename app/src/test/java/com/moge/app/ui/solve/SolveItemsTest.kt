@@ -11,8 +11,27 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** [buildSolveItems] 的合成规则：活动状态围栏、部分正文来源、重发入口只给最后一问。 */
+/** [storedSolveItems] / [withLiveAnswer] 的合成规则：活动状态围栏、部分正文来源、重发入口只给最后一问。 */
 class SolveItemsTest {
+    private fun buildSolveItems(id: String?, messages: List<MessageEntity>, requests: List<RequestEntity>, active: ActiveState) =
+        storedSolveItems(messages, requests).withLiveAnswer(id, active)
+
+    @Test fun `release cannot carry live text across retry interruption or a fresh subscription`() {
+        val running = request("a", RequestStatus.RUNNING)
+        val ink = ActiveState(conversationId = "c", requestId = running.requestId, attemptId = running.attemptId,
+            answerMessageId = "a", phase = RequestStatus.RUNNING, partialText = "visible")
+        val idle = ActiveState()
+        for (changed in listOf(running.copy(attemptId = "retry"), running.copy(status = "INTERRUPTED"),
+            running.copy(status = "CANCELLED"), running.copy(conversationId = "another"))) {
+            val handoff = LiveAnswerHandoff("c")
+            handoff.forDisplay(ink, listOf(running))
+            assertEquals(ink, handoff.forDisplay(ink.copy(phase = RequestStatus.COMPLETED), listOf(running)))
+            assertEquals(idle, handoff.forDisplay(idle, listOf(changed)))
+            assertEquals(idle, handoff.forDisplay(idle, listOf(running)))
+        }
+        assertEquals(idle, LiveAnswerHandoff("c").forDisplay(idle, listOf(running)))
+    }
+
 
     private fun user(id: String, text: String = "问") = MessageEntity(id = id, conversationId = "c", role = "user", content = text)
     private fun answer(id: String, text: String = "") = MessageEntity(id = id, conversationId = "c", role = "assistant", content = text)

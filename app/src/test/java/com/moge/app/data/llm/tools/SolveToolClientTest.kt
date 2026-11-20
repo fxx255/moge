@@ -83,6 +83,17 @@ class SolveToolClientTest {
         assertTrue(first["stream_options"]!!.jsonObject["include_usage"]!!.jsonPrimitive.boolean)
     }
 
+    @Test fun newApiBudgetRejectionRetriesWithTheSameStreamingToolRequestExceptForBudget() = runBlocking {
+        val error = """{"error":{"message":"max_tokens is invalid (request id: test-123)","type":"new_api_error","param":"","code":"invalid_request"}}"""
+        val final = """{"reply":"4"}"""
+        val result = run(transport(400 to error, 200 to chatText(final)))!!
+        assertEquals("4", result.reply.reply)
+        assertEquals(2, payloads.size)
+        assertEquals(JsonObject(payloads.first() - "max_tokens"), payloads.last())
+        assertEquals(2, samples.size)
+        assertEquals(listOf(final), events.filterIsInstance<StreamEvent.AnswerDelta>().map { it.text })
+    }
+
     @Test fun guideThenBatchedMixedFiguresReplayReasoningAndReturnCompactResults() = runBlocking {
         val guide = chatCalls(call("g", "get_figure_guide", """{"kind":"curve"}"""))
         val draw = chatCalls(call("d", "render_figure", FigureToolsTest.args(1, "diagram", FigureToolsTest.DIAGRAM).toString()),

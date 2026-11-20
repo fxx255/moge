@@ -6,7 +6,7 @@ import org.junit.Test
 
 class GenerationParameterNegotiationTest {
     private fun payload(key: String = "max_tokens") = buildJsonObject { put(key, Int.MAX_VALUE); put("reasoning_effort", "medium"); put("messages", "unchanged") }
-    private fun rejected(body: String, status: Int = 400) = ModelException(ModelException.Kind.SERVER, "HTTP $status: $body", rejectedHttpStatus = status)
+    private fun rejected(body: String, status: Int = 400) = ModelException(ModelException.Kind.SERVER, "HTTP $status\uFF1A$body", rejectedHttpStatus = status)
 
     @Test fun `format fallback preserves responses text options and never retries unrelated or started responses`() {
         val initial = JsonObject(payload() + ("text" to buildJsonObject {
@@ -130,6 +130,35 @@ class GenerationParameterNegotiationTest {
         assertFalse(next.containsKey("temperature"))
         assertEquals(initial["max_tokens"], next["max_tokens"])
         assertEquals(initial["reasoning_effort"], next["reasoning_effort"])
+    }
+
+    @Test fun `bare invalid budget message removes only the rejected field once`() {
+        for (key in listOf("max_tokens", "max_completion_tokens", "max_output_tokens")) {
+            val initial = payload(key)
+            val negotiation = GenerationParameterNegotiation(initial)
+            val body = """{"error":{"message":"$key is invalid (request id: test-123)","type":"new_api_error","param":"","code":"invalid_request"}}"""
+            assertEquals(JsonObject(initial - key), negotiation.afterRejection(rejected(body)))
+            assertNull(negotiation.afterRejection(rejected(body)))
+            assertEquals(JsonObject(initial - key),
+                GenerationParameterNegotiation(initial).afterRejection(rejected("data: $body")))
+            assertNull(GenerationParameterNegotiation(initial).afterRejection(rejected(body, 500)))
+            val streamError = ModelException(ModelException.Kind.SERVER, body)
+            assertNull(GenerationParameterNegotiation(initial).afterRejection(streamError))
+        }
+        val quoted = """{"error":{"message":"Invalid messages: \"max_tokens is invalid\"","param":"messages"}}"""
+        assertNull(GenerationParameterNegotiation(payload()).afterRejection(rejected(quoted)))
+    }
+
+    @Test fun `new api uses the legacy error name for either chat budget field`() {
+        val initial = payload("max_completion_tokens")
+        val body = """{"error":{"message":"max_tokens is invalid (request id: test-123)","type":"new_api_error","param":"","code":"invalid_request"}}"""
+        assertEquals(JsonObject(initial - "max_completion_tokens"),
+            GenerationParameterNegotiation(initial).afterRejection(rejected(body)))
+        assertNull(GenerationParameterNegotiation(initial).afterRejection(rejected("max_tokens is invalid", 422)))
+        assertNull(GenerationParameterNegotiation(payload("max_output_tokens")).afterRejection(rejected(body)))
+        assertNull(GenerationParameterNegotiation(JsonObject(payload() - "max_tokens")).afterRejection(rejected(body)))
+        val otherField = """{"error":{"message":"max_tokens is invalid","param":"messages"}}"""
+        assertNull(GenerationParameterNegotiation(payload()).afterRejection(rejected(otherField)))
     }
 
     @Test fun `no bound delegates to server but generic errors never retry`() {

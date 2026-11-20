@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -96,7 +97,7 @@ data class SolveUiState(
  * 解题页 ViewModel。
  *
  * 生成本身归应用级 [GenerationManager]：这里只**提交**和**订阅**，页面销毁不会打断生成。
- * 列表 = Room 里的消息与请求记录 + 管理器的可重放活动状态，合成规则见 [buildSolveItems]。
+ * 列表 = Room 里的消息与请求记录 + 管理器的可重放活动状态，合成规则见 [storedSolveItems] 和 [withLiveAnswer]。
  *
  * 从砺行 AssistantViewModel 移植了三条防护：
  * - 发送/重发用同步置位的 [submitting] 防连点，挂起窗口里再点不会提交第二次；
@@ -149,19 +150,18 @@ class SolveViewModel @Inject constructor(
         val messages: List<MessageEntity>,
         val requests: List<RequestEntity>,
         val selections: List<BranchSelectionEntity> = emptyList(),
-    )
+    ) {
+        val path = ConversationBranches.visible(messages, selections)
+        val items = storedSolveItems(path, requests, messages)
+    }
 
-    private val roomState: Flow<RoomSnapshot> = conversationId.flatMapLatest { id ->
-        if (id == null) {
-            flowOf(RoomSnapshot(null, emptyList(), emptyList()))
-        } else {
-            combine(
-                conversationRepository.observeTree(id),
-                requestRepository.observeForConversation(id),
-            ) { tree, requests -> RoomSnapshot(tree?.conversation, tree?.messages.orEmpty().sortedBy { it.createdAt },
-                requests, tree?.selections.orEmpty()) }
-                .onEach { storedFigureRepair.repair(it.messages, it.requests) }
-        }
+    private fun observeRoom(id: String?): Flow<RoomSnapshot> = if (id == null) {
+        flowOf(RoomSnapshot(null, emptyList(), emptyList()))
+    } else {
+        conversationRepository.observeTree(id).map { tree ->
+            RoomSnapshot(tree?.conversation, tree?.messages.orEmpty().sortedBy { it.createdAt },
+                tree?.requests.orEmpty().sortedBy { it.createdAt }, tree?.selections.orEmpty())
+        }.onEach { storedFigureRepair.repair(it.messages, it.requests) }
     }
 
     private data class Transient(
@@ -178,34 +178,37 @@ class SolveViewModel @Inject constructor(
     private val documentImportMutex = Mutex()
 
     val uiState: StateFlow<SolveUiState> =
-        combine(conversationId, roomState, generationManager.active, transient, settings.settings) { id, room, active, local, prefs ->
-            val path = ConversationBranches.visible(room.messages, room.selections)
-            // A retained navigation entry can outlive a deleted history record. Keep its
-            // draft owner for recovery, but only a real record represents an existing page.
-            val existingId = id?.takeIf { room.conversation?.id == it }
-            val generatingHere = active.isRunning && id != null && active.conversationId == id && path.any { it.id == active.answerMessageId }
-            SolveUiState(
-                conversationId = existingId,
-                title = room.conversation?.let { conversation ->
-                    // Keep the stored placeholder stable for automatic naming; localize its display only.
-                    if (conversation.title == PHOTO_PLACEHOLDER_TITLE && !conversation.titleUserEdited)
-                        localizedText.text(prefs.interfaceLanguage, R.string.ui_photo_question_770f1)
-                    else conversation.title
-                } ?: ConversationRepository.PLACEHOLDER_TITLE,
-                items = buildSolveItems(id, path, room.requests, active, room.messages),
-                input = local.input,
-                generating = generatingHere,
-                busyElsewhere = active.isRunning && !generatingHere,
-                submitting = local.submitting,
-                notice = local.notice,
-                photos = local.photos,
-                documentPaths = local.documents,
-                answerFirst = prefs.answerFirst,
-                keepScreenOnInConversation = prefs.keepScreenOnInConversation,
-                branchPathKey = path.lastOrNull()?.id.orEmpty(),
-                conversationMode = room.conversation?.let { ConversationMode.fromName(it.conversationMode) } ?: selectedMode.value,
-                modeSelectable = existingId == null && !local.submitting,
-            )
+        conversationId.flatMapLatest { id ->
+            val handoff = LiveAnswerHandoff(id)
+            combine(observeRoom(id), generationManager.active, transient, settings.settings) { room, active, local, prefs ->
+                val path = room.path
+                // A retained navigation entry can outlive a deleted history record. Keep its
+                // draft owner for recovery, but only a real record represents an existing page.
+                val existingId = id?.takeIf { room.conversation?.id == it }
+                val generatingHere = active.isRunning && id != null && active.conversationId == id && path.any { it.id == active.answerMessageId }
+                SolveUiState(
+                    conversationId = existingId,
+                    title = room.conversation?.let { conversation ->
+                        // Keep the stored placeholder stable for automatic naming; localize its display only.
+                        if (conversation.title == PHOTO_PLACEHOLDER_TITLE && !conversation.titleUserEdited)
+                            localizedText.text(prefs.interfaceLanguage, R.string.ui_photo_question_770f1)
+                        else conversation.title
+                    } ?: ConversationRepository.PLACEHOLDER_TITLE,
+                    items = room.items.withLiveAnswer(id, handoff.forDisplay(active, room.requests)),
+                    input = local.input,
+                    generating = generatingHere,
+                    busyElsewhere = active.isRunning && !generatingHere,
+                    submitting = local.submitting,
+                    notice = local.notice,
+                    photos = local.photos,
+                    documentPaths = local.documents,
+                    answerFirst = prefs.answerFirst,
+                    keepScreenOnInConversation = prefs.keepScreenOnInConversation,
+                    branchPathKey = path.lastOrNull()?.id.orEmpty(),
+                    conversationMode = room.conversation?.let { ConversationMode.fromName(it.conversationMode) } ?: selectedMode.value,
+                    modeSelectable = existingId == null && !local.submitting,
+                )
+            }
         }.combine(selectedMode) { state, mode ->
             if (state.conversationId == null) state.copy(conversationMode = mode) else state
         }.combine(importingPhotos) { state, importing -> state.copy(importingPhotos = importing,

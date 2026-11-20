@@ -95,8 +95,7 @@ internal fun markdownReadingBlockModifier(contentKey: String): Modifier {
 
 private data class ReadingAnchor(
     val block: ReadingBlock,
-    val text: CharSequence?,
-    val layout: android.text.Layout?,
+    val text: String?,
     val lineTop: Int?,
     val offset: Int,
     val y: Float,
@@ -110,7 +109,7 @@ private data class ReadingAnchor(
  * Correct after native/Compose layout and before drawing; raw deltas leave ongoing drags/flings alive.
  * A correction also requests Android layout, so the next pre-draw sees updated Compose placement.
  */
-private class MarkdownReadingPosition(private val host: ReadingScrollHost, private val root: View) :
+internal class MarkdownReadingPosition(private val host: ReadingScrollHost, private val root: View) :
     ViewTreeObserver.OnPreDrawListener {
     val blocks = mutableListOf<ReadingBlock>()
     private var generating = false
@@ -125,7 +124,7 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         if (generating && (!value || reflowKey != key)) {
             // A summary can arrive in the last streaming update, before the saved
             // answer changes state. Keep an in-progress correction across that boundary.
-            restoring = restoring ?: last
+            restoring = last ?: restoring
             last = null
             started = -1L
             frames = 0
@@ -146,21 +145,21 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         }
         if (generating && restoring == null) {
             val anchor = last
-            // A new native layout means existing prose may have reflowed (for example
-            // when the final summary is prepended). Pure list motion keeps this layout
-            // instance, so normal browsing only refreshes the anchor.
+            // DynamicLayout can be replaced when only the tail changes. A replacement
+            // is harmless if the displayed characters and their actual line stay put.
             val view = anchor?.block?.view
             val layout = view?.layout
             val currentText = view?.let(::markdownTextSnapshot)
-            val reflowed = anchor != null && (anchor.block !in blocks || layout !== anchor.layout ||
+            val reflowed = anchor != null && (anchor.block !in blocks ||
                 (layout != null && anchor.text != null &&
-                    ((currentText !== anchor.text && currentText?.startsWith(anchor.text.toString()) != true) ||
+                    ((currentText !== anchor.text && currentText?.startsWith(anchor.text) != true) ||
                         layout.getLineTop(layout.getLineForOffset(anchor.offset.coerceAtMost(view.text.length))) != anchor.lineTop)))
             if (!reflowed) {
                 last = capture()
                 return true
             }
             restoring = anchor
+            last = null
             started = -1L
             frames = 0
             stableFrames = 0
@@ -200,30 +199,41 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
             stableFrames++
             // Final buffered ink and figure sizing may land on a later frame.
             if (stableFrames >= 3 && now - started >= 300) restoring = null
-            else root.postInvalidateOnAnimation()
+            // A later layout or gesture schedules its own pre-draw. Do not keep the
+            // entire answer drawing at display refresh rate just to count stable frames.
         }
-        if (generating && restoring == null) last = capture()
+        // Only adopt a frame we actually allow on screen. If the reader moved
+        // during settling, the next reflow belongs to this line, not the old block.
+        if (generating || restoring != null) {
+            last = capture()
+            if (restoring != null && host.readerScrollY != anchor.readerScrollY) restoring = last
+        }
         return true
     }
 
     private fun capture(): ReadingAnchor? {
         val viewport = host.viewport
         if (viewport.isEmpty) return null
-        val (block, bounds) = blocks.mapNotNull { block -> block.bounds()?.let { block to it } }
-            .filter { (block, _) -> block.view?.text?.isEmpty() != true }
-            .filter { (_, bounds) -> RectF.intersects(bounds, viewport) }
-            .minWithOrNull(compareBy<Pair<ReadingBlock, RectF>> { (_, bounds) -> maxOf(bounds.top, viewport.top) }
-                .thenBy { (block, _) -> if (block.view != null) 0 else 1 }) ?: return null
-        // If the question, header or draft is at the reading edge, let that edge remain in place.
-        // Pinning a paragraph below it would unnecessarily move content the reader is still viewing.
-        if (bounds.top > viewport.top) return null
+        // Pin only a block crossing the reading edge. Prefer prose over an enclosing
+        // non-text slot. If the question/header is at that edge, let it stay there.
+        var candidate: ReadingBlock? = null
+        var top = 0f
+        for (block in blocks) {
+            if (block.view?.text?.isEmpty() == true) continue
+            val bounds = block.bounds() ?: continue
+            if (bounds.top > viewport.top || !RectF.intersects(bounds, viewport)) continue
+            candidate = block
+            top = bounds.top
+            if (block.view != null) break
+        }
+        val block = candidate ?: return null
         val view = block.view
         val layout = view?.layout
-        val textTop = bounds.top + (view?.totalPaddingTop ?: 0) - (view?.scrollY ?: 0)
+        val textTop = top + (view?.totalPaddingTop ?: 0) - (view?.scrollY ?: 0)
         val line = layout?.getLineForVertical((viewport.top - textTop).toInt().coerceAtLeast(0))
-        return ReadingAnchor(block, view?.let(::markdownTextSnapshot), layout, line?.let { layout.getLineTop(it) },
+        return ReadingAnchor(block, view?.let(::markdownTextSnapshot), line?.let { layout.getLineTop(it) },
             line?.let { layout.getLineStart(it) } ?: 0,
-            if (line != null) textTop + layout.getLineTop(line) else bounds.top,
+            if (line != null) textTop + layout.getLineTop(line) else top,
             host.readerScrollY, host.contentVersion, block.contentKey)
     }
 
@@ -238,15 +248,15 @@ private class MarkdownReadingPosition(private val host: ReadingScrollHost, priva
         }
         // Usually the original TextView survives. Context also covers a summary being prepended
         // or a final table/figure splitting the original native text into different blocks.
-        val candidates = listOf(anchor.block) + blocks.filter { it !== anchor.block }
-        for (block in candidates) {
-            if (block !in blocks) continue
-            val view = block.view ?: continue
-            val offset = readingOffsetAfterEdit(anchor.text, view.text, anchor.offset) ?: continue
-            val bounds = block.bounds() ?: continue
-            val layout = view.layout ?: continue
+        fun lineY(block: ReadingBlock): Float? {
+            val view = block.view ?: return null
+            val layout = view.layout ?: return null
+            val offset = readingOffsetAfterEdit(anchor.text, markdownTextSnapshot(view), anchor.offset) ?: return null
+            val bounds = block.bounds() ?: return null
             return bounds.top + view.totalPaddingTop - view.scrollY + layout.getLineTop(layout.getLineForOffset(offset))
         }
+        if (anchor.block in blocks) lineY(anchor.block)?.let { return it }
+        for (block in blocks) if (block !== anchor.block) lineY(block)?.let { return it }
         return null
     }
 }

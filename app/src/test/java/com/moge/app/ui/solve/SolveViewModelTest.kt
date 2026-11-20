@@ -541,6 +541,27 @@ class SolveViewModelTest {
         assertEquals("", (fenced.items.last() as SolveItem.Answer).text)
     }
 
+    @Test fun `releasing a stream before Room delivers completion never rewinds the answer`() = runBlocking {
+        val id = conversations.createConversation("题", SolveMode.DETAILED).id
+        val request = requests.createRequest(id, "user", "answer", "attempt", "题", emptyList(), "")
+        assertTrue(requests.savePartial(request.requestId, "attempt", "第一段"))
+        val page = vm(id)
+        val body = "第一段\n\n正在阅读的第四十段"
+        fun SolveUiState.answer() = items.lastOrNull() as? SolveItem.Answer
+        active.value = ActiveState(requestId = request.requestId, attemptId = "attempt", conversationId = id,
+            answerMessageId = "answer", phase = RequestStatus.RUNNING, partialText = body, reasoning = "草稿")
+        page.awaitState { it.generating && it.answer()?.text == body }
+        // The last observed transaction still contains the short checkpoint when the owner releases.
+        active.value = ActiveState()
+        val waiting = page.awaitState { !it.generating }
+        assertEquals(body, waiting.answer()?.text)
+        assertEquals("草稿", waiting.answer()?.reasoning)
+        assertTrue(requests.complete(request.requestId, "attempt", "answer", "$body。", finalAnswer = "结论"))
+        val done = page.awaitState { it.answer()?.state == AnswerState.COMPLETED }.answer()!!
+        assertEquals("$body。", done.text)
+        assertEquals("结论", done.finalAnswer)
+    }
+
     @Test
     fun `stop cancels the active request of this conversation with its attempt`() = runBlocking {
         val existing = conversations.createConversation("题", SolveMode.DETAILED)

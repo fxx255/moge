@@ -18,7 +18,7 @@ class ModelGenerationParametersTest {
                 assertEquals(expected, ModelGenerationParameters.fields(base, model, effort, protocol))
             }
             val key = if (protocol == AiApiProtocol.RESPONSES) "max_output_tokens" else "max_tokens"
-            assertEquals(Int.MAX_VALUE, expected[key]!!.jsonPrimitive.int)
+            assertFalse(expected.containsKey(key))
             assertEquals(effort.name.lowercase(), native(expected))
             assertFalse(expected.containsKey("thinking"))
         }

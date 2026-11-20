@@ -68,6 +68,10 @@ internal data class MarkdownChunkSpec(val text: String, val isTable: Boolean)
  * 代码围栏内的 `|` 不算表格。
  */
 internal fun splitMarkdownTableBlocks(markdown: String): List<MarkdownChunkSpec> {
+    if ('|' !in markdown) {
+        val text = markdown.trimEnd('\n')
+        return if (markdown.isEmpty()) emptyList() else listOf(MarkdownChunkSpec(text, isTable = false))
+    }
     val lines = markdown.split('\n')
     val chunks = mutableListOf<MarkdownChunkSpec>()
     val text = StringBuilder()

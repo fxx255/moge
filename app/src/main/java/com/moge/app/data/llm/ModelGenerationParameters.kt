@@ -7,20 +7,17 @@ import java.util.Locale
 
 /**
  * Protocol parameters, independent of provider hostnames and model names.
- * Missing capability declarations use an integer probe ceiling, then explicit protocol rejections.
- * The ceiling is not an advertised model capability or a promise of an unlimited context window.
+ * Without a declared output limit, leave the optional budget to the provider.
  */
 object ModelGenerationParameters {
-    /** Prefer declarations; otherwise negotiate instead of accepting a potentially small default. */
     @Suppress("UNUSED_PARAMETER")
-    fun outputLimit(baseUrl: String, model: String, capability: ModelCapability? = null): Int =
-        capability?.maxOutputTokens ?: Int.MAX_VALUE
-
     fun fields(baseUrl: String, model: String, effort: AiReasoningEffort,
         protocol: AiApiProtocol, finalAnswer: Boolean = false, capability: ModelCapability? = null): JsonObject = buildJsonObject {
         val responses = protocol == AiApiProtocol.RESPONSES
-        val budgetKey = if (responses) "max_output_tokens" else capability?.chatOutputParameter ?: "max_tokens"
-        put(budgetKey, outputLimit(baseUrl, model, capability))
+        capability?.maxOutputTokens?.let { limit ->
+            val budgetKey = if (responses) "max_output_tokens" else capability.chatOutputParameter ?: "max_tokens"
+            put(budgetKey, limit)
+        }
         val value = if (finalAnswer) "low" else effort.name.lowercase(Locale.ROOT)
         if (capability?.supportsReasoning != false) {
             val native = declaredEffort(capability, effort, finalAnswer) ?: value

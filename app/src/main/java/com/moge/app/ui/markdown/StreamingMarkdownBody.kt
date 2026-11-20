@@ -20,12 +20,11 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.moge.app.R
-import com.moge.app.data.parse.prepareReplyMarkdown
-import com.moge.app.data.parse.wrapLongFormulas
 import com.moge.app.ui.theme.LocalAppTypeface
 import com.moge.app.ui.theme.LocalBodyTextSize
 import com.moge.app.ui.theme.MogeTheme
 import io.noties.markwon.Markwon
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -40,18 +39,18 @@ internal fun StreamingMarkdownBody(
 ) {
     val tokenizer = remember { StreamingMarkdownTokenizer() }
     val latestContent = rememberUpdatedState(content)
-    var snapshot by remember { mutableStateOf(tokenizer.update(content, flush = !streaming)) }
+    var snapshot by remember { mutableStateOf(tokenizer.document(content, flush = !streaming)) }
     var renderedContent by remember { mutableStateOf(content) }
     var hasStreamed by remember { mutableStateOf(streaming) }
     if (streaming) SideEffect { hasStreamed = true }
     LaunchedEffect(tokenizer, streaming, if (streaming) null else content) {
         if (!streaming) {
-            snapshot = tokenizer.update(latestContent.value, flush = true)
+            snapshot = tokenizer.document(latestContent.value, flush = true)
             renderedContent = latestContent.value
         } else while (isActive) {
             val next = latestContent.value
             if (next != renderedContent) {
-                snapshot = tokenizer.update(next)
+                snapshot = tokenizer.document(next)
                 renderedContent = next
             }
             delay(80)
@@ -85,11 +84,12 @@ internal fun StreamingMarkdownBody(
                             if (chunk.isTable) MarkdownTableBlock(chunk.text, animateRows = animate,
                                 catchingUp = !streaming, modifier = markdownReadingBlockModifier(chunk.text))
                             else {
-                                val chunkTokenizer = remember { StreamingMarkdownTokenizer() }
-                                val raw = remember(chunk.text) { chunkTokenizer.update(chunk.text) }
+                                val raw = if (chunk.text == renderedContent) snapshot else {
+                                    val chunkTokenizer = remember { StreamingMarkdownTokenizer() }
+                                    remember(chunk.text) { chunkTokenizer.document(chunk.text) }
+                                }
                                 val whole = !streaming || index < segments.lastIndex || chunkIndex < chunks.lastIndex
-                                val ink = remember(raw, whole) { raw.copy(blocks = emptyList(), tail = chunk.text, tailStart = 0,
-                                    visibleEnd = chunk.text.length,
+                                val ink = remember(raw, whole) { raw.copy(visibleEnd = chunk.text.length,
                                     renderedPrefixEnd = if (whole) chunk.text.length else raw.renderedPrefixEnd) }
                                 StreamingMarkdownChunk(ink, animate, catchingUp = !streaming)
                             }
@@ -125,11 +125,16 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
     val locale = LocalConfiguration.current.locales.toLanguageTags()
     val bodyTextSize = LocalBodyTextSize.current
     val fontSize = with(LocalDensity.current) { bodyTextSize.toPx() }
-    val reveal = remember { StreamingInkReveal() }
+    val host = LocalReadingScrollHost.current
+    val reveal = remember(host, readingBlock) { StreamingInkReveal(host, readingBlock) }
     reveal.enabled = animate
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         key(typeface, locale, textColor, linkColor, markerColor, listMarkers, surface, fontSize, selectionScrollHost) {
+            // Prepared ink is installed on a native TextView and starts a platform animator.
+            val scope = rememberCoroutineScope { Dispatchers.Main.immediate }
+            val preparation = remember(scope) { StreamingPrefixPreparation(scope) }
+            DisposableEffect(preparation) { onDispose { preparation.clear() } }
             AndroidView(modifier = Modifier.fillMaxWidth().clipToBounds()
                 .onGloballyPositioned { readingBlock?.coordinates = it }, factory = { context ->
                 createMarkdownTextView(context, textColor, linkColor, markerColor = markerColor, fontSizePx = fontSize, listMarkers = listMarkers,
@@ -137,13 +142,27 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
                     bodyTypeface = typeface, inkReveal = reveal, incrementalUpdates = true).also {
                     it.setSpannableFactory(StreamingTextBufferFactory)
                     readingBlock?.view = it
-                    renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)
-                    reveal.update(it, catchingUp)
                 }
             }, update = {
                 readingBlock?.view = it
-                renderStreamingMarkdown(it, snapshot, width, textColor, linkColor)
-                reveal.update(it, catchingUp)
+                val view = it
+                val end = (snapshot.renderedPrefixEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length)
+                val cache = view.getTag(R.id.streaming_markdown_cache) as? StreamingMarkdownRenderCache
+                fun display(prepared: String?) {
+                    renderStreamingMarkdown(view, snapshot, width, textColor, linkColor, prepared)
+                    reveal.update(view, catchingUp)
+                }
+                // Literal appends already use DynamicLayout directly. Only move expensive
+                // normalization and formula measurement off the gesture thread when needed.
+                if (!catchingUp && width > 0 && end >= 1024 && cache != null &&
+                    snapshot.tail.startsWith(cache.visibleTail) &&
+                    !(cache.prefix.length == end && snapshot.tail.startsWith(cache.prefix))) {
+                    preparation.submit(snapshot.tail.substring(0, end), snapshot.tail,
+                        formulaMaxWidthPx(view, width), view.textSize, ::display)
+                } else {
+                    preparation.clear()
+                    display(null)
+                }
             })
         }
     }
@@ -151,11 +170,11 @@ internal fun StreamingMarkdownChunk(snapshot: StreamingMarkdownSnapshot, animate
 
 /** Cache closed syntax, append only safe literal prose, and premeasure new formula ink. */
 internal fun renderStreamingMarkdown(view: TextView, snapshot: StreamingMarkdownSnapshot,
-    widthPx: Int, textColor: Int, linkColor: Int) {
+    widthPx: Int, textColor: Int, linkColor: Int, preparedPrefix: String? = null) {
     val tail = snapshot.tail.take((snapshot.visibleEnd - snapshot.tailStart).coerceIn(0, snapshot.tail.length))
     rememberMarkdownRenderSource(view, tail, widthPx)
-    view.setTextColor(textColor)
-    view.setLinkTextColor(linkColor)
+    if (view.currentTextColor != textColor) view.setTextColor(textColor)
+    if (view.linkTextColors?.defaultColor != linkColor) view.setLinkTextColor(linkColor)
     val prefixLength = (snapshot.renderedPrefixEnd - snapshot.tailStart).coerceIn(0, tail.length)
     if (widthPx <= 0) {
         if (view.text.toString() != tail) view.text = tail
@@ -188,8 +207,7 @@ internal fun renderStreamingMarkdown(view: TextView, snapshot: StreamingMarkdown
         return
     }
     val prefix = cached?.renderedPrefix ?: runCatching {
-        val prepared = wrapLongFormulas(prepareReplyMarkdown(source),
-            formulaMaxWidthPx(view, widthPx), formulaWidthMeasurer(view))
+        val prepared = preparedPrefix ?: prepareStreamingPrefix(source, formulaMaxWidthPx(view, widthPx), view.textSize)
         val parsed = (view.tag as Markwon).toMarkdown(prepared)
         val resolved = if (previous != null && source.startsWith(previous.prefix))
             reuseReadyLatex(parsed, previous.renderedPrefix) else parsed

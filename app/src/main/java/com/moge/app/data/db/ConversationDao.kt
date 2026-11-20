@@ -282,11 +282,12 @@ interface ConversationDao {
     suspend fun allConversationIds(): List<String>
 }
 
-/** A transaction snapshot prevents combining new messages with old branch selections. */
+/** Messages, branch selection and request status must describe the same transaction. */
 data class ConversationTree(
     @Embedded val conversation: ConversationEntity,
     @Relation(parentColumn = "id", entityColumn = "conversation_id") val messages: List<MessageEntity>,
     @Relation(parentColumn = "id", entityColumn = "conversation_id") val selections: List<BranchSelectionEntity>,
+    @Relation(parentColumn = "id", entityColumn = "conversation_id") val requests: List<RequestEntity>,
 )
 
 /** 历史卡片投影；自定义分类在会话上持久化，收藏快照仍然独立。 */

@@ -17,10 +17,19 @@ class StreamingMarkdownTokenizerTest {
         )
         for (source in sources) for (step in listOf(1, 3, 13)) {
             val tokenizer = StreamingMarkdownTokenizer()
+            val surface = StreamingMarkdownTokenizer()
             for (end in (0..source.length step step).toList() + source.length) {
                 val received = source.take(end)
                 assertEquals("Boundary $end, chunk size $step: $source",
                     StreamingMarkdownTokenizer().update(received), tokenizer.update(received))
+                for (flush in listOf(false, true)) {
+                    val split = tokenizer.update(received, flush)
+                    val whole = surface.document(received, flush)
+                    assertEquals(split.visibleEnd, whole.visibleEnd)
+                    assertEquals(split.renderedPrefixEnd, whole.renderedPrefixEnd)
+                    assertEquals(received, whole.tail)
+                    assertTrue(whole.blocks.isEmpty())
+                }
                 assertEquals("Repeated/forced flush must keep the same safety scan",
                     StreamingMarkdownTokenizer().update(received, flush = true), tokenizer.update(received, flush = true))
             }

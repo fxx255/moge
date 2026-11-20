@@ -1,5 +1,6 @@
 package com.moge.app.ui.solve
 
+import com.moge.app.data.db.ConversationBranches
 import com.moge.app.data.db.MessageEntity
 import com.moge.app.data.db.RequestEntity
 import com.moge.app.data.db.RequestRepository
@@ -69,30 +70,18 @@ enum class AnswerState {
     STOPPED,
 }
 
-/**
- * 把「Room 里的消息 + 请求记录 + 管理器的活动状态」合成页面要画的列表。
- *
- * 纯函数，便于单测。三条规则：
- * - 活动状态只在 **answerMessageId 与会话都对上** 时覆盖对应的解答纸 ——
- *   另一道题的流式正文绝不能串进这一页；
- * - 部分正文只在请求记录里（见 [RequestDao.interruptRequest]），失败/停止时从那里取；
- * - 重发 / 重新生成入口只给**最后一张**解答纸：用户已经追问过的旧回答保留为历史记录，
- *   不能插队重放（与砺行 retryInterrupted 的规则一致）。
- */
-internal fun buildSolveItems(
-    conversationId: String?,
+/** Build the history and branch controls once per database snapshot, not per token. */
+internal fun storedSolveItems(
     messages: List<MessageEntity>,
     requests: List<RequestEntity>,
-    active: GenerationManager.ActiveState,
     allMessages: List<MessageEntity> = messages,
 ): List<SolveItem> {
-    if (conversationId == null) return emptyList()
     val requestByAnswer = requests.associateBy { it.answerMessageId }
     val lastAnswerId = messages.lastOrNull { it.role == ROLE_ASSISTANT }?.id
-    val activeHere = active.phase?.isInFlight == true && active.conversationId == conversationId
     var seenQuestion = false
     return messages.map { message ->
         if (message.role != ROLE_ASSISTANT) {
+            val versions = ConversationBranches.versions(allMessages, message).map { it.id }
             SolveItem.Question(
                 id = message.id,
                 text = message.displayContent ?: message.content,
@@ -100,14 +89,13 @@ internal fun buildSolveItems(
                 transcript = message.transcript,
                 isFirst = !seenQuestion,
                 documentPaths = RequestRepository.decodePathList(message.documentPaths),
-                versionIds = com.moge.app.data.db.ConversationBranches.versions(allMessages, message).map { it.id },
-                versionIndex = com.moge.app.data.db.ConversationBranches.versions(allMessages, message).indexOfFirst { it.id == message.id },
+                versionIds = versions,
+                versionIndex = versions.indexOf(message.id),
             ).also { seenQuestion = true }
         } else {
             answerItem(
                 message = message,
                 request = requestByAnswer[message.id],
-                live = active.takeIf { activeHere && it.answerMessageId == message.id },
                 isLast = message.id == lastAnswerId,
             ).copy(replyToMessageId = message.replyToMessageId.ifBlank { requestByAnswer[message.id]?.userMessageId.orEmpty() },
                 documentPaths = (RequestRepository.decodePathList(message.documentPaths) +
@@ -116,27 +104,29 @@ internal fun buildSolveItems(
     }
 }
 
+/** Only the live answer changes while reading a stream; reuse every other item and its attachments. */
+internal fun List<SolveItem>.withLiveAnswer(conversationId: String?, live: GenerationManager.ActiveState): List<SolveItem> {
+    if (conversationId == null) return emptyList()
+    if (live.phase?.isInFlight != true || live.conversationId != conversationId) return this
+    val index = indexOfLast { it is SolveItem.Answer && it.id == live.answerMessageId }
+    if (index < 0) return this
+    val stored = this[index] as SolveItem.Answer
+    val answer = SolveItem.Answer(
+        id = stored.id,
+        state = if (live.phase == RequestStatus.PREPARING && live.partialText.isEmpty() && live.reasoning.isBlank())
+            AnswerState.PREPARING else AnswerState.STREAMING,
+        text = live.partialText, reasoning = live.reasoning, finalAnswer = live.finalAnswer,
+        startedAtMs = live.startedAtMs, networkStatus = live.networkStatus,
+        replyToMessageId = stored.replyToMessageId, documentPaths = stored.documentPaths,
+    )
+    return toMutableList().also { it[index] = answer }
+}
+
 private fun answerItem(
     message: MessageEntity,
     request: RequestEntity?,
-    live: GenerationManager.ActiveState?,
     isLast: Boolean,
 ): SolveItem.Answer {
-    if (live != null) {
-        return SolveItem.Answer(
-            id = message.id,
-            state = if (live.phase == RequestStatus.PREPARING && live.partialText.isEmpty() && live.reasoning.isBlank()) {
-                AnswerState.PREPARING
-            } else {
-                AnswerState.STREAMING
-            },
-            text = live.partialText,
-            reasoning = live.reasoning,
-            finalAnswer = live.finalAnswer,
-            startedAtMs = live.startedAtMs,
-            networkStatus = live.networkStatus,
-        )
-    }
     val completed = SolveItem.Answer(
         id = message.id,
         state = AnswerState.COMPLETED,
