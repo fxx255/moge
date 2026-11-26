@@ -37,16 +37,8 @@ SSB 的 `textbook_dual_branch`、相干接收机的 `iq_demodulator` 和旧 `gen
 15. PCM 编码与时分复用
 16. 积分、抽样与判决接收机
 
-## 验证和重新导出
-
-`CommunicationDiagramAcceptanceTest` 从 JSON 解析全部样例，检查节点不重叠、连线正交且不穿过其他节点、画布边界、顺序稳定、多端口分离和公式有效性，并使用 Robolectric Native Graphics 渲染明暗两套 PNG。它验证的是客户端生成能力；没有远程调用语言模型，因此模型是否给出正确电路拓扑仍取决于题意和回答。
+## 样图
 
 Windows PowerShell（使用项目要求的 JDK 21）：
-
-```powershell
-$env:DIAGRAM_EXPORT_SAMPLES = '1'
-.\gradlew.bat --no-configuration-cache --max-workers=2 :app:testDebugUnitTest --tests 'com.moge.app.domain.diagram.*'
-.\scripts\diagrams\export-gallery.ps1
-```
 
 输出为 `app/build/diagram-samples/index.html`，可在浏览器切换白纸/黑板主题，查看原图及生成规格。四张 `overview-*.jpg` 用于小批量视觉检查。脚本可通过 `-Destination` 指定额外导出目录；不改动参考图。

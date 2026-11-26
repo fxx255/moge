@@ -1,13 +1,12 @@
 # 墨格 Moge
 
-[![Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml/badge.svg)](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 墨格是一款使用 Kotlin 和 Jetpack Compose 开发的 Android AI 学习助手。以新对话为入口，支持文字、拍照和相册提问，将解答、公式和图表放在同一张「稿纸」上。
 
 An open-source Android AI study assistant with photo questions, conversation history, math rendering and customizable notebooks. Bring your own model endpoint and API key.
 
-当前正式版本：**0.8.6**（`versionCode = 68`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.6.md)。
+当前正式版本：**0.8.7**（`versionCode = 69`）。从 [GitHub Releases](https://github.com/fxx255/moge/releases/latest) 下载 arm64 安装包；本次更新见 [版本说明](docs/releases/0.8.7.md)。
 
 ## 功能
 
@@ -38,63 +37,14 @@ An open-source Android AI study assistant with photo questions, conversation his
 
 ## 使用
 
-1. 从源码构建并安装应用。
+1. 从 GitHub Releases 下载并安装应用。
 2. 在设置中添加模型配置，填写接口地址、模型名称和自己的 API Key。
 3. 文字提问可使用普通聊天模型；拍照、相册提问需要服务端支持图片输入。
 4. 根据服务端实际支持的协议设置搜索；不支持时关闭搜索。
 
 仓库不包含模型服务或共享 API Key。模型请求直接发送到用户配置的服务端，题目文字、照片与必要的历史上下文会随请求发送，费用和数据处理由对应服务决定。API Key 使用 Android Keystore 加密保存在设备上；对话、收藏和附件保存在本地，数据库和部分偏好可能受 Android 系统备份设置影响。应用内没有录音输入。
 
-## 构建
-
-建议使用 Android Studio，也可以使用仓库自带的 Gradle Wrapper。
-
-- **JDK 21**，不要使用 JDK 25。
-- Android SDK Platform **36**、Build Tools **36.0.0** 和 Platform Tools。
-- Gradle **8.14.3**，由 Wrapper 自动下载；依赖版本集中在 `gradle/libs.versions.toml`。
-- 最低 Android **8.0 / API 26**；release 为 **arm64-v8a**，debug 另支持 **x86_64** 模拟器。
-- Windows 建议将工程放在不含中文等非 ASCII 字符的路径中。
-
-克隆源码：
-
-```sh
-git clone https://github.com/fxx255/moge.git
-cd moge
-```
-
-将 Android SDK 配置到 `ANDROID_HOME` 或本地 `local.properties` 的 `sdk.dir`。`local.properties` 不提交到 Git。安装所需 SDK：
-
-```sh
-sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-```
-
-Linux / macOS：
-
-```sh
-chmod +x gradlew
-./gradlew assembleDebug
-```
-
-Windows PowerShell（先将 `JAVA_HOME` 指向 JDK 21）：
-
-```powershell
-.\gradlew.bat assembleDebug
-```
-
-debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`，包名为 `com.moge.app.debug`。开发 release 可用 `assembleRelease` 构建，输出到 `app/build/outputs/apk/release/app-release.apk`，包名为 `com.moge.app`。
-
-**签名文件不入仓库。** 新克隆使用 Android Gradle Plugin 默认生成的调试密钥；已有本地 `app/debug.keystore` 时使用该文件，以保留开发安装的签名身份。调试签名和开发 release 的应用内更新关闭；不同开发者的调试签名可能不同。
-
-## 验证与自动检查
-
-```sh
-python3 -m unittest discover -s scripts/release -p 'test_*.py'
-./gradlew -I scripts/release/test-runtime.gradle --no-configuration-cache testDebugUnitTest lintDebug assembleDebug
-```
-
-Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和 Pull Request 会运行 [Android checks](https://github.com/fxx255/moge/actions/workflows/android-checks.yml)，检查发布脚本、单元测试、Lint 和 debug 构建，无需签名 Secrets。
-
-0.4.1 的本地完整验证通过 **1143 项 Android 单元测试**；发布脚本 **24 项测试**通过。正式发布流程执行完整测试、Lint 与签名构建，实际结果以 Actions 为准。
+## 功能说明与版本记录
 
 公式与拖动改进详见 [修改方案](docs/math-drag-revision-plan.md) 和 [完成报告](docs/math-drag-fix-report.md)。
 
@@ -126,7 +76,7 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 
 ## 稿纸分享示例
 
-以下示例由原生导出器使用测试题目生成。交互与修复记录见 [0.2.3 修改报告](docs/interaction-share-fix-report.md)。
+以下示例由原生导出器使用示例题目生成。交互与修复记录见 [0.2.3 修改报告](docs/interaction-share-fix-report.md)。
 
 ![稿纸分享示例](docs/images/share-paper.png)
 
@@ -135,7 +85,6 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 - `app/src/main/java/com/moge/app/data`：本地数据库、模型接口、回复解析和更新。
 - `app/src/main/java/com/moge/app/runtime`：生成任务、历史上下文与图像管理。
 - `app/src/main/java/com/moge/app/ui`：Compose 页面、相机、公式与图表渲染、长图导出。
-- `app/src/test`：单元与集成测试。
 - `scripts/release`：APK 校验、更新元数据和 GitHub Release 发布工具。
 - `.github/workflows`：自动检查与正式标签发布。
 - `docs`：实施记录、修改报告和发布说明；历史报告中的版本及路径按其当时环境记录。
@@ -144,7 +93,7 @@ Windows 使用 `python` 和 `.\gradlew.bat` 执行对应命令。分支推送和
 
 ## 反馈与贡献
 
-欢迎提交 Issue 和 Pull Request。反馈问题时请说明应用版本、Android 版本、复现步骤，以及所用模型和接口协议；日志和截图请先去掉 API Key、个人题目和其他敏感内容。代码修改请运行与改动相关的测试和 Lint。
+欢迎提交 Issue 和 Pull Request。反馈问题时请说明应用版本、Android 版本、复现步骤，以及所用模型和接口协议；日志和截图请先去掉 API Key、个人题目和其他敏感内容。
 
 ## 许可证
 

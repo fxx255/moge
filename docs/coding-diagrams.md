@@ -24,16 +24,8 @@ D⁰ 是当前输入，D¹ 是延迟一拍；状态位最近输入在前。输�
 
 这三种 profile 不需要 nodes/edges。旧通信 profile 仍要求通用拓扑。参数缺失不会猜抽头，非法图保留失败位置。递归卷积码、多输入编码器、非系统循环码和超过 8 个状态的图尚未纳入首版模板。
 
-## 样例和验证
+## 样图
 
 样图在 `docs/coding-samples/`，包含 K=3、K=4 卷积码编码器、(7,4) 系统循环码、四状态图、八状态图与四路并行压力样例，另有二状态、八级循环码、一级循环码、单抽头、八状态四路输出及三路串行输出边界样例。共 12 组规格、24 张 PNG。每个样例均由生产 `DiagramParser → DiagramRenderer` 路径生成；JSON 一同保存，明暗 PNG 保持相同结构。`reference-comparison.jpg` 对照三张用户教材样图和当前生成结果。
-
-`CodingSpecTest` 校验教材转移、串行输出、循环码长除法及参数拒收。`CodingReferenceTemplateTest` 校验参考 K=3 的加法器输入位置，以及 1～8 级、1～4 路输出的抽头避让和独立输出通道。`CodingDiagramAcceptanceTest` 验证各模板、主题、画布规模和画布边界裁切，并可重新导出：
-
-```powershell
-$env:JAVA_HOME = 'D:\tools\jdk-21.0.12+8'
-$env:CODING_EXPORT_SAMPLES = '1'
-.\gradlew.bat --no-configuration-cache --max-workers=2 :app:testDebugUnitTest --tests 'com.moge.app.domain.coding.*' --tests 'com.moge.app.domain.diagram.CodingDiagramAcceptanceTest' --tests 'com.moge.app.ui.figure.CodingReferenceTemplateTest'
-```
 
 输出位于 `app/build/coding-samples/`。测试不调用远程模型。

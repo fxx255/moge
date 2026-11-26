@@ -69,11 +69,8 @@ internal class StreamingInkReveal(
         painted = visible
         val layout = view.layout ?: return
         if (!enabled || visible >= view.text.length) return
-        if (belowViewport(view, visible)) {
-            val line = layout.getLineForOffset(visible.toInt().coerceIn(0, layout.text.length))
-            canvas.clipRect(0, 0, view.width, view.totalPaddingTop - view.scrollY + layout.getLineTop(line))
-            return
-        }
+        // Scrolling may replay this display list before another draw. The viewport can
+        // suppress animation invalidations, but must never erase an already painted row.
         streamingInkPath(layout, view.text, visible, path, segment)
         path.offset((view.totalPaddingLeft - view.scrollX).toFloat(), (view.totalPaddingTop - view.scrollY).toFloat())
         canvas.clipPath(path)

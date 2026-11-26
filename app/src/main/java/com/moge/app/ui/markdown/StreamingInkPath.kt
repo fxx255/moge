@@ -1,6 +1,7 @@
 package com.moge.app.ui.markdown
 
 import android.graphics.Path
+import android.graphics.RectF
 import android.text.Layout
 import android.text.Spanned
 import android.text.style.LeadingMarginSpan
@@ -31,12 +32,30 @@ internal fun streamingInkPath(layout: Layout, text: CharSequence, visible: Float
         layout.getSelectionPath(layout.getLineStart(line - 1), start, segment)
         path.addPath(segment)
     }
-    if (end > start) {
-        val x = layout.getPrimaryHorizontal(start)
-        val target = layout.getPrimaryHorizontal(end)
-        val right = x + (target - x) * fraction
-        path.addRect(minOf(x, right), layout.getLineTop(line).toFloat(),
-            maxOf(x, right), layout.getLineBottom(line).toFloat(), Path.Direction.CW)
+    if (end > start && fraction > 0f && text[start] != '\n') {
+        val top = layout.getLineTop(line).toFloat()
+        val bottom = layout.getLineBottom(line).toFloat()
+        val wraps = end == layout.getLineEnd(line) && line < layout.lineCount - 1
+        if (wraps) {
+            // The exclusive end is also the next row's first caret. Ask Layout for the
+            // glyph on *this* row, removing its multiline selection margins. This also
+            // handles a final bidi run whose trailing edge is inside the visual line.
+            layout.getSelectionPath(start, end, segment)
+            val row = Path().apply { addRect(layout.getLineLeft(line), top, layout.getLineRight(line), bottom, Path.Direction.CW) }
+            segment.op(row, Path.Op.INTERSECT)
+            if (!segment.isEmpty) {
+                val cell = RectF().also { segment.computeBounds(it, true) }
+                val rtl = layout.isRtlCharAt(start)
+                val x = if (rtl) cell.right else cell.left
+                val advance = if (rtl) -cell.width() else cell.width()
+                val edge = x + advance * fraction
+                path.addRect(minOf(x, edge), top, maxOf(x, edge), bottom, Path.Direction.CW)
+            }
+        } else {
+            val x = layout.getPrimaryHorizontal(start)
+            val edge = x + (layout.getPrimaryHorizontal(end) - x) * fraction
+            path.addRect(minOf(x, edge), top, maxOf(x, edge), bottom, Path.Direction.CW)
+        }
     }
     if (text !is Spanned || visible <= 0f) return
     val revealedEnd = ceil(visible.toDouble()).toInt().coerceAtMost(text.length)

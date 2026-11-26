@@ -46,22 +46,3 @@
 新提问可能比复用健康连接多一次 TCP/TLS 建连；同一回答内的工具轮仍可复用连接。
 模型提示词和上下文未改，连接池隔离不改变模型输入的缓存前缀。
 这不能解决服务端限流、账号池不可用、图片格式不支持或真实网络持续中断。
-
-## 验证
-
-相关回归覆盖旧连接失效、同轮工具复用、派生客户端共享、旧任务释放隔离、任务
-成功/失败/取消的收尾、提交后不重发、响应头和响应体断开、超时分类及诊断隐私。
-真实 socket 慢上传测试让接收端暂停读取 12 秒，再完整接收大请求；另测上传堵塞时
-取消能关闭调用且不会重发。测试使用本地夹具，不调用用户的模型服务。
-
-本地 32 项专项回归通过；扩大到模型、文档、runtime 和设置后，505 项全部通过
-（包含专项用例，无跳过）。MuMu 12-2 已确认 UUID 尾号 `000000000002`，
-ADB 地址 `127.0.0.1:16448`，6 项设备回归通过，debug 包可冷启动。
-日志分别在 `work/photo-followup-targeted.log`、`work/photo-followup-regression.log`、
-`work/photo-followup-device.log`。测试包为 `com.moge.app.debug`，独立安装，需配置模型。
-JDK 21 / Gradle Wrapper 的 `lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest`
-均通过，构建日志在 `work/photo-followup-build.log`。本次未发布正式版本。
-测试包 `release-output/Moge-photo-followup-20261029-debug.apk` 的 SHA-256 为
-`52339a792e3fed103fe47f6f51e9fe6528dd406069c26885ded31438473766d9`。
-
-真实手机的息屏、厂商省电策略、蜂窝网络和用户所用网关的偶发行为仍需实机验证。

@@ -16,11 +16,3 @@
 Markwon 用 LaTeX 字符串作为 ReplacementSpan 占位文本，一条公式显示为一个图形，内部却有多个文本偏移。落在占位字符串内部的选区可能在视觉上覆盖整条公式，默认复制只拿到其中的字符。此外插件把占位文本中的换行替换为空格。
 
 共享 Markdown TextView 现在把非空选区边界对齐到相交公式的起止位置，并在 Android 复制入口按跨度取出完整 drawable.destination。严格相交判定避免复制选区外的相邻公式；纯文字、反向选择、多个公式及多行公式均经过测试。回答、题目与流式公式共用该路径。
-
-## 验证范围
-
-针对性回归共 24 项，包含实际短按/长按事件、原生复制菜单入口、Compose 选择菜单回调、编辑加载与焦点时序、遮罩拦截和纸张/黑板外观预览。Compose 放大镜的浮动 Surface 在 Robolectric 中不可用，长按测试只替换了放大镜的图形显示，选择和复制逻辑照常执行。
-
-完整回归 1111 项（145 个测试类）通过，0 失败/错误/跳过；lintDebug 通过（48 条警告、3 条提示，0 错误），assembleDebug 和 APK v2 签名验证通过。测试包为 `release-output/Moge-input-edit-selection-debug.apk`，包含上一轮思考草稿显示和模型超时修复；测试与包校验记录保存在 `release-output/input-edit-selection-verification.json`。
-
-本机没有连接 Android 真机；不同手机输入法的弹出效果仍需在安装后确认。

@@ -22,7 +22,7 @@ internal data class StreamingMarkdownSnapshot(
     val tail: String,
     val tailStart: Int = 0,
     val tailId: Long = 0,
-    /** Absolute source offset through the last safe, closed formula or bold span in tail. */
+    /** Absolute source offset through the last prefix that needs Markdown layout. */
     val renderedPrefixEnd: Int = 0,
     /** Unfinished syntax stays in the receive buffer, outside the painted tail. */
     val visibleEnd: Int = Int.MAX_VALUE,
@@ -37,7 +37,7 @@ internal data class StreamingMarkdownSnapshot(
  * has been reached:
  *
  *  * a blank line (paragraph/list/table boundary), or
- *  * a closed formula or bold prefix inside the current paragraph.
+ *  * a closed inline span or a confirmed prose continuation on a new source line.
  *
  * The scanner never sends an unterminated formula, code fence, or half table to
  * Markwon.  That prevents a stream update from replacing a valid drawable with
@@ -147,7 +147,7 @@ internal class StreamingMarkdownTokenizer {
             if (tableStart == content.length && '|' in a && isMarkdownTableSeparator(b)) tableStart = tailStart + lineOffset
             lineOffset += a.length + 1
         }
-        val closed = scan.closedInlineEnds.lastOrNull { end ->
+        val closed = scan.renderEnds.lastOrNull { end ->
             end > tailStart && end <= tableStart && !isPipeLine(scan, content, end)
         }
         // Literal prose after the last closed span stays outside Markwon, which
@@ -172,7 +172,7 @@ internal class StreamingMarkdownTokenizer {
         val lastSafeCut: Int,
         val inCodeFence: Boolean,
         val mathDelimiter: MathDelimiter,
-        val closedInlineEnds: List<Int>,
+        val renderEnds: List<Int>,
         val openMathStart: Int,
         val tablePipes: List<Int>,
         val openSyntaxStart: Int,
@@ -193,7 +193,7 @@ internal class StreamingMarkdownTokenizer {
         var index = restart
         var lineStart = true
         var lastSafe = restart
-        val closedInlineEnds = ArrayList(previous?.closedInlineEnds.orEmpty().takeWhile { it <= restart })
+        val renderEnds = ArrayList(previous?.renderEnds.orEmpty().takeWhile { it <= restart })
         var openMathStart = -1
         val tablePipes = ArrayList(previous?.tablePipes.orEmpty().takeWhile { it < restart })
         var codeTicks = 0
@@ -206,16 +206,22 @@ internal class StreamingMarkdownTokenizer {
             if (lineStart && math == MathDelimiter.NONE && codeTicks == 0) {
                 val ruleEnd = content.indexOf('\n', index)
                 if (fence == null && ruleEnd >= 0 && RULE_LINE.matches(content.substring(index, ruleEnd))) {
-                    closedInlineEnds += ruleEnd
+                    renderEnds += ruleEnd
                     index = ruleEnd + 1
                     lineStart = true
                     continue
+                }
+                // A single source newline may be a Markdown soft or hard break. Parse
+                // through the first literal glyph of the continuation so it appears on
+                // its final row immediately; subsequent glyphs still append in place.
+                if (index > lastSafe && fence == null && linkStart < 0 && openMarks.isEmpty()) {
+                    proseLineAnchor(content, index)?.let { renderEnds += it }
                 }
                 val marker = fenceMarkerAt(content, index)
                 if (marker != null) {
                     if (fence == null) fenceStart = index
                     fence = if (fence == null) marker.token else if (fence == marker.token) null else fence
-                    if (fence == null) { fenceStart = -1; closedInlineEnds += marker.start + marker.token.length }
+                    if (fence == null) { fenceStart = -1; renderEnds += marker.start + marker.token.length }
                     // `index` points at the beginning of the line.  A fence may
                     // be indented, so advancing only by the marker length would
                     // leave the scanner inside the leading spaces and make the
@@ -249,7 +255,7 @@ internal class StreamingMarkdownTokenizer {
                     count -> 0
                     else -> codeTicks
                 }
-                if (codeTicks == 0) { inlineCodeStart = -1; closedInlineEnds += end }
+                if (codeTicks == 0) { inlineCodeStart = -1; renderEnds += end }
                 else if (inlineCodeStart < 0) inlineCodeStart = index
                 index = end
                 lineStart = false
@@ -268,7 +274,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("\\)", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedInlineEnds += index
+                        renderEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -278,7 +284,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("\\]", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedInlineEnds += index
+                        renderEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -288,7 +294,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content.startsWith("$$", index) && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index += 2
-                        closedInlineEnds += index
+                        renderEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -298,7 +304,7 @@ internal class StreamingMarkdownTokenizer {
                     if (content[index] == '$' && !content.isEscaped(index)) {
                         math = MathDelimiter.NONE
                         index++
-                        closedInlineEnds += index
+                        renderEnds += index
                         openMathStart = -1
                         lineStart = false
                         continue
@@ -316,7 +322,7 @@ internal class StreamingMarkdownTokenizer {
                     } else if (!figure && content[index] == ']' && content.getOrNull(index + 1) != '(' && index + 1 < content.length) {
                         linkStart = -1
                     } else if (!figure && content[index] == ')' && content.substring(linkStart, index).contains("](")) {
-                        closedInlineEnds += index + 1
+                        renderEnds += index + 1
                         linkStart = -1
                     }
                 }
@@ -343,7 +349,7 @@ internal class StreamingMarkdownTokenizer {
                         if (strongOpening != null && italicOpening == null &&
                             content.isStrongToEmphasisBoundary(strongOpening, index, end)) {
                             openMarks.remove("**")
-                            closedInlineEnds += index + 2
+                            renderEnds += index + 2
                             openMarks["*"] = index + 2
                             index = end
                             lineStart = false
@@ -354,7 +360,7 @@ internal class StreamingMarkdownTokenizer {
                             index > italicOpening + 1 && !content[index - 1].isWhitespace() &&
                             content.getOrNull(end)?.isWhitespace() != true) {
                             openMarks.remove("*")
-                            closedInlineEnds += index + 1
+                            renderEnds += index + 1
                             openMarks["**"] = index + 1
                             index = end
                             lineStart = false
@@ -367,7 +373,7 @@ internal class StreamingMarkdownTokenizer {
                     if (!intraword && !bullet && (marker != '~' || token.length >= 2)) {
                         val opening = openMarks[token]
                         if (opening != null && index > opening + token.length && !content[index - 1].isWhitespace()) {
-                            closedInlineEnds += end
+                            renderEnds += end
                             openMarks.remove(token)
                         } else if (content.getOrNull(end)?.isWhitespace() != true) {
                             openMarks[token] = index
@@ -434,7 +440,7 @@ internal class StreamingMarkdownTokenizer {
 
         val open = (listOf(openMathStart, fenceStart, inlineCodeStart, linkStart) + openMarks.values)
             .filter { it >= 0 }.minOrNull() ?: content.length
-        return ScanResult(cuts, lastSafe, fence != null, math, closedInlineEnds, openMathStart, tablePipes, open)
+        return ScanResult(cuts, lastSafe, fence != null, math, renderEnds, openMathStart, tablePipes, open)
     }
 
     private fun safeDisplayEnd(scan: ScanResult, content: String): Int {
@@ -478,6 +484,17 @@ internal class StreamingMarkdownTokenizer {
             line = maxOf(next, line + 1)
         }
         return cuts
+    }
+
+    private fun proseLineAnchor(content: String, start: Int): Int? {
+        var first = start
+        while (first < content.length && content[first] == ' ' && first - start < 3) first++
+        if (first == content.length) return null
+        val cp = content.codePointAt(first)
+        // Do not hand the parser a partial delimiter, entity, or surrogate pair.
+        val ordinary = Character.isLetterOrDigit(cp) || cp.toChar() in "\"'(),.;:?" ||
+            (cp > 127 && cp !in 0xD800..0xDFFF && !Character.isWhitespace(cp) && !Character.isSpaceChar(cp))
+        return if (ordinary) first + Character.charCount(cp) else null
     }
 
     private data class FenceMarker(val start: Int, val token: String)

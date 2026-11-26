@@ -36,6 +36,22 @@ class StreamingMarkdownTokenizerTest {
         }
     }
 
+    @Test fun `a prose continuation parses its line break once then resumes literal appends`() {
+        val tokenizer = StreamingMarkdownTokenizer()
+        for (first in listOf("A", "中", "😀")) {
+            val prefix = "first line\n  $first"
+            for (more in listOf("", "abc", "abc ", "abc def")) {
+                assertEquals(prefix.length, tokenizer.document(prefix + more).renderedPrefixEnd)
+            }
+        }
+        for (open in listOf("**open", "`open", "[open", "\$open", "```text")) {
+            val source = "$open\nstill open"
+            val pending = tokenizer.document(source)
+            assertEquals(source, 0, pending.visibleEnd)
+            assertEquals(source, 0, pending.renderedPrefixEnd)
+        }
+    }
+
     @Test fun touchingBoldAndItalicRunsCloseSeparatelyWithoutHidingTheCompletedBoldLabel() {
         val label = "**句子结构：**"
         val italic = "*There may have been ...*"

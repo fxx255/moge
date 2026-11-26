@@ -4,8 +4,6 @@
 
 版本：0.2.0，versionCode 2。核心交互、数据结构和分发准备已实现，最终完整检查已通过。本报告取代旧 P7/P8 报告作为本次调整的完成记录，旧报告保留为历史记录。
 
-## 已完成的功能
-
 ### 新对话首页与输入
 
 - 启动进入新对话；文字、拍照、相册共用一个输入栏，首次发送后才建立历史记录。
@@ -51,51 +49,3 @@
 - 应用已接入设置中的检查更新与启动节流提示；支持下载进度、取消、校验及系统安装器。
 - 更新校验仓库来源、版本、包名、最低系统版本、arm64 兼容、文件大小、SHA-256 和实际签名身份。开发签名或未配置仓库时关闭更新，不进行后台检查。
 - 尚未创建 GitHub 仓库、上传源码、推送标签或发布 Release。需要仓库标识和用户提供的长期正式签名后才能启用，详见 [GitHub 分发与应用更新](github-release.md)。
-
-## 验证记录
-
-最终检查结果：
-
-- Android 单元/Compose/Robolectric 测试共 689 项，全部通过，失败、错误、跳过均为 0。
-- assembleDebug 与 assembleRelease 成功；release 已完成 R8 压缩和资源缩减。
-- lintDebug 与 lintRelease 成功，均无错误。每种构建有 37 条 Warning 和 2 条 Hint，主要为 UseKtx 等写法建议，以及 targetSdk、屏幕尺寸读取、同步偏好落盘和字符串拼接建议。
-- Python 发布工具测试 11 项全部通过。
-- 最后一次完整 Gradle 检查 BUILD SUCCESSFUL，用时 7 分 23 秒。完整日志：build/revision-final-validation.log；测试结果：app/build/test-results/testDebugUnitTest；Lint 报告：app/build/reports/lint-results-debug.html 与 lint-results-release.html。
-- git diff --check 通过。
-
-执行命令：
-
-```powershell
-$env:JAVA_HOME = 'D:\tools\jdk-21.0.12+8'
-$env:GRADLE_USER_HOME = 'F:\APP\.gradle-local'
-.\gradlew.bat --offline testDebugUnitTest assembleDebug assembleRelease lintDebug lintRelease --max-workers=2
-python -m unittest discover -s scripts/release -p 'test_*.py'
-```
-
-覆盖数据关系与收藏快照、附件清理、流式答案、图号/续写、多回答图像刷新、连续三轮真实 ModelClient/Room/SSE 链路、任务释放、草稿/导航结果、相机布局和旋转、长图排版、更新策略与发布工具。
-
-设备验收使用当前连接的 Android 12 环境和本地 OpenAI 兼容 SSE 模拟接口，没有调用用户的外部模型或消耗其额度。实际确认：
-
-- 冷启动为新对话，首次拍照前没有主动申请相机权限；应用无语音入口。
-- 同一对话三轮分别生成直线、抛物线和正弦曲线；第二、第三轮图像正常显示，答案可展开。原图号故意累计，以验证兼容修复。
-- 进程重启后历史问答可重新打开。
-- 自定义 MyTopic 分类收藏第三轮，删除源历史后问答快照及图像仍可查看。
-- 生成并核对了 1080 × 1876 的实际长图，包含题目、答案、讲解、曲线、公式和表格；保存到 Pictures/Moge 成功，系统图片分享入口可打开。
-- 横屏相机显示侧边操作区与圆形快门；拍摄、裁剪、确认可完成。连续两次返回对话时保留两张待发照片和原文字，历史仍为空，未自动发送。
-- 草稿中的文字和两张照片在进程重启后仍可恢复。
-
-本地日志、截图和模拟接口脚本位于忽略的 build/qa 及 build/revision-*.log，未作为生产功能加入源码。测试只清理 debug 包的数据，没有清理原 release 包。验收后已关闭模拟接口和端口转发，清理本轮 debug 测试数据并重新安装最终 debug 包，恢复原设备旋转设置；最终冷启动为干净的新对话页，未发现 AndroidRuntime 崩溃。
-
-## 产物与剩余实测
-
-- arm64 开发 release：`app/build/outputs/apk/release/app-release.apk`，包名 com.moge.app，3,636,032 字节（约 3.47 MiB）。aapt 已确认版本及 ABI，apksigner 验证通过，证书为 Android Debug。
-- 调试包：`app/build/outputs/apk/debug/app-debug.apk`，包名 com.moge.app.debug，26,803,911 字节（约 25.56 MiB）。
-- 两个包均为 0.2.0；当前 release 使用工程开发签名，应用更新关闭，不能作为正式更新渠道的首版。
-
-release APK SHA-256：`F2D1A2C2DD404EAB628E8F60662047261BF1B2424FC8164DBFC6CBCC1CFAD501`。
-
-仍需实际服务商验证连续画图、长回答续写与重新生成；本地模拟与回归测试不能替代服务商协议验收。真实题目照片的左右横屏方向、EXIF 与裁剪位置、较大字体及不同 Android 机型的系统分享效果，也需实机确认。模拟环境的相机画面不用于评价识题准确率。
-
-GitHub 工作流尚未在远程运行，也没有正式签名的两版本覆盖安装测试；仓库与签名配置完成后再进行发布和升级验收。
-
-协作说明：DSH/Agent Bridge 返回 Transport closed，未使用用户提到的 GLM、DeepSeek 或 Spacebunny 外部模型。四个内置子代理分别协助历史/题册、相机、导出与更新准备，整合、实际构建、回归与设备验证由主代理完成。没有提交、更改暂存状态或推送现有 Git 工作区。

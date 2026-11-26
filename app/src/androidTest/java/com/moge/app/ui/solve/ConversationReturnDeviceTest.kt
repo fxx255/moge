@@ -37,7 +37,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/** Exercise real asynchronous TeX drawables and actual navigation disposal on MuMu 12-2. */
+/** Exercise real asynchronous TeX drawables and actual navigation disposal. */
 @RunWith(AndroidJUnit4::class)
 class ConversationReturnDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()

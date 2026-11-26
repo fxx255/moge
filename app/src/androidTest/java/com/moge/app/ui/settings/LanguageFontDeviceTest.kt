@@ -20,7 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Actual Android resources, bundled font loading and state retention on MuMu 12-2. */
+/** Actual Android resources, bundled font loading and state retention. */
 @RunWith(AndroidJUnit4::class)
 class LanguageFontDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()

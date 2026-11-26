@@ -13,7 +13,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Controlled network availability on Android; MuMu radio changes also disrupt its ADB transport. */
+/** Controlled network availability on Android. */
 @RunWith(AndroidJUnit4::class)
 class NetworkRecoveryDeviceTest {
     @Test fun disconnectedSessionWaitsThenSendsOnceWhenConnectivityReturns() = runBlocking(Dispatchers.IO) {

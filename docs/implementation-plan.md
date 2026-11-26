@@ -42,8 +42,6 @@
 - 仓库走阿里云镜像，设置 `android.builder.sdkDownload=false`，SDK 在 `D:/Android/Sdk`。
 - 调试签名用工程内固定 keystore，防止主目录密钥被清理后无法覆盖安装。
 
-## 3. UI 设计：「方格本」
-
 ### 3.1 视觉语言
 
 | 元素 | 日间 · 方格本 | 夜间 · 黑板 |
@@ -144,8 +142,6 @@ com.moge.app
 - 生成期间开前台服务（dataSync）保活，同时处理 Android 15 的前台服务超时回调。
 - 草稿（文字和附件）按会话落盘，重启后恢复。
 
-## 5. 关键设计点
-
 ### 5.1 数据库（v1，全新 schema）
 
 - `conversation`：id、title、subject、cover_image、solve_mode、created_at、updated_at、pinned。
@@ -194,29 +190,7 @@ com.moge.app
 
 ## 6. 分阶段实施
 
-每个阶段结束时都要能跑通 `assembleDebug` 和单元测试，再进入下一阶段。
-
-| 阶段 | 内容 | 验收 |
-| --- | --- | --- |
-| P0 工程骨架 | Gradle/版本目录、镜像、JDK 配置、Hilt、Application、主题骨架、导航、git init | 空壳 APK 能安装启动，日/夜两套主题可切换 |
-| P1 纯逻辑移植 | domain/plot、domain/diagram、状态机、SSE、取消、增量解码、用量解析、FormulaWrapping、Markdown/LaTeX 规范化、ReplyParser（精简协议） | 迁入砺行对应的 JVM/Robolectric 测试并全部通过（约 25 个测试类） |
-| P2 数据与运行时 | Room v1、CredentialStore、Settings DataStore、ModelClient（新提示词）、GenerationManager/Preparer、保活服务、草稿、FigureRenderer 和两个 ImageStore | 迁入 GenerationManager、提交流程、快照、请求仓库、HTTP 负载等测试；用 MockWebServer 跑通「流式 → 续写 → 完成 → 画图」 |
-| P3 渲染组件 | 流式 Markdown、表格、公式换行、内嵌图表、浅色图表主题、PhotoViewer | Robolectric 渲染测试通过；真机实测长公式、宽表格、多图混排 |
-| P4 设置与模型 | 设置页、配置编辑、拉取模型列表、测试连接、识题模型选择 | 能配置 DeepSeek 或 OpenAI 兼容接口，并测试连通 |
-| P5 解题页 | SolveScreen/VM、题目卡、草稿区、解答纸、追问、停止、复制、重新生成、失败重发、快捷追问、语音 | 纯文字问答全流程可用；杀进程后能恢复并重发 |
-| P6 取景与拍照 | CameraX 取景、连拍、相册多选、裁剪、确认面板、解题模式、两条识题路线 | 真机拍题直送和转写两条路线都跑通；拒绝相机权限后能降级 |
-| P7 题册 | 网格、搜索、学科筛选、重命名、多选删除 | 可以按学科和关键词找回旧题 |
-| P8 打磨 | 动效、无障碍（contentDescription、字号放大、触控 48dp）、深色细节、release 混淆规则（Markwon/JLatexMath/serialization keep）、图标 | 编出 release 包，真机回归通过 |
-
 一旦 P2 的接口定下来，P3、P4 可以并行做；P6 和 P7 也互不依赖。
-
-## 7. 测试策略
-
-- JVM 测试：表达式求值、plots/diagrams 解析、截断抢救、锚点切分与偏移、流式分块、公式换行、快照编解码、状态机。
-- Robolectric（sdk 33，JDK 21）：框图布局和走线、PlotBitmapRenderer、DAO 与迁移、GenerationManager 集成（MockWebServer 模拟 SSE）。
-- Compose UI 测试：解题页的停止、复制、重发，取景页在权限被拒时的降级。
-- 真机（adb）：拍题两条路线、长回答续写、后台生成时切走再回来、横竖屏旋转、深浅色切换后图表重新渲染。
-- 砺行中的计划、英语、上下文选择、同步备份等相关测试不迁移。
 
 ## 8. 风险
 

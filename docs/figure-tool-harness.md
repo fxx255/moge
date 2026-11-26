@@ -1,4 +1,4 @@
-# 绘图工具循环（测试包）
+# 绘图工具循环
 
 本次只提供 debug 测试 APK，版本号和发布渠道不变，不创建 release。
 
@@ -34,37 +34,6 @@ reasoning_content / reasoning_details，供下一次请求校验。图片留在�
 网络层通过 FigureToolRenderer 接口使用 runtime 提供的实现，不依赖 Compose 或位图组件。
 原有图片台账、主题变体、缺图补齐、导出与图号平移继续复用。
 
-## 验证与试用
-
-单元测试覆盖真实请求体、两种协议的分片和重放、按需说明、混合图号、错误修正、
-轮次上限、预算协商、兼容回退、取消、断流、文档证据及原图保留。
-MuMu 12-2 的设备测试用本地接口夹具生成真实编码器和极坐标 PNG，并验证日夜主题重画。
-这些验证不调用用户保存的模型接口。
-
-诊断统计继续逐个 HTTP 请求记录 usage 和缓存 token，整轮耗时与额外请求数包含工具轮。
-回答底部改为本次回答的累计输入、缓存输入和输出，包含识题、工具轮、自动续写和补图请求。
-同一 HTTP 流的累计 usage 只取最终快照，再跨 HTTP 相加；缓存是输入的子集，推理是输出的子集，
-均不重复相加。计数随回答保存，重开会话仍显示累计值。供应商缺失字段显示未知或已知下限；
-旧回答仅存过最后一个有用量的请求样本，标为「旧版单次」。手动继续的旧前段未保存用量时，标明前段缺失，
-不把新段小计冒充全文总数。
-测试限制公共提示词加工具声明的字符数低于旧完整协议的 35%；字符比例不能视作实际 token、
-计费或延迟收益。尚未进行真实模型的效果/费用对照，需试用不同模型和题目，比较普通题、
-函数图、符号频谱、判决域、通信框图、编码器和文档题。息屏及厂商省电行为仍需真机验证。
-
-2026-10-27 验证完成：JDK 21，668 项相关单元/回归测试、MuMu 12-2 两项设备测试、
-`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 全部通过，测试包启动正常。
-构建日志：`work/harness-final-verified.log`；设备日志：`work/harness-device.log`。
-测试 APK：`work/apk/moge-0.6.8-harness-test-20261027.apk`，包名 `com.moge.app.debug`，
-可与正式版共存，内置更新关闭。
-
-2026-10-28 用量页脚修正验证：334 项相关单元/回归测试通过；最终文案与下限取整另复验
-6 项格式测试。`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。
-MuMu 12-2 的页脚设备测试覆盖方格本/黑板、完整/缺失用量和 1.6 倍字体，显示无裁切，
-按钮可用，测试包启动正常。真机息屏和厂商省电行为未验证。
-测试包：`work/apk/moge-0.6.8-answer-usage-test-20261028.apk`，未发版。
-日志：`work/answer-usage-verified.log`、`work/answer-usage-final-verified.log`、
-`work/answer-usage-device-final.log`；回归结果保存在 `work/answer-usage-regression-results/`。
-
 ## 2026-10-28 计时与绘图等待优化
 
 每次尝试由应用任务持有一个 elapsed-realtime 起点，从提交准备开始计时，包含快照、识题、
@@ -93,12 +62,3 @@ PNG 存储仍复用现有台账、缓存和主题变体；同类图片存储的�
 本地请求体一致性无法证明供应商实际缓存命中或计费改善。应在相同模型、强度和题目下比较
 整次回答的总耗时、HTTP 次数、未缓存输入（输入减缓存输入）与输出，而非只比较命中率。
 本次官方缓存文档页面抓取被网络拦截，未添加未经验证的供应商专属缓存参数。
-
-验证：594 项模型协议、工具、runtime 和解题 UI 单元回归通过，`lintDebug`（0 errors）、
-`assembleDebug`、`assembleDebugAndroidTest` 通过。MuMu 12-2（127.0.0.1:16448）四项
-设备测试通过：正文后继续计时、重新进入与完成冻结、两种协议真实 PNG、两套主题与大字体页脚。
-测试包启动正常；未进行真实模型 A/B，真机息屏和厂商省电行为未验证。
-日志：`work/timing-tools-verified.log`、`work/timing-tools-device.log`，单元结果存于
-`work/timing-tools-regression-results/`。
-测试包：`work/apk/moge-0.6.8-timing-tools-test-20261028.apk`，仅 debug，未发版。
-SHA-256：`da418311b904940535579ed3e9506076fe55cc2d2e8d784d60a25965e8370e80`。

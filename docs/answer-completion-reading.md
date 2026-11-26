@@ -17,13 +17,3 @@
 - 展开讲解状态只关联回答 ID，简明答案更新不再让正文自动折叠。
 
 阅读锚点只存在于界面内存，不改变历史位置存储、推理存储或生成任务生命周期。
-
-## 回归覆盖
-
-`AnswerCompletionReadingUiTest` 检查折叠/展开草稿移除、末尾插入答案、黑板主题、失败中断、展开状态、导航恢复和新问题优先级。`ReadingOffsetTest` 检查正文追加、前插答案、重新分块和无匹配内容。
-
-`AnswerCompletionReadingDeviceTest` 在真实 Android 布局上检查完成后的文字坐标及实际绘制帧，并覆盖按住手指继续翻阅和含高公式的答案。设备仅使用 MuMu 12-2；厂商真机的表现需后续反馈。
-
-2026-10-29 验证：现有渲染相关回归 220 项通过；最后调整后复验阅读、导航、选字和流式渲染相关单测 32 项全部通过。MuMu 12-2 的完成位置、流式渲染和选字回归 14 项全部通过，测试应用冷启动正常。JDK 21 / Gradle Wrapper 的 `lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 通过。
-
-最终记录：`work/reading-position-verified-checks.log`、`work/reading-position-verified-device.log`。测试包为 `release-output/Moge-reading-position-20261029-debug.apk`，可覆盖之前的 debug 测试包，未更改正式版版本号或发布渠道。

@@ -16,7 +16,6 @@
 不改写历史数据库。原生图像测试检查纸张与黑板颜色下，完成、流式和旧记录的公式
 源码及公式选择复制均为 `e=0000010`，译码结果 `c=y+e=0110010` 保留。
 
-本次改动与图片追问连接修复共存在当前工作区，测试包同时包含两者；不发布正式版。
 具体回归、构建和设备日志记录在 `work/newline-e-*.log`。
 
 扩大回归共 884 项，其中 883 项首次通过；既有 `MultipleFigureTest` 在默认测试
@@ -24,12 +23,3 @@
 将此测试固定为 `zh-rCN-w393dp-h820dp` 后，两项多图用例与七项公式相关用例一起
 复验通过；未修改图片加载的应用代码。原始结果保留在
 `work/newline-e-regression-results/`，复验日志为 `work/newline-e-recheck-viewport.log`。
-
-MuMu 12-2（确认实例 UUID 尾号 `000000000002`，ADB `127.0.0.1:16448`）安装新包后，
-6 项设备回归通过，冷启动正常。测试包为
-`release-output/Moge-formula-e-20261029-debug.apk`，SHA-256：
-`94c73257cfadcc868fb527b60795832b60d231ca8596369ec7828aa760e4cf6a`。
-它使用相同 debug 包名和签名，可覆盖上次的图片追问测试包。真实手机息屏和厂商省电
-行为仍未验证。
-JDK 21 / Gradle Wrapper 的 `lintDebug`、`assembleDebug`、`assembleDebugAndroidTest`
-均通过，Lint 无错误；详见 `work/newline-e-build.log`。

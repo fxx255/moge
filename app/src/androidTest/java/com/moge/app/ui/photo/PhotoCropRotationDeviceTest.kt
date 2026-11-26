@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** Exercise the rotate button, real crop gestures and saved source pixels on MuMu 12-2. */
+/** Exercise the rotate button, real crop gestures and saved source pixels. */
 @RunWith(AndroidJUnit4::class)
 class PhotoCropRotationDeviceTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()

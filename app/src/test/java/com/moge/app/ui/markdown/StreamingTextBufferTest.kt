@@ -24,6 +24,24 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [33], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class StreamingTextBufferTest {
+    @Test fun `a prose line stays on its final row as its paragraph and answer close`() {
+        val current = view(incremental = true).apply { setSpannableFactory(StreamingTextBufferFactory) }
+        val tokenizer = StreamingMarkdownTokenizer()
+        for (separator in listOf("\n", "  \n", "\n\n")) {
+            val source = "第一行。" + separator + "最新一行。"
+            fun display(text: String, finish: Boolean = false): Pair<Int, Int> {
+                renderStreamingMarkdown(current, tokenizer.document(text, flush = finish), 400, Color.BLACK, Color.BLUE)
+                measure(current)
+                val start = current.text.indexOf("最新")
+                return current.layout.getLineForOffset(start) to current.layout.getPrimaryHorizontal(start).toInt()
+            }
+            val live = display(source)
+            val next = source + "\n\n下一段。"
+            assertEquals("Paragraph commit moved already visible prose", live, display(next))
+            assertEquals("Completion moved already visible prose", live, display(next, finish = true))
+        }
+    }
+
     @Test fun `closing formats and paragraphs keeps stable ink layout and selection without replacing the document`() {
         val current = view(incremental = true).apply { setSpannableFactory(StreamingTextBufferFactory) }
         val reference = view()

@@ -24,6 +24,5 @@
 ## 验证
 
 - 使用 JDK 21 和仓库 Gradle Wrapper。变更业务规则或生命周期时添加有价值的边界与回归测试。
-- 完成相关单元测试、`lintDebug` 与 `assembleDebug`。没有真机时明确指出息屏和厂商省电行为尚未实机验证。
-- 设备测试使用 MuMu 12-2（`MuMuPlayer-12.0-2`），先确认实例与 ADB 地址，不能使用 12-1。
+- 完成相关单元测试、`lintDebug` 与 `assembleDebug`。
 - 保留工作区已有改动，不覆盖其他正在进行的工作。

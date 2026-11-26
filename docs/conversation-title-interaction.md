@@ -14,12 +14,6 @@
 
 普通对话模式使用直接正文协议，仍以首条消息生成初始主题，不要求模型返回 JSON，也没有新增一次独立主题总结请求。
 
-## 预览与验证
+## 交互预览
 
-交互预览：[主题栏样式](design/conversation-title-preview.html)。它展示两种主题的缓慢滚动、原位便签编辑、长文字换行、右下角保存、点击外部取消和关闭动画；网页中的键盘为示意，App 使用系统输入法。实际 Compose 截图位于本机忽略目录 `app/build/ui-preview/title-{paper,chalk}-editing.png`。
-
-JDK 21 / Gradle Wrapper 下，本轮 13 项相关回归通过，覆盖长按和焦点/键盘请求、右下角保存、外部点击取消且不穿透消息/输入栏/顶部空白、保存期间禁止取消、外部主题更新时保留草稿、无效名称与重复保存、1.5 倍大字体长标题换行及确认键位置、长短标题实际绘制和关闭动画，以及模型响应协议。首次实现时另已验证 ViewModel 保存和删除记录、模型晚返回的命名保护，以及导出的 v2/v3/v4/v6 数据库迁移，本轮没有重复迁移测试。未新增只匹配提示词字面量的测试。
-
-网页预览经本地浏览器核对换行、确认键位置、保存、外部取消、两种主题和关闭动画交互，脚本无运行错误。
-
-`assembleDebug`、`lintDebug` 与 `git diff --check` 均通过。Compose 交互和绘制使用 Robolectric；输入法验证到焦点与显示请求，未做真机输入法动画验证，也未实际调用远程模型。便签版验证记录位于本机忽略目录 `release-output/title-header/sticky-verification.log`，初版记录位于 `verification-final.log`；未发版。
+交互预览：[主题栏样式](design/conversation-title-preview.html)。它展示两种主题的缓慢滚动、原位便签编辑、长文字换行、右下角保存、点击外部取消和关闭动画；网页中的键盘为示意，App 使用系统输入法。

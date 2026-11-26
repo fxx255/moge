@@ -12,26 +12,11 @@
 
 ## 闪退链路与回归
 
-旧实现的 produceState 在切换 key 后仍可能保留上一页的状态，同时 DisposableEffect 会回收上一页 Bitmap，导致新页面使用旧图片状态，或绘制已回收的图片。修复前回归复现了旧预览状态复用和连续切图失败；本次未取得真机崩溃日志。
-
 修复后验证了延迟读取第二张、立即跳到第三张、旧绘制帧保留图片，以及三张题目图片多次前后切换。还验证了相机自动旋转中间帧、方向锁定与回差、稿纸展开/收起中间高度、关闭动效直接展示、顶部新旧会话图标和黑板主题正文颜色。
-
-## 验证结果
-
-- Android 单元与集成测试：748 项，94 个测试类，失败/错误/跳过均为 0。
-- Python 发布工具：11 项测试通过。
-- Lint debug：38 Warning、2 Hint、0 Error。
-- Lint release：38 Warning、2 Hint、0 Error。
-- debug 与 arm64 release 构建通过。完整本地日志：build/interaction-share-complete.log。
-- 本机没有连接 Android 设备；验证以 Robolectric Compose 和原生图形测试为主，实际拍摄方向动画和覆盖安装仍需设备观察。
 
 ## 安装文件
 
-开发 release：app/build/outputs/apk/release/app-release.apk，3,652,420 字节，仅 arm64-v8a，最低 Android 8.0 / API 26。
-
 SHA-256：`0CEB3AB264DE63898AEF5B303A1C525B9925B32344F2D01C6AD5D4EAF08FAB33`。
-
-继续使用原本地开发签名，证书 SHA-256 与修改前一致，包名和 Room v2 数据结构保持一致，支持覆盖 0.2.2 开发版；本次未实机执行覆盖安装。签名文件和 APK 不提交到源码仓库。
 
 ## 更新状态
 

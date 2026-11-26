@@ -50,7 +50,7 @@ class CameraTapMeteringDeviceTest {
             compose.runOnUiThread { streaming = findPreview()?.previewStreamState?.value == PreviewView.StreamState.STREAMING }
             streaming || controller.failed
         }
-        assertTrue("The MuMu 12-2 camera must bind successfully", controller.ready && !controller.failed)
+        assertTrue("The camera must bind successfully", controller.ready && !controller.failed)
         val preview = compose.onNodeWithTag("camera-preview")
         compose.onNodeWithTag("camera-focus-indicator").assertDoesNotExist()
         preview.performTouchInput {

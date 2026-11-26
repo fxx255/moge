@@ -19,33 +19,7 @@
 
 Room 数据库结构仍为 v2。本次可覆盖安装 0.2.0，保留现有历史和设置；图像恢复不是数据迁移。缺少原始绘图参数、参数不可解析或附件已丢失的回答不能保证恢复。
 
-## 验证
-
-最终检查通过：
-
-- Android 单元/Compose/Robolectric 测试 731 项，失败、错误、跳过均为 0。
-- Python 发布工具测试 11 项全部通过。
-- `testDebugUnitTest assembleDebug assembleRelease lintDebug lintRelease` 全部成功，最终构建用时 5 分 35 秒；release 完成 R8 压缩。日志：`build/figure-bug-complete.log`。
-- 两种 Lint 均无错误，各有 37 条 Warning、2 条 Hint，与此前完成报告中的数量一致。
-- aapt 确认版本 0.2.1、versionCode 3、release 包名 `com.moge.app`、ABI `arm64-v8a`；apksigner 校验通过。
-
-回归覆盖截图原始格式、JSON reply 中嵌入片段、截断回复、未加围栏的参数、非法中间图槽、代码示例保护、行内图号及标点、重复引用、历史上下文、真实 ModelClient/Room/SSE 两轮流程、旧记录恢复和并发更新保护。
-
-设备验证使用 Android 12 调试包和本地 OpenAI 兼容 SSE 模拟接口，不调用外部模型。先在 0.2.0 中放入截图格式的测试历史并复现故障，再覆盖安装 0.2.1 验证本地恢复。验收记录保存在忽略的 `build/qa` 目录，生产代码不包含模拟服务或测试记录。
-
-实际确认：
-
-- 旧回答打开后恢复心形线，保留讲解；行内图号不再露出协议占位符。
-- 同一会话第一轮生成 SSB 框图，第二轮返回截图中的缺花括号代码块，心形线仍正常绘制；两条回答分别保存图像。
-- 答案优先模式折叠时显示答案引用的图像，展开后在讲解中显示一次，避免摘要和讲解重复插图。
-- 导出并检查了 1080 × 1461 的实际长图，题目、心形线及讲解完整，没有图号占位符和绘图参数代码块。示例：`build/qa/figure-export-final-1.png`。
-
-验收后核对了实际数据库中的原文、展示文本及两轮图像路径；删除本轮两条测试历史和临时模型配置，恢复答案优先与设备旋转设置，关闭模拟接口和端口转发。没有清空应用数据，也没有操作 release 包的数据。Git 暂存状态保持原样。
-
 ## 安装产物
-
-- 开发 release：`app/build/outputs/apk/release/app-release.apk`，3,652,416 字节。
-- debug：`app/build/outputs/apk/debug/app-debug.apk`，26,903,838 字节，包名 `com.moge.app.debug`。
 
 release APK SHA-256：`418ACC547CCD74130C744CF6B5BBCD3B1CBEAC5D353C8DF9E00419BD1EC7F61F`。
 
