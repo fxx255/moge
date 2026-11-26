@@ -27,5 +27,3 @@ D⁰ 是当前输入，D¹ 是延迟一拍；状态位最近输入在前。输�
 ## 样图
 
 样图在 `docs/coding-samples/`，包含 K=3、K=4 卷积码编码器、(7,4) 系统循环码、四状态图、八状态图与四路并行压力样例，另有二状态、八级循环码、一级循环码、单抽头、八状态四路输出及三路串行输出边界样例。共 12 组规格、24 张 PNG。每个样例均由生产 `DiagramParser → DiagramRenderer` 路径生成；JSON 一同保存，明暗 PNG 保持相同结构。`reference-comparison.jpg` 对照三张用户教材样图和当前生成结果。
-
-输出位于 `app/build/coding-samples/`。测试不调用远程模型。

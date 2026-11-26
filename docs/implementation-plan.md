@@ -37,8 +37,6 @@
 - 版本对齐砺行：Gradle 8.14.3、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.09.00、Material3、Hilt 2.57.2、Room 2.8.4、DataStore 1.1.7、OkHttp 4.12.0、kotlinx-serialization 1.9.0、Markwon 4.6.2（core / inline-parser / ext-latex / ext-tables）、exifinterface 1.4.1、desugar。
 - 新增 CameraX（core / camera2 / lifecycle / view），实现时从阿里云镜像取最新稳定版并钉死。
 - compileSdk 36、targetSdk 35、minSdk 26；release 只打 arm64-v8a，debug 额外带 x86_64。
-- 构建使用 JDK 21（`D:/tools/jdk-21.0.12+8`）。与砺行共用 `GRADLE_USER_HOME=F:/APP/.gradle-local`，`org.gradle.java.home` 已写在那里，依赖缓存也能复用。JDK 25 会导致 AGP 构建失败，JLatexMath 测试也会误报红。
-- 工程必须放在纯英文路径下。中文路径下 AGP 默认拒绝构建；即便关掉检查，Gradle 测试 worker 的 @argfile 按 UTF-8 写、JVM 按 GBK 读，单元测试会报 ClassNotFoundException。
 - 仓库走阿里云镜像，设置 `android.builder.sdkDownload=false`，SDK 在 `D:/Android/Sdk`。
 - 调试签名用工程内固定 keystore，防止主目录密钥被清理后无法覆盖安装。
 
