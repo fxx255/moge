@@ -1,6 +1,28 @@
 // Keep native UI/font regressions within a bounded, reproducible test process.
 def runtimeScript = gradle.startParameter.initScripts.find { it.name == 'test-runtime.gradle' }
 def runtimeResources = new File(runtimeScript.parentFile, 'test-resources')
+def runningOnGitHub = System.getenv('GITHUB_ACTIONS') == 'true'
+def centralMirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+if (runningOnGitHub) {
+    // The large native runtime artifact is frequently rate-limited on hosted runners.
+    gradle.settingsEvaluated { settings ->
+        settings.dependencyResolutionManagement.repositories {
+            exclusiveContent {
+                forRepository {
+                    maven {
+                        name = 'RobolectricNativeRuntime'
+                        url = centralMirror
+                    }
+                }
+                filter {
+                    includeModule('org.robolectric', 'nativeruntime-dist-compat')
+                }
+            }
+        }
+    }
+}
+
 gradle.projectsEvaluated {
     rootProject.allprojects {
         tasks.withType(Test).configureEach {
@@ -8,6 +30,9 @@ gradle.projectsEvaluated {
             maxParallelForks = 1
             forkEvery = 40
             classpath = files(runtimeResources) + classpath
+            if (runningOnGitHub) {
+                systemProperty 'robolectric.dependency.repo.url', centralMirror
+            }
         }
     }
 }
