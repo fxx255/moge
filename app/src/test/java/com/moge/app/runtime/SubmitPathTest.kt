@@ -35,6 +35,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -93,13 +94,16 @@ class SubmitPathTest {
     }
 
     private class FakeGuard : GenerationGuard {
-        private val held = mutableSetOf<String>()
+        private val held = ConcurrentHashMap.newKeySet<String>()
         val acquisitions = AtomicInteger()
+        val timesUnprotected = AtomicInteger()
         override fun acquire(requestId: String, conversationId: String?) = "$requestId#1".also {
             acquisitions.incrementAndGet()
             held += it
         }
-        override fun release(token: String) { held -= token }
+        override fun release(token: String) {
+            if (held.remove(token) && held.isEmpty()) timesUnprotected.incrementAndGet()
+        }
         override fun activeCount() = held.size
     }
 
@@ -147,6 +151,62 @@ class SubmitPathTest {
     @After
     fun tearDown() {
         db.close()
+    }
+
+    @Test
+    fun `new conversation stays protected from send through generation completion`() = runBlocking {
+        val modelStarted = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        coEvery {
+            modelClient.chatStreaming(any(), any(), any(), any(), any(), any(), any(), any<suspend (StreamEvent) -> Unit>())
+        } coAnswers {
+            modelStarted.complete(Unit)
+            finish.await()
+            ReplyParser.parse("""{"reply":"完整解答"}""")
+        }
+
+        // On a new page the click precedes database creation of the conversation.
+        val protection = manager.protectSubmission(null)
+        assertEquals(1, guard.activeCount())
+        val record = manager.submit(GenerationManager.Submission("c1", "测试问题", emptyList()), protection = protection)
+        try {
+            protection.close() // The submitting page can disappear as soon as submit returns.
+            withTimeout(5_000) { modelStarted.await() }
+            assertEquals(1, guard.activeCount())
+            assertEquals(0, guard.timesUnprotected.get())
+        } finally {
+            finish.complete(Unit)
+            assertEquals(RequestStatus.COMPLETED.name, awaitTerminal(record.requestId))
+        }
+        protection.close()
+        assertEquals(0, guard.activeCount())
+        assertEquals(1, guard.timesUnprotected.get())
+    }
+
+    @Test
+    fun `failed image preflight releases only its own submission protection`() = runBlocking {
+        stubCapturing()
+        val first = manager.protectSubmission("c1")
+        val error = try {
+            runCatching {
+                manager.submit(GenerationManager.Submission("c1", "看图", listOf("/missing.png")), protection = first)
+            }.exceptionOrNull()
+        } finally {
+            first.close()
+        }
+        assertEquals(ModelException.Kind.CONFIG_INVALID, (error as? ModelException)?.kind)
+        assertTrue(requestRepository.forConversation("c1").isEmpty())
+        assertTrue(capturedMessages.isEmpty())
+        assertEquals(0, guard.activeCount())
+
+        val next = manager.protectSubmission("c1")
+        try {
+            first.close()
+            assertEquals(1, guard.activeCount())
+        } finally {
+            next.close()
+        }
+        assertEquals(0, guard.activeCount())
     }
 
     @Test

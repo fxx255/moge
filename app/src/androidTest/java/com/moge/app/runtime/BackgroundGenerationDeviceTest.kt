@@ -34,7 +34,39 @@ class BackgroundGenerationDeviceTest {
 
     @Test fun foregroundLeaseAndStreamSurviveScreenOffAndReleaseAfterwards() = verify(screenOff = true)
 
-    private fun verify(screenOff: Boolean) = runBlocking {
+    @Test fun foregroundLeaseAndStreamSurviveImmediateScreenOff() = verify(screenOff = true, lockImmediately = true)
+
+    @Test fun immediatelyBackgroundedReplacementPromotesAfterTheFirstLeaseWasReleased() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val entry = EntryPointAccessors.fromApplication(context, KeepAliveEntryPoint::class.java)
+        val guard = entry.generationGuard()
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        var replacement: String? = null
+        try {
+            scenario.onActivity { activity ->
+                // Keep all three operations in the same main-loop turn, before Service callbacks can run.
+                val discarded = guard.acquire(UUID.randomUUID().toString())
+                guard.release(discarded)
+                replacement = guard.acquire(UUID.randomUUID().toString())
+                assertTrue(activity.moveTaskToBack(true))
+            }
+            guard.updateConversation(checkNotNull(replacement), UUID.randomUUID().toString())
+            withTimeout(10_000) { while (!foregroundRunning(context)) delay(50) }
+            assertEquals(1, guard.activeCount())
+        } finally {
+            replacement?.let(guard::release)
+            scenario.close()
+        }
+        withTimeout(10_000) { while (foregroundRunning(context)) delay(50) }
+        assertEquals(0, guard.activeCount())
+    }
+
+    @Suppress("DEPRECATION")
+    private fun foregroundRunning(context: Context): Boolean =
+        context.getSystemService(ActivityManager::class.java).getRunningServices(100)
+            .any { it.service.className == KeepAliveService::class.java.name && it.foreground }
+
+    private fun verify(screenOff: Boolean, lockImmediately: Boolean = false) = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val entry = EntryPointAccessors.fromApplication(context, KeepAliveEntryPoint::class.java)
@@ -49,13 +81,18 @@ class BackgroundGenerationDeviceTest {
                 android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
             }
         }
-        fun foregroundRunning(): Boolean {
-            @Suppress("DEPRECATION")
-            return context.getSystemService(ActivityManager::class.java).getRunningServices(100)
-                .any { it.service.className == KeepAliveService::class.java.name && it.foreground }
+        suspend fun lockScreen() {
+            shell("input keyevent 223")
+            val slept = withTimeoutOrNull(5_000) {
+                while (power.isInteractive) delay(50)
+                true
+            } == true
+            // Some emulator firmware ignores sleep entirely; this cannot count as screen-off QA.
+            assumeTrue("Device firmware did not enter sleep; screen-off remains unverified", slept)
         }
         try {
-            withTimeout(10_000) { while (!foregroundRunning()) delay(50) }
+            if (lockImmediately) lockScreen()
+            withTimeout(10_000) { while (!foregroundRunning(context)) delay(50) }
             val writer = async(Dispatchers.IO) {
                 server.accept().use { socket ->
                     socket.soTimeout = 10_000
@@ -76,21 +113,15 @@ class BackgroundGenerationDeviceTest {
                     response.body!!.string()
                 }
             }
-            delay(2_000)
-            shell("input keyevent 3")
-            if (screenOff) {
-                shell("input keyevent 223")
-                val slept = withTimeoutOrNull(5_000) {
-                    while (power.isInteractive) delay(50)
-                    true
-                } == true
-                // Some emulator firmware ignores sleep entirely; this cannot count as screen-off QA.
-                assumeTrue("Device firmware did not enter sleep; screen-off remains unverified", slept)
+            if (!lockImmediately) {
+                delay(2_000)
+                shell("input keyevent 3")
+                if (screenOff) lockScreen()
             }
             val body = withTimeout(35_000) { reader.await() }
             writer.await()
             if (screenOff) assertFalse("Screen must remain off while the stream completes", power.isInteractive)
-            assertTrue(foregroundRunning())
+            assertTrue(foregroundRunning(context))
             assertEquals(20, body.lineSequence().count { it.startsWith("data:") })
             guard.recordFailure(token, java.net.SocketException("test-only snapshot"))
             val trace = entry.backgroundDiagnostics().report()
@@ -108,7 +139,7 @@ class BackgroundGenerationDeviceTest {
             shell("input keyevent 224")
             scenario.close()
         }
-        withTimeout(10_000) { while (foregroundRunning()) delay(50) }
+        withTimeout(10_000) { while (foregroundRunning(context)) delay(50) }
         assertEquals(0, guard.activeCount())
     }
 }

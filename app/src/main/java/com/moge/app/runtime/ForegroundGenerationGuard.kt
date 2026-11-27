@@ -2,9 +2,9 @@ package com.moge.app.runtime
 
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,6 +26,9 @@ interface GenerationGuard {
      * [conversationId] 带进通知，点击通知直接回到那道题。
      */
     fun acquire(requestId: String, conversationId: String? = null): String
+
+    /** Attach the saved conversation to the notification for a still-owned send. */
+    fun updateConversation(token: String, conversationId: String) = Unit
 
     /** 释放令牌；所有出口（成功/失败/取消）都必须调用。 */
     fun release(token: String)
@@ -51,7 +54,12 @@ class ForegroundGenerationGuard @Inject constructor(
     private val diagnostics: BackgroundGenerationDiagnostics = BackgroundGenerationDiagnostics(context),
 ) : GenerationGuard {
 
-    private val holders = ConcurrentHashMap<String, String>()
+    private class Lease(val token: String, var conversationId: String?)
+    private val holders = linkedMapOf<String, Lease>()
+    // Android can retry a start interrupted by process death. Use a boot-relative seed.
+    private var nextStart = SystemClock.elapsedRealtimeNanos()
+    private var pendingStart: Long? = null
+    private var foreground: KeepAliveService? = null
     private val cpu = GenerationWakeLock(context)
     private val wifi = GenerationWifiLock(context)
 
@@ -65,16 +73,21 @@ class ForegroundGenerationGuard @Inject constructor(
     override fun acquire(requestId: String, conversationId: String?): String {
         synchronized(lock) {
             val token = "$requestId#${System.nanoTime()}"
-            val previous = holders.putIfAbsent(requestId, token)
-            if (previous != null) return previous
+            holders[requestId]?.let { return it.token }
+            holders[requestId] = Lease(token, conversationId)
             // 服务、CPU 和 Wi-Fi 是独立的保护：后台启动服务被拒绝时仍需持有其余资源。
             // holders 只表示资源租约，实际前台状态由 Service 回执记录，不能用启动调用成功代替。
-            cpu.start()
-            wifi.start()
-            if (holders.size == 1) diagnostics.begin(cpu::isHeld, wifi::isHeld)
-            diagnostics.serviceRequested()
-            startServiceSafely(conversationId)
+            ensureService(firstLease = holders.size == 1)
             return token
+        }
+    }
+
+    override fun updateConversation(token: String, conversationId: String) {
+        synchronized(lock) {
+            val lease = holders[token.substringBeforeLast('#')] ?: return
+            if (lease.token != token) return
+            lease.conversationId = conversationId
+            ensureService()
         }
     }
 
@@ -82,28 +95,80 @@ class ForegroundGenerationGuard @Inject constructor(
         synchronized(lock) {
             val requestId = token.substringBeforeLast('#')
             // 只有仍持有该令牌的调用者才有权释放；晚到的旧 release 不会误停服务。
-            if (holders.remove(requestId, token) && holders.isEmpty()) {
+            if (holders[requestId]?.token != token) return
+            holders.remove(requestId)
+            if (holders.isEmpty()) {
                 cpu.stop()
                 wifi.stop()
                 // 先结束监听，再停服务，避免正常 onDestroy 被误记成「生成中被回收」。
                 diagnostics.end()
-                stopServiceSafely()
+                // A pending start must first satisfy Android's startForeground deadline.
+                if (foreground != null) {
+                    foreground = null
+                    stopServiceSafely()
+                }
+            } else {
+                foreground?.updateNotification(holders.values.last().conversationId)
             }
         }
     }
 
-    override fun activeCount(): Int = holders.size
+    override fun activeCount(): Int = synchronized(lock) { holders.size }
 
     override fun recordFailure(token: String, error: Throwable) = synchronized(lock) {
-        if (holders[token.substringBeforeLast('#')] == token) diagnostics.failure(error)
+        if (holders[token.substringBeforeLast('#')]?.token == token) diagnostics.failure(error)
     }
 
-    private fun startServiceSafely(conversationId: String?) {
-        runCatching { context.startForegroundService(KeepAliveService.intent(context, conversationId)) }
-            .onFailure {
+    /** Called with lock held. A handoff can retry a rejected start without duplicating a pending one. */
+    private fun ensureService(firstLease: Boolean = false) {
+        val result = if (pendingStart == null && foreground == null) {
+            val start = ++nextStart
+            pendingStart = start
+            // Submit the OS request while the click is still foreground, before any disk-backed diagnostics.
+            runCatching { checkNotNull(context.startForegroundService(KeepAliveService.intent(context, start))) }
+        } else null
+        if (firstLease) {
+            cpu.start()
+            wifi.start()
+            diagnostics.begin(cpu::isHeld, wifi::isHeld)
+        }
+        if (result != null) {
+            diagnostics.serviceRequested()
+            result.onFailure {
+                pendingStart = null
                 Log.w(TAG, "启动保活前台服务失败", it)
                 diagnostics.serviceFailed(it)
             }
+        }
+        foreground?.updateNotification(holders.values.last().conversationId)
+    }
+
+    /** False tells the service to stop this specific Android startId. */
+    internal fun serviceStarted(start: Long, instance: KeepAliveService, failure: Throwable?): Boolean = synchronized(lock) {
+        if (pendingStart != start) return false
+        pendingStart = null
+        if (failure != null) {
+            diagnostics.serviceFailed(failure)
+            return false
+        }
+        if (holders.isEmpty()) return false
+        foreground = instance
+        diagnostics.serviceReady(instance)
+        instance.updateNotification(holders.values.last().conversationId)
+        true
+    }
+
+    internal fun serviceTimedOut(instance: KeepAliveService, interrupt: () -> Unit) = synchronized(lock) {
+        if (foreground !== instance) return@synchronized
+        diagnostics.serviceTimedOut(instance)
+        foreground = null
+        interrupt()
+    }
+
+    internal fun serviceDestroyed(instance: KeepAliveService) = synchronized(lock) {
+        val wasForeground = foreground === instance
+        if (wasForeground) foreground = null
+        diagnostics.serviceDestroyed(instance, expectedStop = !wasForeground)
     }
 
     private fun stopServiceSafely() {

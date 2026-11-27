@@ -327,7 +327,12 @@ class GenerationManager @Inject constructor(
      *   `invokeOnCompletion` 兜底：万一 body 从未进入，也按 owner 的原因收尾，
      *   记录绝不停在 PREPARING。
      */
-    private class TaskOwner(val requestId: String, val attemptId: String, val timer: GenerationTimer) {
+    private class TaskOwner(
+        val requestId: String,
+        val attemptId: String,
+        val timer: GenerationTimer,
+        val protectionToken: String?,
+    ) {
         /**
          * 协程句柄：在同一个临界区内回填；尚未回填时到达的取消先记
          * [cancelRequested]，回填后立即补取消，不会漏。
@@ -397,11 +402,15 @@ class GenerationManager @Inject constructor(
      * 协程并把第一个变成孤儿（两个 body 同时写库、模型被调两次）。
      * 现在同名也直接抛 [AlreadyRunningException]。
      */
-    private fun registerOwner(requestId: String, attemptId: String,
-        timer: GenerationTimer = GenerationTimer(monotonicClock)): TaskOwner {
+    private fun registerOwner(
+        requestId: String,
+        attemptId: String,
+        timer: GenerationTimer = GenerationTimer(monotonicClock),
+        protection: SubmissionProtection? = null,
+    ): TaskOwner {
         synchronized(lock) {
             if (owner != null) throw AlreadyRunningException()
-            val created = TaskOwner(requestId, attemptId, timer)
+            val created = TaskOwner(requestId, attemptId, timer, protection?.takeToken())
             owner = created
             return created
         }
@@ -416,6 +425,7 @@ class GenerationManager @Inject constructor(
      * 与「清理」交错出半清理状态。
      */
     private fun finishOwnershipAtomic(owner: TaskOwner) {
+        owner.protectionToken?.let(guard::release)
         synchronized(lock) {
             // 不是当前 owner（已被新一轮顶掉）⇒ 连 ActiveState 都不许碰。
             if (this.owner !== owner) return
@@ -576,14 +586,17 @@ class GenerationManager @Inject constructor(
         body: suspend (TaskOwner) -> Unit,
     ) {
         val job = scope.launch(start = CoroutineStart.ATOMIC) {
-            owner.enteredBody = true
             try {
                 val session = networkRecovery?.session { status -> updateActive(owner) { it.copy(networkStatus = status) } }
-                if (session == null) body(owner) else session.use { withContext(it) { body(owner) } }
+                val runTurn: suspend () -> Unit = {
+                    owner.protectionToken?.let { guard.updateConversation(it, conversationId) }
+                    owner.enteredBody = true
+                    body(owner)
+                }
+                if (session == null) runTurn() else session.use { withContext(it) { runTurn() } }
             } finally {
-                // 所有出口都归还所有权：早于这里的一定已经完成"终态落库 + guard 释放"，
-                // 所以 owner 存在 ⇒ 这一轮真的还没收完 ⇒ 单飞不会提前放开。
-                finishOwnershipAtomic(owner)
+                // withContext 可能在执行 body 前收到取消，交给完成回调落库后再释放租约。
+                if (owner.enteredBody) finishOwnershipAtomic(owner)
             }
         }
         val pendingCancel = synchronized(lock) {
@@ -601,6 +614,10 @@ class GenerationManager @Inject constructor(
             if (!owner.enteredBody) settleNeverEntered(owner, conversationId, answerMessageId)
         }
     }
+
+    /** Called synchronously from the send gesture, before attachment or database work can suspend. */
+    fun protectSubmission(conversationId: String?): SubmissionProtection =
+        SubmissionProtection(guard, guard.acquire(UUID.randomUUID().toString(), conversationId))
 
     /**
      * body 从未进入时的兜底收尾（防御性）：按 owner 上的原因落终态并发事件，
@@ -672,6 +689,7 @@ class GenerationManager @Inject constructor(
         answerMessageId: String = UUID.randomUUID().toString(),
         userMessageId: String = UUID.randomUUID().toString(),
         snapshotJson: String = "",
+        protection: SubmissionProtection? = null,
     ): RequestEntity {
         // 1) 启动扫描必须先完成：否则它会把我们刚写的 PREPARING 当成遗留孤儿。
         awaitStartup()
@@ -692,7 +710,7 @@ class GenerationManager @Inject constructor(
                 userMessageId = userMessageId,
                 answerMessageId = answerMessageId,
             )
-            // 无可用看图路线时直接拒绝，不能先启动保活再立即失败、停服务。
+            // 无可用看图路线时直接拒绝；交接前租约仍由提交方负责关闭。
             preparer.validateConfiguration(initialSnapshot, submission.attachmentPaths.isNotEmpty())
             // 3) 锁内落盘：用户消息 + 回答占位 + PREPARING 请求记录 + 初始快照（一个事务）。
             val record = try {
@@ -715,7 +733,7 @@ class GenerationManager @Inject constructor(
             }
             // 4) 登记 owner 并启动。
             val owner = try {
-                registerOwner(record.requestId, record.attemptId, submissionTimer)
+                registerOwner(record.requestId, record.attemptId, submissionTimer, protection)
             } catch (rejected: AlreadyRunningException) {
                 // 极端交错（另一个入口绕过 mutex 直接 start）：已落盘的记录必须收成终态，
                 // 不能永远停在 PREPARING。
@@ -747,10 +765,10 @@ class GenerationManager @Inject constructor(
     ) {
         // 保护令牌覆盖**准备阶段**：照片转写也是网络调用，
         // 没有前台保护时进程被冻结会让整轮卡死。
-        var token: String? = null
+        var token = owner.protectionToken
         try {
             preparer.validateConfiguration(initialSnapshot, submission.attachmentPaths.isNotEmpty())
-            token = guard.acquire(record.requestId, record.conversationId)
+            token = token ?: guard.acquire(record.requestId, record.conversationId)
             val prepared = preparer.prepare(submission, record, initialSnapshot)
             if (prepared.failure != null) {
                 settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, "")
@@ -789,9 +807,8 @@ class GenerationManager @Inject constructor(
             token?.let { guard.recordFailure(it, error) }
             settleFailureOnce(owner, record, describePreparationError(error), classify(error), "")
         } finally {
-            // 令牌**只释放一次**：runGeneration 在 guardToken 非空时不释放，
-            // 由这里统一释放（它覆盖准备 + 生成两段）。
-            token?.let(guard::release)
+            // 提前申请的令牌由任务所有者释放，直接提交的令牌在这里归还。
+            if (owner.protectionToken == null) token?.let(guard::release)
         }
     }
 
@@ -803,7 +820,7 @@ class GenerationManager @Inject constructor(
      * 旧 attempt 的迟到重试会在这里被拒，不会注册 owner、更不会发网络。
      * 问题、附件、路线与设置全部以落库记录和快照为权威。
      */
-    suspend fun submitRetry(requestId: String, attemptId: String) {
+    suspend fun submitRetry(requestId: String, attemptId: String, protection: SubmissionProtection? = null) {
         val record = requestRepository.get(requestId)
             ?: throw IllegalStateException("请求记录不存在：$requestId")
         if (record.attemptId != attemptId || RequestStatus.fromName(record.status)?.isInFlight != true) {
@@ -812,7 +829,7 @@ class GenerationManager @Inject constructor(
         awaitStartup()
         mutex.withLock {
             if (hasOwner()) throw AlreadyRunningException()
-            val owner = registerOwner(requestId, attemptId)
+            val owner = registerOwner(requestId, attemptId, protection = protection)
             _active.value = ActiveState(
                 requestId = requestId,
                 attemptId = attemptId,
@@ -859,12 +876,12 @@ class GenerationManager @Inject constructor(
     private suspend fun runRetry(record: RequestEntity, attemptId: String, owner: TaskOwner) {
         val prefix = SnapshotCodec.decode(record.snapshotJson)?.continuationText.orEmpty()
         // 保护覆盖准备阶段（重试也要重新编码/校验附件）。
-        var token: String? = null
+        var token = owner.protectionToken
         try {
             SnapshotCodec.decode(record.snapshotJson)?.takeIf { it.isComplete }?.let {
                 preparer.validateConfiguration(it, RequestRepository.decodePathList(record.attachmentPaths).isNotEmpty())
             }
-            token = guard.acquire(record.requestId, record.conversationId)
+            token = token ?: guard.acquire(record.requestId, record.conversationId)
             val prepared = preparer.prepareRetry(record)
             if (prepared.failure != null) {
                 settleFailureOnce(owner, record, prepared.failure, FailureKind.ATTACHMENT_MISSING, prefix)
@@ -895,7 +912,7 @@ class GenerationManager @Inject constructor(
             token?.let { guard.recordFailure(it, error) }
             settleFailureOnce(owner, record, describePreparationError(error), classify(error), prefix)
         } finally {
-            token?.let(guard::release)
+            if (owner.protectionToken == null) token?.let(guard::release)
         }
     }
 

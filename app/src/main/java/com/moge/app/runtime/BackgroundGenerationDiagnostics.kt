@@ -149,7 +149,7 @@ class BackgroundGenerationDiagnostics @Inject constructor(
 
     @Synchronized
     internal fun serviceRequested() {
-        if (service == null) serviceState = "starting"
+        serviceState = "starting"
         append("service_requested")
     }
 
@@ -167,25 +167,33 @@ class BackgroundGenerationDiagnostics @Inject constructor(
     }
 
     @Synchronized
-    internal fun serviceDestroyed(instance: Any) {
+    internal fun serviceTimedOut(instance: Any) {
+        if (service !== instance || serviceState == "timed_out") return
+        serviceState = "timed_out"
+        append("service_timeout")
+    }
+
+    @Synchronized
+    internal fun serviceDestroyed(instance: Any, expectedStop: Boolean = false) {
         if (service !== instance) return
         service = null
-        serviceState = "stopped"
-        append(if (monitoring) "service_destroyed_while_generating" else "service_destroyed")
+        // The previous instance can finish stopping after a new start has already been requested.
+        if (serviceState != "starting" && serviceState != "failed") serviceState = "stopped"
+        append(if (monitoring && !expectedStop) "service_destroyed_while_generating" else "service_destroyed")
     }
 
     @Synchronized
     internal fun failure(error: Throwable) {
         // Only class names: transport messages may contain the user's private endpoint.
-        val causes = generateSequence(error) { it.cause }.take(5)
-            .joinToString("<-") { it.javaClass.simpleName }
+        val causes = generateSequence(error) { it.cause }.take(5).toList()
+        val causeNames = causes.joinToString("<-") { it.javaClass.simpleName }
         // Only allow-listed OS error codes, never the surrounding transport message or URL.
-        val codes = generateSequence(error) { it.cause }.take(5)
-            .flatMap { NETWORK_ERROR_CODE.findAll(it.message.orEmpty()).map { match -> match.value } }
-            .distinct().joinToString(",")
+        val codes = causes.flatMap { cause ->
+            NETWORK_ERROR_CODE.findAll(cause.message.orEmpty()).map { it.value }.toList()
+        }.distinct().joinToString(",")
         val transport = generateSequence(error) { it.cause }.take(8)
             .filterIsInstance<com.moge.app.data.llm.ModelTransportFailure>().firstOrNull()?.summary()
-        append("request_failed:$causes${if (codes.isEmpty()) "" else " errno=$codes"}${transport?.let { " $it" }.orEmpty()}")
+        append("request_failed:$causeNames${if (codes.isEmpty()) "" else " errno=$codes"}${transport?.let { " $it" }.orEmpty()}")
     }
 
     /** Called on IO by the settings ViewModel; read the saved trace after a process restart too. */
@@ -213,11 +221,19 @@ class BackgroundGenerationDiagnostics @Inject constructor(
                 network.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
                 else -> "other"
             }
+            // Low Power Standby has a separate policy from the battery optimization allowlist.
+            val standbyEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                runCatching { manager?.isLowPowerStandbyEnabled }.getOrNull()
+            } else null
+            val standbyExempt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                runCatching { manager?.isExemptFromLowPowerStandby }.getOrNull()
+            } else null
             val line = "wall=${System.currentTimeMillis()} elapsed=${SystemClock.elapsedRealtime()} " +
                 "uptime=${SystemClock.uptimeMillis()} pid=${Process.myPid()} $event " +
                 "importance=${process.importance} " +
                 "fgs=$serviceState screen=${manager?.isInteractive} idle=${manager?.isDeviceIdleMode} " +
                 "powerSave=${manager?.isPowerSaveMode} exempt=${manager?.isIgnoringBatteryOptimizations(context.packageName)} " +
+                "lowPowerStandbyEnabled=${standbyEnabled ?: "unknown"} lowPowerStandbyExempt=${standbyExempt ?: "unknown"} " +
                 "cpu=${cpuHeld()} wifiLock=${wifiHeld()} network=$transport " +
                 "validated=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} blocked=$blocked"
             val previous = preferences.getString(TRACE, "").orEmpty().lineSequence().filter { it.isNotBlank() }

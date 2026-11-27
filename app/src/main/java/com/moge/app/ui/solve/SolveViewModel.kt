@@ -26,6 +26,7 @@ import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.QuestionPhotoPreparation
 import com.moge.app.data.image.PhotoCropEdit
 import com.moge.app.runtime.StoredFigureRepair
+import com.moge.app.runtime.SubmissionProtection
 import com.moge.app.ui.Routes
 import com.moge.app.ui.capture.CaptureBatch
 import com.moge.app.ui.capture.CaptureStore
@@ -694,10 +695,18 @@ class SolveViewModel @Inject constructor(
         val slotAtSend = draftSlot
         val editAtSend = editing.value
         val conversationModeAtSend = selectedMode.value
-        viewModelScope.launch {
+        launchSubmission(ownerSlot) { protection ->
+            submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend,
+                slotAtSend, editAtSend, conversationModeAtSend, protection)
+        }
+    }
+
+    private fun launchSubmission(conversationId: String?, submit: suspend (SubmissionProtection) -> Unit) {
+        val protection = generationManager.protectSubmission(conversationId)
+        viewModelScope.launch { submit(protection) }.invokeOnCompletion {
             try {
-                submitTurn(text, attachments, mode, ownerSlot, revisionAtSend, consumesInput, documentsAtSend,
-                    slotAtSend, editAtSend, conversationModeAtSend)
+                // This also runs when the ViewModel is cleared before the coroutine starts.
+                protection.close()
             } finally {
                 submitting.value = false
             }
@@ -715,6 +724,7 @@ class SolveViewModel @Inject constructor(
         slotAtSend: String?,
         editAtSend: MessageEntity?,
         conversationModeAtSend: ConversationMode,
+        protection: SubmissionProtection,
     ) {
         val mode = requestedMode
             ?: runCatching { settings.current().defaultSolveMode }.getOrDefault(SolveMode.DETAILED)
@@ -763,6 +773,7 @@ class SolveViewModel @Inject constructor(
                     conversationMode = conversationModeAtSend,
                     parentMessageId = if (created) null else editAtSend?.parentMessageId ?: if (editAtSend != null) null else ConversationBranches.AUTO_PARENT,
                 ),
+                protection = protection,
             )
         } catch (e: GenerationManager.AlreadyRunningException) {
             if (created) discardQuietly(targetId)
@@ -863,35 +874,35 @@ class SolveViewModel @Inject constructor(
         submitting.value = true
         notice.value = null
         val ownerConversation = conversationId.value
-        viewModelScope.launch {
+        launchSubmission(ownerConversation) { protection ->
             // beginRetry 提交后、交接前若被取消，回滚必须知道新 attempt：先记下再落库。
             var newAttempt: String? = null
             try {
                 val existing = requestRepository.get(requestId)
                 if (existing == null || existing.conversationId != ownerConversation) {
                     notice.value = localizedText.text(R.string.ui_this_record_no_longer_exists_eef88)
-                    return@launch
+                    return@launchSubmission
                 }
                 if (RequestStatus.fromName(existing.status) != RequestStatus.INTERRUPTED) {
-                    return@launch // 已被别处重发或已完成：列表会随 Room 自己刷新
+                    return@launchSubmission // 已被别处重发或已完成：列表会随 Room 自己刷新
                 }
                 if (continueAnswer && existing.partialText.isBlank()) {
                     notice.value = localizedText.text(R.string.ui_no_answer_to_continue_choose_resend_802b8)
-                    return@launch
+                    return@launchSubmission
                 }
                 // 用户已经追问过：这条中断保留为历史记录，不插队重放。
                 val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
                     notice.value = localizedText.text(R.string.ui_a_newer_question_was_sent_this_interruption_is_kept_in_histo_e19d5)
-                    return@launch
+                    return@launchSubmission
                 }
                 // 缺图绝不静默降级成纯文本：明确提示，不发网络。
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
                     notice.value = localizedText.text(R.string.ui_1_s_original_images_are_missing_add_them_again_to_resend_637a0, missing)
-                    return@launch
+                    return@launchSubmission
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments).copy(
                     continuationText = if (continueAnswer) existing.partialText else "",
@@ -903,9 +914,9 @@ class SolveViewModel @Inject constructor(
                     expectedAttemptId = existing.attemptId)
                     ?: run {
                         newAttempt = null
-                        return@launch
+                        return@launchSubmission
                     }
-                generationManager.submitRetry(requestId, attempt)
+                generationManager.submitRetry(requestId, attempt, protection)
             } catch (e: GenerationManager.AlreadyRunningException) {
                 notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_resend_later_8d404)
             } catch (e: CancellationException) {
@@ -914,7 +925,6 @@ class SolveViewModel @Inject constructor(
                 notice.value = e.message ?: if (continueAnswer) localizedText.text(R.string.ui_could_not_continue_a6e8b) else localizedText.text(R.string.ui_could_not_resend_ad9dd)
             } finally {
                 rollbackRejectedRetry(requestId, newAttempt)
-                submitting.value = false
             }
         }
     }
@@ -936,26 +946,26 @@ class SolveViewModel @Inject constructor(
         submitting.value = true
         notice.value = null
         val ownerConversation = conversationId.value
-        viewModelScope.launch {
+        launchSubmission(ownerConversation) { protection ->
             var newAttempt: String? = null
             try {
                 val existing = requestRepository.get(requestId)
                 if (existing == null || existing.conversationId != ownerConversation) {
                     notice.value = localizedText.text(R.string.ui_this_record_no_longer_exists_eef88)
-                    return@launch
+                    return@launchSubmission
                 }
-                if (RequestStatus.fromName(existing.status)?.isInFlight != false) return@launch
+                if (RequestStatus.fromName(existing.status)?.isInFlight != false) return@launchSubmission
                 val latestUser = conversationRepository.visibleMessages(existing.conversationId)
                     .lastOrNull { it.role != ROLE_ASSISTANT }?.id
                 if (latestUser != null && latestUser != existing.userMessageId) {
                     notice.value = localizedText.text(R.string.ui_a_newer_question_was_sent_only_the_last_answer_can_be_regene_98653)
-                    return@launch
+                    return@launchSubmission
                 }
                 val attachments = RequestRepository.decodePathList(existing.attachmentPaths)
                 val missing = attachments.count { !File(it).isFile }
                 if (missing > 0) {
                     notice.value = localizedText.text(R.string.ui_1_s_original_images_are_missing_add_them_again_to_regenerate_9a6d8, missing)
-                    return@launch
+                    return@launchSubmission
                 }
                 val snapshot = generationManager.captureRetrySnapshot(existing, attachments)
                 val attempt = UUID.randomUUID().toString()
@@ -963,9 +973,9 @@ class SolveViewModel @Inject constructor(
                 requestRepository.beginRegenerate(requestId, existing.attemptId, attempt, SnapshotCodec.encode(snapshot))
                     ?: run {
                         newAttempt = null
-                        return@launch
+                        return@launchSubmission
                     }
-                generationManager.submitRetry(requestId, attempt)
+                generationManager.submitRetry(requestId, attempt, protection)
             } catch (e: GenerationManager.AlreadyRunningException) {
                 notice.value = localizedText.text(R.string.ui_another_conversation_is_generating_regenerate_later_caa91)
             } catch (e: CancellationException) {
@@ -974,7 +984,6 @@ class SolveViewModel @Inject constructor(
                 notice.value = e.message ?: localizedText.text(R.string.ui_could_not_regenerate_49963)
             } finally {
                 rollbackRejectedRetry(requestId, newAttempt)
-                submitting.value = false
             }
         }
     }

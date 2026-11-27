@@ -27,43 +27,40 @@ import dagger.hilt.components.SingletonComponent
  */
 class KeepAliveService : Service() {
 
-    private var diagnostics: BackgroundGenerationDiagnostics? = null
+    private var guard: ForegroundGenerationGuard? = null
+    private var latestStartId = 0
 
     private fun entryPoint(): KeepAliveEntryPoint =
         EntryPointAccessors.fromApplication(applicationContext, KeepAliveEntryPoint::class.java)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        // 先进入前台，再访问业务依赖；不能让依赖初始化占用系统给服务的启动期限。
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
+        // 每个启动先完成系统要求的前台提升，再读取应用依赖、核对租约。
         val foreground = runCatching {
             ensureChannel(this)
             val notification = buildNotification(null)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                startForeground(NOTIFICATION_ID, notification, type)
+                check(foregroundServiceType and type != 0) { "Android did not promote the generation service" }
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
         }
-        diagnostics = runCatching { entryPoint().backgroundDiagnostics() }
-            .onFailure { Log.w(TAG, "获取后台诊断器失败", it) }.getOrNull()
-        foreground.fold(
-            onSuccess = { diagnostics?.serviceReady(this) },
-            onFailure = {
-                Log.w(TAG, "系统拒绝前台保活，生成仍由应用管理器持有", it)
-                diagnostics?.serviceFailed(it)
-                stopSelf()
-            },
-        )
+        foreground.exceptionOrNull()?.let { Log.w(TAG, "系统拒绝前台保活，生成仍由应用管理器持有", it) }
+        guard = entryPoint().foregroundGuard()
+        val start = intent?.getLongExtra(EXTRA_START, 0L) ?: 0L
+        if (guard?.serviceStarted(start, this, foreground.exceptionOrNull()) != true) stopSelfResult(startId)
+        return START_NOT_STICKY
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    internal fun updateNotification(conversationId: String?) {
         runCatching {
             getSystemService(NotificationManager::class.java)
-                ?.notify(NOTIFICATION_ID, buildNotification(intent?.getStringExtra(EXTRA_CONVERSATION_ID)))
-        }
-        return START_NOT_STICKY
+                ?.notify(NOTIFICATION_ID, buildNotification(conversationId))
+        }.onFailure { Log.w(TAG, "更新生成通知失败", it) }
     }
 
     /**
@@ -73,25 +70,26 @@ class KeepAliveService : Service() {
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
         super.onTimeout(startId, fgsType)
-        handleTimeout()
+        handleTimeout(startId)
     }
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onTimeout(startId: Int) {
         super.onTimeout(startId)
-        handleTimeout()
+        handleTimeout(startId)
     }
 
     /** 取消网络与落 INTERRUPTED 交给管理器自己的作用域，服务随即停止。 */
-    private fun handleTimeout() {
+    private fun handleTimeout(startId: Int) {
+        if (startId != latestStartId) return
         Log.w(TAG, "前台服务超时：中断活动请求并停止服务")
-        runCatching { entryPoint().generationManager().onForegroundServiceTimeout() }
+        runCatching { guard?.serviceTimedOut(this) { entryPoint().generationManager().onForegroundServiceTimeout() } }
             .onFailure { Log.w(TAG, "前台服务超时收尾失败", it) }
-        stopSelf()
+        stopSelfResult(startId)
     }
 
     override fun onDestroy() {
-        diagnostics?.serviceDestroyed(this)
+        guard?.serviceDestroyed(this)
         super.onDestroy()
     }
 
@@ -124,16 +122,15 @@ class KeepAliveService : Service() {
 
     companion object {
         private const val TAG = "MogeKeepAlive"
+        internal const val EXTRA_START = "moge_service_start"
         const val NOTIFICATION_ID = 2001
         const val CHANNEL_ID = "generation"
 
         /** 通知携带的会话 id；MainActivity 据此打开对应题目。 */
         const val EXTRA_CONVERSATION_ID = "moge_conversation_id"
 
-        fun intent(context: Context, conversationId: String?): Intent =
-            Intent(context, KeepAliveService::class.java).apply {
-                conversationId?.let { putExtra(EXTRA_CONVERSATION_ID, it) }
-            }
+        internal fun intent(context: Context, start: Long): Intent =
+            Intent(context, KeepAliveService::class.java).putExtra(EXTRA_START, start)
 
         /** 幂等；Application 启动与服务创建时各调一次。 */
         fun ensureChannel(context: Context) {
@@ -156,5 +153,6 @@ class KeepAliveService : Service() {
 interface KeepAliveEntryPoint {
     fun generationManager(): GenerationManager
     fun generationGuard(): GenerationGuard
+    fun foregroundGuard(): ForegroundGenerationGuard
     fun backgroundDiagnostics(): BackgroundGenerationDiagnostics
 }

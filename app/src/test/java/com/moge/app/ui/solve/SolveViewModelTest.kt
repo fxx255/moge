@@ -22,6 +22,7 @@ import com.moge.app.runtime.DraftStore
 import com.moge.app.runtime.GenerationManager
 import com.moge.app.runtime.GenerationManager.ActiveState
 import com.moge.app.runtime.PosixAtomicFileShadow
+import com.moge.app.runtime.SubmissionProtection
 import com.moge.app.ui.Routes
 import com.moge.app.ui.relayCaptureResults
 import com.moge.app.ui.relayNewConversationMode
@@ -37,6 +38,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,7 +94,7 @@ class SolveViewModelTest {
         assertEquals(3, page.uiState.value.photos.size)
         assertEquals("原来的输入\n一起看一下", page.uiState.value.input)
         assertTrue(conversations.messages(id).isEmpty())
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
     }
 
     @Test fun `draft recovery must finish before a new page can send`() = runBlocking {
@@ -105,7 +107,7 @@ class SolveViewModelTest {
         assertFalse(page.uiState.value.canSend)
         page.send()
         dispatcher.scheduler.runCurrent()
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
 
         page.requestNewConversationMode(ConversationMode.SOLVE)
         recovered.complete(DraftStore.Draft("旧对话草稿", emptyList(), conversationMode = ConversationMode.CHAT))
@@ -116,7 +118,7 @@ class SolveViewModelTest {
         val sent = page.awaitState { it.items.size == 2 && !it.submitting }
         assertEquals(ConversationMode.SOLVE, sent.conversationMode)
         assertEquals("SOLVE", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
-        coVerify { manager.submit(match { it.conversationMode == ConversationMode.SOLVE }, any(), any(), any(), any()) }
+        coVerify { manager.submit(match { it.conversationMode == ConversationMode.SOLVE }, any(), any(), any(), any(), protection) }
     }
 
     @Test fun `new page mode overrides shared draft mode and reused page receives later navigation intent`() = runBlocking {
@@ -153,7 +155,7 @@ class SolveViewModelTest {
         val sent = page.awaitState { it.items.size == 2 && !it.submitting }
         assertTrue(sent.conversationId != old.id)
         assertEquals("CHAT", conversations.getConversation(sent.conversationId!!)!!.conversationMode)
-        coVerify { manager.submit(match { it.conversationMode == ConversationMode.CHAT }, any(), any(), any(), any()) }
+        coVerify { manager.submit(match { it.conversationMode == ConversationMode.CHAT }, any(), any(), any(), any(), protection) }
     }
 
     @Test fun `returning to a deleted chat exposes a selectable new page and keeps its draft`() = runBlocking {
@@ -216,6 +218,7 @@ class SolveViewModelTest {
     private lateinit var conversations: ConversationRepository
     private lateinit var drafts: DraftStore
     private lateinit var manager: GenerationManager
+    private val protection = mockk<SubmissionProtection>(relaxed = true)
     private val active = MutableStateFlow(ActiveState())
     private val settings = mockk<SettingsRepository> {
         coEvery { current() } returns UserSettings(defaultSolveMode = SolveMode.CHECK_WORK)
@@ -233,8 +236,10 @@ class SolveViewModelTest {
         captureStore = CaptureStore(context)
         manager = mockk(relaxed = true) {
             every { this@mockk.active } returns this@SolveViewModelTest.active
+            every { protectSubmission(any()) } returns protection
+            every { protectSubmission(null) } returns protection
             // 真实落盘：用户消息 + 回答占位 + 请求记录，Room 流随之推送。
-            coEvery { submit(any(), any(), any(), any(), any()) } coAnswers {
+            coEvery { submit(any(), any(), any(), any(), any(), protection) } coAnswers {
                 val submission = firstArg<GenerationManager.Submission>()
                 requests.createRequest(
                     conversationId = submission.conversationId,
@@ -399,7 +404,7 @@ class SolveViewModelTest {
         assertEquals("求 x^2 的导数", conversation.title)
         assertEquals(SolveMode.CHECK_WORK.name, conversation.solveMode)
         coVerify {
-            manager.submit(match { it.conversationId == id && it.userText == "求 x^2 的导数" }, any(), any(), any(), any())
+            manager.submit(match { it.conversationId == id && it.userText == "求 x^2 的导数" }, any(), any(), any(), any(), protection)
         }
         assertEquals("", state.input)
         assertNull("新题目槽的草稿必须被消费", runBlocking { drafts.load(null) })
@@ -408,7 +413,7 @@ class SolveViewModelTest {
 
     @Test
     fun `rejected submit discards the empty conversation and keeps the input`() {
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws GenerationManager.AlreadyRunningException()
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws GenerationManager.AlreadyRunningException()
         val vm = vm()
         vm.onInputChange("题目")
         vm.send()
@@ -423,7 +428,7 @@ class SolveViewModelTest {
     @Test
     fun `missing vision configuration keeps text and photo draft and removes the empty conversation`() = runBlocking {
         val message = "当前模型不支持图片，请配置识题模型后重新发送"
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws
             ModelException(ModelException.Kind.CONFIG_INVALID, message)
         val path = photo()
         val vm = vm(capture = CaptureBatch(listOf(path), SolveMode.DETAILED, note = "只做第二问"))
@@ -445,7 +450,7 @@ class SolveViewModelTest {
 
     @Test
     fun `photo only submission with missing vision configuration keeps its photo and send action`() = runBlocking {
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws
             ModelException(ModelException.Kind.CONFIG_INVALID, "请配置识题模型")
         val path = photo()
         val vm = vm(capture = CaptureBatch(listOf(path), SolveMode.DETAILED))
@@ -467,7 +472,7 @@ class SolveViewModelTest {
         val existing = conversations.createConversation("原题", SolveMode.DETAILED)
         val record = interruptedRequest(existing.id)
         val messagesBefore = conversations.messages(existing.id)
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws
             ModelException(ModelException.Kind.CONFIG_INVALID, "请配置识题模型")
         val path = photo()
         val vm = vm(existing.id)
@@ -499,7 +504,7 @@ class SolveViewModelTest {
 
         assertTrue(state.busyElsewhere)
         assertFalse(state.canSend)
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
     }
 
     @Test
@@ -509,7 +514,7 @@ class SolveViewModelTest {
         vm.onInputChange("为什么")
         vm.send()
         vm.awaitState { it.items.size == 2 && !it.submitting }
-        coVerify { manager.submit(match { it.conversationId == existing.id }, any(), any(), any(), any()) }
+        coVerify { manager.submit(match { it.conversationId == existing.id }, any(), any(), any(), any(), protection) }
         assertNull(drafts.load(existing.id))
     }
 
@@ -591,14 +596,14 @@ class SolveViewModelTest {
         assertEquals(record.requestId, answer.retryRequestId)
 
         // 管理器把新 attempt 登记成活动状态 ⇒ 不应回滚。
-        coEvery { manager.submitRetry(record.requestId, any()) } coAnswers {
+        coEvery { manager.submitRetry(record.requestId, any(), protection) } coAnswers {
             active.value = ActiveState(requestId = record.requestId, attemptId = secondArg(), conversationId = existing.id, phase = RequestStatus.PREPARING)
         }
         vm.retry(record.requestId)
         vm.awaitState { !it.submitting }
         val after = requests.get(record.requestId)!!
         assertEquals(RequestStatus.PREPARING.name, after.status)
-        coVerify { manager.submitRetry(record.requestId, after.attemptId) }
+        coVerify { manager.submitRetry(record.requestId, after.attemptId, protection) }
         assertTrue(after.attemptId != "att-old")
     }
 
@@ -606,7 +611,7 @@ class SolveViewModelTest {
     fun `retry rejected by manager is rolled back to a retryable interruption`() = runBlocking {
         val existing = conversations.createConversation("题", SolveMode.DETAILED)
         val record = interruptedRequest(existing.id)
-        coEvery { manager.submitRetry(any(), any()) } throws GenerationManager.AlreadyRunningException()
+        coEvery { manager.submitRetry(any(), any(), protection) } throws GenerationManager.AlreadyRunningException()
         val vm = vm(existing.id)
         vm.retry(record.requestId)
         val state = vm.awaitState { it.notice != null && !it.submitting }
@@ -629,7 +634,7 @@ class SolveViewModelTest {
 
         vm.retry(old.requestId)
         vm.awaitState { it.notice != null }
-        coVerify(exactly = 0) { manager.submitRetry(any(), any()) }
+        coVerify(exactly = 0) { manager.submitRetry(any(), any(), matchNullable { true }) }
     }
 
     @Test
@@ -653,7 +658,7 @@ class SolveViewModelTest {
         val done = vm.awaitState { s -> (s.items.lastOrNull() as? SolveItem.Answer)?.regenerateRequestId != null }
         assertEquals(record.requestId, (done.items.last() as SolveItem.Answer).regenerateRequestId)
 
-        coEvery { manager.submitRetry(record.requestId, any()) } coAnswers {
+        coEvery { manager.submitRetry(record.requestId, any(), protection) } coAnswers {
             active.value = ActiveState(requestId = record.requestId, attemptId = secondArg(), conversationId = existing.id, phase = RequestStatus.PREPARING)
         }
         vm.regenerate(record.requestId)
@@ -662,7 +667,7 @@ class SolveViewModelTest {
         assertEquals(RequestStatus.PREPARING.name, after.status)
         assertTrue(after.attemptId != "att-old")
         assertEquals("回答位置复用", "a1", after.answerMessageId)
-        coVerify { manager.submitRetry(record.requestId, after.attemptId) }
+        coVerify { manager.submitRetry(record.requestId, after.attemptId, protection) }
     }
 
     @Test
@@ -670,7 +675,7 @@ class SolveViewModelTest {
         val existing = conversations.createConversation("题", SolveMode.DETAILED)
         val record = requests.createRequest(existing.id, "u1", "a1", "att-old", "题", emptyList(), "")
         requests.cancel(record.requestId, "att-old", "停在这")
-        coEvery { manager.submitRetry(any(), any()) } throws GenerationManager.AlreadyRunningException()
+        coEvery { manager.submitRetry(any(), any(), protection) } throws GenerationManager.AlreadyRunningException()
         val vm = vm(existing.id)
         vm.regenerate(record.requestId)
         vm.awaitState { it.notice != null && !it.submitting }
@@ -689,7 +694,7 @@ class SolveViewModelTest {
         vm.awaitState { it.items.size == 4 }
         vm.regenerate(old.requestId)
         vm.awaitState { it.notice != null }
-        coVerify(exactly = 0) { manager.submitRetry(any(), any()) }
+        coVerify(exactly = 0) { manager.submitRetry(any(), any(), matchNullable { true }) }
         assertEquals(RequestStatus.COMPLETED.name, requests.get(old.requestId)!!.status)
     }
 
@@ -698,7 +703,7 @@ class SolveViewModelTest {
         val record = interruptedRequest(conversation.id, partial = "已经保存的推导")
         val vm = vm(conversation.id)
         vm.awaitState { it.items.size == 2 }
-        coEvery { manager.submitRetry(record.requestId, any()) } coAnswers {
+        coEvery { manager.submitRetry(record.requestId, any(), protection) } coAnswers {
             active.value = ActiveState(requestId = record.requestId, attemptId = secondArg(),
                 conversationId = conversation.id, phase = RequestStatus.PREPARING)
         }
@@ -709,7 +714,7 @@ class SolveViewModelTest {
         assertEquals(record.answerMessageId, after.answerMessageId)
         assertEquals(record.userMessageId, after.userMessageId)
         assertEquals(2, conversations.messages(conversation.id).size)
-        coVerify(exactly = 1) { manager.submitRetry(record.requestId, after.attemptId) }
+        coVerify(exactly = 1) { manager.submitRetry(record.requestId, after.attemptId, protection) }
     }
 
     @Test fun `resume with no saved text offers resend without starting a new attempt`() = runBlocking {
@@ -721,7 +726,7 @@ class SolveViewModelTest {
         vm.resume(record.requestId)
         vm.awaitState { it.notice != null && !it.submitting }
         assertEquals(record.attemptId, requests.get(record.requestId)!!.attemptId)
-        coVerify(exactly = 0) { manager.submitRetry(any(), any()) }
+        coVerify(exactly = 0) { manager.submitRetry(any(), any(), matchNullable { true }) }
     }
 
     @Test fun `resume rejected at handoff retains the prefix as a recoverable interruption`() = runBlocking {
@@ -729,7 +734,7 @@ class SolveViewModelTest {
         val record = interruptedRequest(conversation.id, partial = "保留推导")
         val vm = vm(conversation.id)
         vm.awaitState { it.items.size == 2 }
-        coEvery { manager.submitRetry(any(), any()) } throws GenerationManager.AlreadyRunningException()
+        coEvery { manager.submitRetry(any(), any(), protection) } throws GenerationManager.AlreadyRunningException()
         vm.resume(record.requestId)
         vm.awaitState { it.notice != null && !it.submitting }
         val after = requests.get(record.requestId)!!
@@ -772,7 +777,7 @@ class SolveViewModelTest {
         val pending = vm.awaitState { it.photos.size == 2 }
         assertNull(pending.conversationId)
         assertEquals("补充说明", pending.input)
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
         assertNull(lastHandle.get<String>(Routes.ARG_CAPTURE))
         verify { preparation.enqueue(listOf(a, b), com.moge.app.domain.ConversationMode.SOLVE) }
         // A companion may finish before send. It must never become a model attachment.
@@ -786,7 +791,7 @@ class SolveViewModelTest {
         assertEquals(File(a).canonicalPath, conversation.coverImage)
         coVerify(exactly = 1) { manager.submit(match {
             it.solveMode == SolveMode.CHECK_WORK && it.attachmentPaths == listOf(File(a).canonicalPath, File(b).canonicalPath)
-        }, any(), any(), any(), any()) }
+        }, any(), any(), any(), any(), protection) }
         assertArrayEquals(byteArrayOf(1, 2, 3), File(a).readBytes())
     }
 
@@ -809,7 +814,7 @@ class SolveViewModelTest {
         val second = photo()
         navigationHandle[Routes.CAPTURE_RESULT] = Routes.encodeCapture(CaptureBatch(listOf(second), SolveMode.DETAILED, ""))
         assertEquals(existing.id, vm.awaitState { it.photos == listOf(path, second) }.conversationId)
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
     }
 
     @Test
@@ -829,7 +834,7 @@ class SolveViewModelTest {
 
     @Test
     fun `rejected capture keeps photos and note in the input for a manual resend`() {
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws GenerationManager.AlreadyRunningException()
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws GenerationManager.AlreadyRunningException()
         val a = photo()
         val vm = vm(capture = CaptureBatch(listOf(a), SolveMode.DETAILED, note = "只做第 2 问"))
         vm.awaitState { it.photos.isNotEmpty() }
@@ -843,6 +848,30 @@ class SolveViewModelTest {
     }
 
     @Test
+    fun `send protects synchronously and releases when attachment preparation is cancelled`() {
+        val path = photo()
+        val preparing = CompletableDeferred<Unit>()
+        drafts = spyk(drafts)
+        coEvery { drafts.persistAttachments(listOf(path)) } coAnswers {
+            verify(exactly = 1) { manager.protectSubmission(null) }
+            preparing.complete(Unit)
+            awaitCancellation()
+        }
+        val page = vm(capture = CaptureBatch(listOf(path), SolveMode.DETAILED))
+        page.awaitState { it.photos == listOf(path) && it.canSend }
+
+        page.send()
+        verify(exactly = 1) { manager.protectSubmission(null) }
+        dispatcher.scheduler.runCurrent()
+        assertTrue(preparing.isCompleted)
+
+        models.clear()
+        dispatcher.scheduler.runCurrent()
+        verify(exactly = 1) { protection.close() }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
+    }
+
+    @Test
     fun `missing photo blocks the send before any conversation is created`() {
         // Use the capture handoff, which waits for draft restoration before adding photos.
         val vm = vm(capture = CaptureBatch(listOf("/data/nowhere/gone.jpg"), SolveMode.DETAILED))
@@ -851,8 +880,9 @@ class SolveViewModelTest {
         val state = vm.awaitState { it.notice != null && !it.submitting }
 
         assertNull(state.conversationId)
+        verify(exactly = 1) { protection.close() }
         assertTrue(runBlocking { db.conversationDao().observeConversations().first() }.isEmpty())
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
         assertEquals("照片保留，让用户自己删", 1, state.photos.size)
     }
 
@@ -870,7 +900,7 @@ class SolveViewModelTest {
         coVerify {
             manager.submit(
                 match { it.userText == "这张图第 3 步对吗" && it.attachmentPaths == listOf(File(p).canonicalPath) },
-                any(), any(), any(), any(),
+                any(), any(), any(), any(), protection,
             )
         }
         assertTrue(vm.uiState.value.photos.isEmpty())
@@ -907,7 +937,7 @@ class SolveViewModelTest {
         restored.awaitState { it.items.size == 2 && !it.submitting }
         coVerify { manager.submit(match {
             it.userText == "已有文字" && it.attachmentPaths == listOf(File(path).canonicalPath)
-        }, any(), any(), any(), any()) }
+        }, any(), any(), any(), any(), protection) }
         assertTrue(restored.uiState.value.photos.isEmpty())
         assertTrue(File(path).exists())
     }
@@ -966,13 +996,13 @@ class SolveViewModelTest {
             assertFalse(importing.canSend)
             assertFalse(importing.canAddPhoto)
             vm.send()
-            coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
         } finally { release.countDown() }
         val pending = vm.awaitState { it.photos.size == 1 && !it.importingPhotos }
         assertTrue(pending.canSend)
         vm.send()
         vm.awaitState { it.items.size == 2 && !it.submitting }
-        coVerify(exactly = 1) { manager.submit(match { it.attachmentPaths.size == 1 }, any(), any(), any(), any()) }
+        coVerify(exactly = 1) { manager.submit(match { it.attachmentPaths.size == 1 }, any(), any(), any(), any(), protection) }
     }
 
     @Test
@@ -1042,7 +1072,7 @@ class SolveViewModelTest {
         assertEquals(listOf("旧追问", new.id), new.versionIds)
         assertEquals(1, new.versionIndex)
         assertEquals(before, conversations.messages(id).filter { it.id in before.map { message -> message.id } })
-        coVerify(exactly = 1) { manager.submit(match { it.userText == "修改后的追问" && it.parentMessageId == "answer-最初问题" }, any(), any(), any(), any()) }
+        coVerify(exactly = 1) { manager.submit(match { it.userText == "修改后的追问" && it.parentMessageId == "answer-最初问题" }, any(), any(), any(), any(), protection) }
         model.onInputChange("新分支草稿")
         model.switchVersion("旧追问")
         model.awaitState { it.items.size == 6 && it.input == "旧分支待发草稿" && !it.switchingBranch }
@@ -1050,7 +1080,7 @@ class SolveViewModelTest {
         model.awaitState { it.items.size == 4 && it.input == "新分支草稿" && !it.switchingBranch }
         val restarted = vm(id)
         restarted.awaitState { it.items.size == 4 && it.input == "新分支草稿" }
-        coVerify(exactly = 1) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { manager.submit(any(), any(), any(), any(), any(), protection) }
     }
 
     @Test fun cancelAndRestartKeepEditDraftSeparateFromOrdinaryDraftAndSharedPhoto() = runBlocking {
@@ -1083,7 +1113,7 @@ class SolveViewModelTest {
         model.editQuestion("追问")
         model.awaitState { it.editingQuestionId != null && !it.switchingBranch }
         model.addPhotos(listOf(photo()))
-        coEvery { manager.submit(any(), any(), any(), any(), any()) } throws ModelException(ModelException.Kind.NOT_CONFIGURED, "没有识题模型")
+        coEvery { manager.submit(any(), any(), any(), any(), any(), protection) } throws ModelException(ModelException.Kind.NOT_CONFIGURED, "没有识题模型")
         model.send()
         val state = model.awaitState { !it.submitting && it.notice == "没有识题模型" }
         assertEquals("追问", state.editingQuestionId)
@@ -1107,7 +1137,7 @@ class SolveViewModelTest {
         model.onInputChange("暂不能发")
         assertFalse(model.uiState.value.canSend)
         model.send()
-        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { manager.submit(any(), any(), any(), any(), any(), matchNullable { true }) }
         model.switchVersion("新")
         model.awaitState { it.generating && (it.items.last() as SolveItem.Answer).text == "新分支正在生成" }
         Unit
